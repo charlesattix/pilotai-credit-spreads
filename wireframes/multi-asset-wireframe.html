@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PilotAI — Multi-Asset Wireframe</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #FAF9FB; color: #1a1a2e; -webkit-font-smoothing: antialiased; }
+  
+  :root {
+    --purple: #9B6DFF;
+    --pink: #E84FAD;
+    --orange: #F59E42;
+    --profit: #22c55e;
+    --loss: #ef4444;
+    --border: #e5e7eb;
+    --muted: #6b7280;
+    --bg: #FAF9FB;
+  }
+
+  .gradient-text { background: linear-gradient(135deg, var(--purple), var(--pink), var(--orange)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .gradient-bg { background: linear-gradient(135deg, var(--purple), var(--pink), var(--orange)); }
+  .gradient-subtle { background: linear-gradient(135deg, var(--purple), var(--pink)); }
+
+  /* Nav */
+  nav { background: #fff; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 50; }
+  nav .inner { max-width: 1200px; margin: 0 auto; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; height: 56px; }
+  nav .logo { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 800; text-decoration: none; }
+  nav .logo-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; transform: rotate(45deg); }
+  nav .logo-icon .inner-sq { width: 16px; height: 16px; background: #fff; border-radius: 3px; }
+  nav .nav-links { display: flex; gap: 4px; }
+  nav .nav-links a { padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--muted); text-decoration: none; transition: all .15s; }
+  nav .nav-links a:hover { color: var(--purple); background: rgba(155,109,255,.06); }
+  nav .nav-links a.active { color: #fff; background: var(--purple); }
+  nav .right { display: flex; align-items: center; gap: 12px; }
+  nav .market-badge { display: flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 20px; background: #f0fdf4; font-size: 11px; font-weight: 600; color: var(--profit); }
+  nav .market-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--profit); animation: pulse 2s infinite; }
+  nav .cta { padding: 8px 16px; border-radius: 8px; color: #fff; font-size: 13px; font-weight: 600; text-decoration: none; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+
+  /* Asset Tabs */
+  .asset-tabs { background: #fff; border-bottom: 1px solid var(--border); }
+  .asset-tabs .inner { max-width: 1200px; margin: 0 auto; padding: 0 24px; display: flex; gap: 0; overflow-x: auto; }
+  .asset-tab { display: flex; align-items: center; gap: 8px; padding: 14px 20px; font-size: 14px; font-weight: 600; color: var(--muted); border-bottom: 2px solid transparent; cursor: pointer; transition: all .15s; white-space: nowrap; position: relative; }
+  .asset-tab:hover { color: var(--purple); }
+  .asset-tab.active { color: var(--purple); border-bottom-color: var(--purple); }
+  .asset-tab .icon { font-size: 18px; }
+  .asset-tab .count { font-size: 10px; font-weight: 700; background: var(--purple); color: #fff; border-radius: 10px; padding: 1px 6px; }
+  .asset-tab .badge-new { font-size: 9px; font-weight: 700; background: var(--orange); color: #fff; border-radius: 4px; padding: 2px 5px; text-transform: uppercase; letter-spacing: .5px; }
+
+  /* Main Layout */
+  .main { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  .layout { display: flex; gap: 24px; }
+  .content { flex: 1; min-width: 0; }
+  .sidebar { width: 320px; flex-shrink: 0; }
+
+  /* Section Header */
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .section-header h2 { font-size: 16px; font-weight: 700; }
+  .section-header .filters { display: flex; gap: 6px; }
+  .filter-pill { padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1px solid var(--border); background: #fff; color: var(--muted); cursor: pointer; }
+  .filter-pill.active { background: var(--purple); color: #fff; border-color: var(--purple); }
+
+  /* Cards */
+  .card { background: #fff; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 12px; overflow: hidden; transition: all .15s; }
+  .card:hover { border-color: rgba(155,109,255,.3); box-shadow: 0 4px 20px rgba(155,109,255,.08); }
+  .card-header { padding: 16px; display: flex; align-items: flex-start; justify-content: space-between; }
+  .card-body { padding: 0 16px 16px; }
+  .card-footer { padding: 12px 16px; border-top: 1px solid #f3f4f6; background: #fafafa; display: flex; align-items: center; justify-content: space-between; }
+
+  /* Tag */
+  .tag { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+  .tag-bearish { background: #fef2f2; color: var(--loss); }
+  .tag-bullish { background: #f0fdf4; color: var(--profit); }
+  .tag-neutral { background: #f5f3ff; color: var(--purple); }
+  .tag-ai { background: rgba(155,109,255,.08); color: var(--purple); border: 1px solid rgba(155,109,255,.2); }
+  .tag-yes { background: #f0fdf4; color: var(--profit); border: 1px solid rgba(34,197,94,.2); }
+  .tag-no { background: #fef2f2; color: var(--loss); border: 1px solid rgba(239,68,68,.2); }
+  .tag-long { background: #f0fdf4; color: var(--profit); }
+  .tag-short { background: #fef2f2; color: var(--loss); }
+  .tag-futures { background: #fef3c7; color: #d97706; }
+  .tag-crypto { background: #ede9fe; color: #7c3aed; }
+  .tag-prediction { background: #fce7f3; color: #db2777; }
+
+  /* Stats Grid */
+  .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .stat { text-align: center; }
+  .stat-value { font-size: 16px; font-weight: 700; }
+  .stat-label { font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .stat-value.profit { color: var(--profit); }
+  .stat-value.loss { color: var(--loss); }
+
+  /* Prob Bar */
+  .prob-bar { display: flex; align-items: center; gap: 8px; }
+  .prob-track { flex: 1; height: 6px; background: #f3f4f6; border-radius: 3px; overflow: hidden; }
+  .prob-fill { height: 100%; border-radius: 3px; }
+  .prob-fill.green { background: var(--profit); }
+  .prob-fill.purple { background: var(--purple); }
+  .prob-value { font-size: 16px; font-weight: 700; }
+
+  /* Trade Button */
+  .btn-trade { display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 700; color: #fff; border: none; cursor: pointer; transition: all .15s; }
+  .btn-trade:hover { transform: scale(1.02); }
+
+  /* Ticker Row */
+  .ticker-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .ticker-name { font-size: 20px; font-weight: 800; }
+  .ticker-price { font-size: 16px; color: var(--muted); }
+
+  /* Prediction Market specific */
+  .pm-visual { display: flex; gap: 2px; height: 28px; border-radius: 6px; overflow: hidden; margin: 12px 0; }
+  .pm-yes { background: var(--profit); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 11px; font-weight: 700; }
+  .pm-no { background: var(--loss); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 11px; font-weight: 700; }
+
+  /* Futures leverage badge */
+  .leverage-badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; background: #fef3c7; color: #d97706; }
+
+  /* Crypto icon */
+  .crypto-icon { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; }
+
+  /* Sidebar Card */
+  .sidebar-card { background: #fff; border-radius: 12px; border: 1px solid var(--border); padding: 16px; margin-bottom: 12px; }
+  .sidebar-card h3 { font-size: 14px; font-weight: 700; margin-bottom: 12px; }
+  .sidebar-stat-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f9fafb; font-size: 13px; }
+  .sidebar-stat-row:last-child { border-bottom: none; }
+  .sidebar-stat-row .label { color: var(--muted); }
+  .sidebar-stat-row .value { font-weight: 600; }
+
+  /* Allocation Ring */
+  .alloc-ring { width: 120px; height: 120px; border-radius: 50%; margin: 0 auto 16px; position: relative; }
+  .alloc-ring::after { content: '4 Assets'; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 12px; font-weight: 700; color: var(--muted); }
+
+  /* Wireframe Label */
+  .wireframe-banner { background: linear-gradient(135deg, var(--purple), var(--pink)); color: #fff; text-align: center; padding: 10px; font-size: 12px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
+
+  /* Page Sections */
+  .page-section { display: none; }
+  .page-section.active { display: block; }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .sidebar { display: none; }
+    .asset-tab { padding: 12px 14px; font-size: 13px; }
+    nav .nav-links { display: none; }
+  }
+  @media (max-width: 600px) {
+    .main { padding: 12px; }
+    .stats-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .card-header { flex-direction: column; gap: 8px; }
+    .ticker-name { font-size: 18px; }
+  }
+
+  /* Annotation */
+  .annotation { position: relative; }
+  .annotation::before { content: attr(data-note); position: absolute; top: -8px; right: -4px; background: var(--orange); color: #fff; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px; white-space: nowrap; z-index: 10; transform: rotate(2deg); }
+
+  /* Mini chart placeholder */
+  .mini-chart { height: 40px; display: flex; align-items: flex-end; gap: 2px; }
+  .mini-bar { width: 4px; border-radius: 2px 2px 0 0; background: var(--purple); opacity: .4; }
+</style>
+</head>
+<body>
+
+<div class="wireframe-banner">📐 WIREFRAME — Multi-Asset Expansion Concept — Alerts by PilotAI</div>
+
+<!-- Nav -->
+<nav>
+  <div class="inner">
+    <a class="logo" href="#">
+      <div class="logo-icon gradient-bg"><div class="inner-sq"></div></div>
+      <span class="gradient-text">Alerts by PilotAI</span>
+    </a>
+    <div class="nav-links">
+      <a href="#" class="active">Alerts</a>
+      <a href="#">My Trades</a>
+      <a href="#">System Results</a>
+      <a href="#">Learn</a>
+    </div>
+    <div class="right">
+      <div class="market-badge"><div class="dot"></div> Markets Open</div>
+      <a href="#" class="cta gradient-bg">Try PilotAI →</a>
+    </div>
+  </div>
+</nav>
+
+<!-- Asset Class Tabs -->
+<div class="asset-tabs">
+  <div class="inner">
+    <div class="asset-tab active" onclick="switchTab('options')">
+      <span class="icon">📊</span> Options <span class="count">5</span>
+    </div>
+    <div class="asset-tab" onclick="switchTab('futures')">
+      <span class="icon">📈</span> Futures <span class="count">3</span> <span class="badge-new">New</span>
+    </div>
+    <div class="asset-tab" onclick="switchTab('crypto')">
+      <span class="icon">₿</span> Crypto <span class="count">4</span> <span class="badge-new">New</span>
+    </div>
+    <div class="asset-tab" onclick="switchTab('predictions')">
+      <span class="icon">🎯</span> Predictions <span class="count">6</span> <span class="badge-new">New</span>
+    </div>
+  </div>
+</div>
+
+<div class="main">
+<div class="layout">
+<div class="content">
+
+<!-- ==================== OPTIONS (existing) ==================== -->
+<div class="page-section active" id="tab-options">
+  <div class="section-header">
+    <h2>Credit Spread Alerts</h2>
+    <div class="filters">
+      <span class="filter-pill active">All</span>
+      <span class="filter-pill">Bullish</span>
+      <span class="filter-pill">Bearish</span>
+      <span class="filter-pill">High Prob</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+          <span class="tag tag-bearish">▼ Bearish</span>
+          <span class="tag tag-ai">✨ AI-Powered</span>
+        </div>
+        <div class="ticker-row">
+          <span class="ticker-name">SPY</span>
+          <span class="ticker-price">$681.27</span>
+        </div>
+        <div style="font-size:13px;color:var(--muted);">Bear Call Spread • 34 DTE</div>
+      </div>
+      <div style="text-align:right;font-size:12px;color:var(--muted);">
+        Mar 20, 2026<br>
+        <span style="color:var(--profit);font-weight:600;">High Confidence</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="stats-grid" style="margin-bottom:12px;">
+        <div class="stat"><div class="stat-value profit">$2.05</div><div class="stat-label">Max Profit</div></div>
+        <div class="stat"><div class="stat-value loss">$2.95</div><div class="stat-label">Max Loss</div></div>
+        <div class="stat">
+          <div class="prob-bar"><div class="prob-track"><div class="prob-fill green" style="width:86%"></div></div><span class="prob-value">86%</span></div>
+          <div class="stat-label">Prob of Profit</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-footer">
+      <span style="font-size:12px;color:var(--muted);">$700 / $705 strikes • 6 contracts</span>
+      <button class="btn-trade gradient-subtle" style="color:#fff;">📈 Paper Trade</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== FUTURES ==================== -->
+<div class="page-section" id="tab-futures">
+  <div class="section-header">
+    <h2>Futures Alerts</h2>
+    <div class="filters">
+      <span class="filter-pill active">All</span>
+      <span class="filter-pill">Long</span>
+      <span class="filter-pill">Short</span>
+      <span class="filter-pill">Spreads</span>
+    </div>
+  </div>
+
+  <!-- ES Futures -->
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+          <span class="tag tag-short">▼ Short</span>
+          <span class="tag tag-futures">⚡ Futures</span>
+          <span class="tag tag-ai">✨ AI-Powered</span>
+        </div>
+        <div class="ticker-row">
+          <span class="ticker-name">ES</span>
+          <span class="ticker-price">5,842.50</span>
+          <span class="leverage-badge">50× leverage</span>
+        </div>
+        <div style="font-size:13px;color:var(--muted);">E-mini S&P 500 • Mar 2026 Contract</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:12px;color:var(--muted);">Exp: Mar 21</div>
+        <div style="color:var(--profit);font-weight:600;font-size:12px;">High Confidence</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;">Regime: Mean Reverting</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="stats-grid" style="margin-bottom:12px;">
+        <div class="stat"><div class="stat-value">5,820</div><div class="stat-label">Entry</div></div>
+        <div class="stat"><div class="stat-value profit">5,780</div><div class="stat-label">Target</div></div>
+        <div class="stat"><div class="stat-value loss">5,845</div><div class="stat-label">Stop Loss</div></div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat"><div class="stat-value profit">$2,000</div><div class="stat-label">Profit Target</div></div>
+        <div class="stat"><div class="stat-value loss">$1,250</div><div class="stat-label">Risk</div></div>
+        <div class="stat">
+          <div class="prob-bar"><div class="prob-track"><div class="prob-fill green" style="width:72%"></div></div><span class="prob-value">72%</span></div>
+          <div class="stat-label">Win Prob</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-footer">
+      <span style="font-size:12px;color:var(--muted);">R:R 1.6 • Margin: $12,650 • Session: RTH</span>
+      <button class="btn-trade gradient-subtle" style="color:#fff;">📈 Paper Trade</button>
+    </div>
+  </div>
+
+  <!-- NQ Futures -->
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+          <span class="tag tag-long">▲ Long</span>
+          <span class="tag tag-futures">⚡ Futures</span>
+          <span class="tag tag-ai">✨ AI-Powered</span>
+        </div>
+        <div class="ticker-row">
+          <span class="ticker-name">NQ</span>
+          <span class="ticker-price">20,965.75</span>
+          <span class="leverage-badge">20× leverage</span>
+        </div>
+        <div style="font-size:13px;color:var(--muted);">E-mini Nasdaq 100 • Mar 2026 Contract</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:12px;color:var(--muted);">Exp: Mar 21</div>
+        <div style="color:var(--orange);font-weight:600;font-size:12px;">Medium Confidence</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="stats-grid" style="margin-bottom:12px;">
+        <div class="stat"><div class="stat-value">20,900</div><div class="stat-label">Entry</div></div>
+        <div class="stat"><div class="stat-value profit">21,200</div><div class="stat-label">Target</div></div>
+        <div class="stat"><div class="stat-value loss">20,750</div><div class="stat-label">Stop Loss</div></div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat"><div class="stat-value profit">$6,000</div><div class="stat-label">Profit Target</div></div>
+        <div class="stat"><div class="stat-value loss">$3,000</div><div class="stat-label">Risk</div></div>
+        <div class="stat">
+          <div class="prob-bar"><div class="prob-track"><div class="prob-fill green" style="width:65%"></div></div><span class="prob-value">65%</span></div>
+          <div class="stat-label">Win Prob</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-footer">
+      <span style="font-size:12px;color:var(--muted);">R:R 2.0 • Margin: $18,200 • Breakout setup</span>
+      <button class="btn-trade gradient-subtle" style="color:#fff;">📈 Paper Trade</button>
+    </div>
+  </div>
+
+  <!-- CL Crude Oil -->
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+          <span class="tag tag-long">▲ Long</span>
+          <span class="tag tag-futures">⚡ Futures</span>
+        </div>
+        <div class="ticker-row">
+          <span class="ticker-name">CL</span>
+          <span class="ticker-price">$71.42</span>
+          <span class="leverage-badge">15× leverage</span>
+        </div>
+        <div style="font-size:13px;color:var(--muted);">Crude Oil WTI • Apr 2026 Contract</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:12px;color:var(--muted);">Exp: Mar 20</div>
+        <div style="color:var(--profit);font-weight:600;font-size:12px;">High Confidence</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="stats-grid">
+        <div class="stat"><div class="stat-value">$71.00</div><div class="stat-label">Entry</div></div>
+        <div class="stat"><div class="stat-value profit">$73.50</div><div class="stat-label">Target</div></div>
+        <div class="stat">
+          <div class="prob-bar"><div class="prob-track"><div class="prob-fill green" style="width:68%"></div></div><span class="prob-value">68%</span></div>
+          <div class="stat-label">Win Prob</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-footer">
+      <span style="font-size:12px;color:var(--muted);">R:R 2.5 • $2,500 per contract • Supply squeeze</span>
+      <button class="btn-trade gradient-subtle" style="color:#fff;">📈 Paper Trade</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== CRYPTO ==================== -->
+<div class="page-section" id="tab-crypto">
+  <div class="section-header">
+    <h2>Crypto Alerts</h2>
+    <div class="filters">
+      <span class="filter-pill active">All</span>
+      <span class="filter-pill">Long</span>
+      <span class="filter-pill">Short</span>
+      <span class="filter-pill">DeFi</span>
+    </div>
+  </div>
+
+  <!-- BTC -->
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+          <span class="tag tag-long">▲ Long</span>
+          <span class="tag tag-crypto">₿ Crypto</span>
+          <span class="tag tag-ai">✨ AI-Powered</span>
+        </div>
+        <div class="ticker-row">
+          <div class="crypto-icon" style="background:#f7931a22;color:#f7931a;">₿</div>
+          <span class="ticker-name">BTC</span>
+          <span class="ticker-price">$96,482</span>
+        </div>
+        <div style="font-size:13px;color:var(--muted);">Bitcoin • Spot + Perp Spread</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:12px;color:var(--muted);">24h: <span style="color:var(--profit);">+2.4%</span></div>
+        <div style="color:var(--profit);font-weight:600;font-size:12px;">High Confidence</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;">Funding: +0.012%</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="stats-grid" style="margin-bottom:12px;">
+        <div class="stat"><div class="stat-value">$95,800</div><div class="stat-label">Entry Zone</div></div>
+        <div class="stat"><div class="stat-value profit">$102,000</div><div class="stat-label">Target</div></div>
+        <div class="stat"><div class="stat-value loss">$93,500</div><div class="stat-label">Stop Loss</div></div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat"><div class="stat-value">3×</div><div class="stat-label">Leverage</div></div>
+        <div class="stat"><div class="stat-value profit">+6.5%</div><div class="stat-label">Target Return</div></div>
+        <div class="stat">
+          <div class="prob-bar"><div class="prob-track"><div class="prob-fill purple" style="width:74%"></div></div><span class="prob-value">74%</span></div>
+          <div class="stat-label">Win Prob</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-footer">
+      <span style="font-size:12px;color:var(--muted);">On-chain: whale accumulation • RSI divergence</span>
+      <button class="btn-trade gradient-subtle" style="color:#fff;">📈 Paper Trade</button>
+    </div>
+  </div>
+
+  <!-- ETH -->
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+          <span class="tag tag-long">▲ Long</span>
+          <span class="tag tag-crypto">₿ Crypto</span>
+          <span class="tag tag-ai">✨ AI-Powered</span>
+        </div>
+        <div class="ticker-row">
+          <div class="crypto-icon" style="background:#627eea22;color:#627eea;">Ξ</div>
+          <span class="ticker-name">ETH</span>
+          <span class="ticker-price">$2,684</span>
+        </div>
+        <div style="font-size:13px;color:var(--muted);">Ethereum • Spot</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:12px;color:var(--muted);">24h: <span style="color:var(--loss);">-1.1%</span></div>
+        <div style="color:var(--orange);font-weight:600;font-size:12px;">Medium Confidence</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="stats-grid">
+        <div class="stat"><div class="stat-value">$2,650</div><div class="stat-label">Entry Zone</div></div>
+        <div class="stat"><div class="stat-value profit">$3,000</div><div class="stat-label">Target</div></div>
+        <div class="stat">
+          <div class="prob-bar"><div class="prob-track"><div class="prob-fill purple" style="width:62%"></div></div><span class="prob-value">62%</span></div>
+          <div class="stat-label">Win Prob</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-footer">
+      <span style="font-size:12px;color:var(--muted);">ETH/BTC ratio at support • Pectra upgrade catalyst</span>
+      <button class="btn-trade gradient-subtle" style="color:#fff;">📈 Paper Trade</button>
+    </div>
+  </div>
+
+  <!-- SOL -->
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+          <span class="tag tag-short">▼ Short</span>
+          <span class="tag tag-crypto">₿ Crypto</span>
+        </div>
+        <div class="ticker-row">
+          <div class="crypto-icon" style="background:#9945ff22;color:#9945ff;">◎</div>
+          <span class="ticker-name">SOL</span>
+          <span class="ticker-price">$198.40</span>
+        </div>
+        <div style="font-size:13px;color:var(--muted);">Solana • Perp Short</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:12px;color:var(--muted);">24h: <span style="color:var(--profit);">+4.2%</span></div>
+        <div style="color:var(--orange);font-weight:600;font-size:12px;">Medium Confidence</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="stats-grid">
+        <div class="stat"><div class="stat-value">$200</div><div class="stat-label">Entry</div></div>
+        <div class="stat"><div class="stat-value profit">$178</div><div class="stat-label">Target</div></div>
+        <div class="stat">
+          <div class="prob-bar"><div class="prob-track"><div class="prob-fill purple" style="width:58%"></div></div><span class="prob-value">58%</span></div>
+          <div class="stat-label">Win Prob</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-footer">
+      <span style="font-size:12px;color:var(--muted);">Overbought RSI • Resistance rejection at $200</span>
+      <button class="btn-trade gradient-subtle" style="color:#fff;">📈 Paper Trade</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== PREDICTION MARKETS ==================== -->
+<div class="page-section" id="tab-predictions">
+  <div class="section-header">
+    <h2>Prediction Market Alerts</h2>
+    <div class="filters">
+      <span class="filter-pill active">All</span>
+      <span class="filter-pill">Politics</span>
+      <span class="filter-pill">Macro</span>
+      <span class="filter-pill">Sports</span>
+      <span class="filter-pill">Crypto</span>
+    </div>
+  </div>
+
+  <!-- Fed Rate -->
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+          <span class="tag tag-yes">✓ YES</span>
+          <span class="tag tag-prediction">🎯 Prediction</span>
+          <span class="tag tag-ai">✨ AI-Powered</span>
+        </div>
+        <div style="font-size:17px;font-weight:700;margin-bottom:4px;">Fed cuts rates by June 2026?</div>
+        <div style="font-size:13px;color:var(--muted);">Polymarket • Resolves Jun 30, 2026</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:12px;color:var(--muted);">Source: Polymarket</div>
+        <div style="color:var(--profit);font-weight:600;font-size:12px;">High Confidence</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="pm-visual">
+        <div class="pm-yes" style="width:62%;">YES 62¢</div>
+        <div class="pm-no" style="width:38%;">NO 38¢</div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat"><div class="stat-value profit">62¢</div><div class="stat-label">Buy YES @</div></div>
+        <div class="stat"><div class="stat-value profit">+61%</div><div class="stat-label">Potential Return</div></div>
+        <div class="stat">
+          <div class="prob-bar"><div class="prob-track"><div class="prob-fill purple" style="width:78%"></div></div><span class="prob-value">78%</span></div>
+          <div class="stat-label">AI Fair Value</div>
+        </div>
+      </div>
+      <div style="margin-top:10px;padding:8px 12px;background:#f5f3ff;border-radius:8px;font-size:12px;color:var(--purple);">
+        <strong>Edge:</strong> Market prices at 62% but our model estimates 78% — 16% mispricing. CME FedWatch confirms dovish tilt.
+      </div>
+    </div>
+    <div class="card-footer">
+      <span style="font-size:12px;color:var(--muted);">Volume: $4.2M • 136 days to resolution</span>
+      <button class="btn-trade gradient-subtle" style="color:#fff;">🎯 Buy YES</button>
+    </div>
+  </div>
+
+  <!-- BTC 100K -->
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+          <span class="tag tag-yes">✓ YES</span>
+          <span class="tag tag-prediction">🎯 Prediction</span>
+          <span class="tag tag-ai">✨ AI-Powered</span>
+        </div>
+        <div style="font-size:17px;font-weight:700;margin-bottom:4px;">BTC above $100K by March 2026?</div>
+        <div style="font-size:13px;color:var(--muted);">Polymarket • Resolves Mar 31, 2026</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="color:var(--profit);font-weight:600;font-size:12px;">High Confidence</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="pm-visual">
+        <div class="pm-yes" style="width:71%;">YES 71¢</div>
+        <div class="pm-no" style="width:29%;">NO 29¢</div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat"><div class="stat-value profit">71¢</div><div class="stat-label">Buy YES @</div></div>
+        <div class="stat"><div class="stat-value profit">+41%</div><div class="stat-label">Potential Return</div></div>
+        <div class="stat">
+          <div class="prob-bar"><div class="prob-track"><div class="prob-fill purple" style="width:85%"></div></div><span class="prob-value">85%</span></div>
+          <div class="stat-label">AI Fair Value</div>
+        </div>
+      </div>
+      <div style="margin-top:10px;padding:8px 12px;background:#f5f3ff;border-radius:8px;font-size:12px;color:var(--purple);">
+        <strong>Edge:</strong> 14% mispricing. On-chain metrics + ETF inflows strongly bullish. BTC at $96.5K, only 3.6% away.
+      </div>
+    </div>
+    <div class="card-footer">
+      <span style="font-size:12px;color:var(--muted);">Volume: $8.1M • 46 days to resolution</span>
+      <button class="btn-trade gradient-subtle" style="color:#fff;">🎯 Buy YES</button>
+    </div>
+  </div>
+
+  <!-- Recession -->
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+          <span class="tag tag-no">✗ NO</span>
+          <span class="tag tag-prediction">🎯 Prediction</span>
+        </div>
+        <div style="font-size:17px;font-weight:700;margin-bottom:4px;">US recession declared in 2026?</div>
+        <div style="font-size:13px;color:var(--muted);">Polymarket • Resolves Dec 31, 2026</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="color:var(--orange);font-weight:600;font-size:12px;">Medium Confidence</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="pm-visual">
+        <div class="pm-yes" style="width:24%;">YES 24¢</div>
+        <div class="pm-no" style="width:76%;">NO 76¢</div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat"><div class="stat-value loss">76¢</div><div class="stat-label">Buy NO @</div></div>
+        <div class="stat"><div class="stat-value profit">+32%</div><div class="stat-label">Potential Return</div></div>
+        <div class="stat">
+          <div class="prob-bar"><div class="prob-track"><div class="prob-fill purple" style="width:82%"></div></div><span class="prob-value">82%</span></div>
+          <div class="stat-label">AI Fair Value (NO)</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-footer">
+      <span style="font-size:12px;color:var(--muted);">Volume: $12.4M • 321 days to resolution</span>
+      <button class="btn-trade gradient-subtle" style="color:#fff;">🎯 Buy NO</button>
+    </div>
+  </div>
+</div>
+
+</div><!-- /content -->
+
+<!-- ==================== SIDEBAR ==================== -->
+<div class="sidebar">
+  <!-- Cross-Asset Performance -->
+  <div class="sidebar-card">
+    <h3>📊 Portfolio Overview</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
+      <div style="background:#f5f3ff;border-radius:8px;padding:10px;text-align:center;">
+        <div style="font-size:18px;font-weight:700;color:var(--purple);">$102,161</div>
+        <div style="font-size:10px;color:var(--muted);">Balance</div>
+      </div>
+      <div style="background:#f0fdf4;border-radius:8px;padding:10px;text-align:center;">
+        <div style="font-size:18px;font-weight:700;color:var(--profit);">+$2,161</div>
+        <div style="font-size:10px;color:var(--muted);">Total P&L</div>
+      </div>
+    </div>
+    <div class="sidebar-stat-row"><span class="label">📊 Options</span><span class="value" style="color:var(--profit);">+$1,420</span></div>
+    <div class="sidebar-stat-row"><span class="label">📈 Futures</span><span class="value" style="color:var(--profit);">+$380</span></div>
+    <div class="sidebar-stat-row"><span class="label">₿ Crypto</span><span class="value" style="color:var(--loss);">-$125</span></div>
+    <div class="sidebar-stat-row"><span class="label">🎯 Predictions</span><span class="value" style="color:var(--profit);">+$486</span></div>
+  </div>
+
+  <!-- Win Rates by Asset -->
+  <div class="sidebar-card">
+    <h3>🏆 Win Rates</h3>
+    <div class="sidebar-stat-row"><span class="label">Options</span><span class="value" style="color:var(--profit);">87%</span></div>
+    <div class="sidebar-stat-row"><span class="label">Futures</span><span class="value" style="color:var(--profit);">72%</span></div>
+    <div class="sidebar-stat-row"><span class="label">Crypto</span><span class="value" style="color:var(--orange);">64%</span></div>
+    <div class="sidebar-stat-row"><span class="label">Predictions</span><span class="value" style="color:var(--profit);">78%</span></div>
+    <div style="margin-top:8px;padding-top:8px;border-top:1px solid #f3f4f6;">
+      <div class="sidebar-stat-row"><span class="label" style="font-weight:600;">Overall</span><span class="value" style="color:var(--profit);font-size:16px;">76%</span></div>
+    </div>
+  </div>
+
+  <!-- Risk Allocation -->
+  <div class="sidebar-card">
+    <h3>⚖️ Risk Allocation</h3>
+    <div style="display:flex;gap:4px;height:20px;border-radius:10px;overflow:hidden;margin-bottom:12px;">
+      <div style="width:45%;background:var(--purple);" title="Options"></div>
+      <div style="width:25%;background:var(--orange);" title="Futures"></div>
+      <div style="width:18%;background:#7c3aed;" title="Crypto"></div>
+      <div style="width:12%;background:var(--pink);" title="Predictions"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px;">
+      <div style="display:flex;align-items:center;gap:4px;"><div style="width:8px;height:8px;border-radius:2px;background:var(--purple);"></div>Options 45%</div>
+      <div style="display:flex;align-items:center;gap:4px;"><div style="width:8px;height:8px;border-radius:2px;background:var(--orange);"></div>Futures 25%</div>
+      <div style="display:flex;align-items:center;gap:4px;"><div style="width:8px;height:8px;border-radius:2px;background:#7c3aed;"></div>Crypto 18%</div>
+      <div style="display:flex;align-items:center;gap:4px;"><div style="width:8px;height:8px;border-radius:2px;background:var(--pink);"></div>Predictions 12%</div>
+    </div>
+  </div>
+
+  <!-- Upsell -->
+  <div class="sidebar-card" style="background:linear-gradient(135deg, var(--purple), var(--pink), var(--orange));color:#fff;border:none;">
+    <div style="font-size:14px;font-weight:700;margin-bottom:4px;">⚡ Unlock Premium</div>
+    <div style="font-size:12px;opacity:.9;margin-bottom:12px;">All 4 asset classes, unlimited alerts, priority execution.</div>
+    <div style="display:inline-block;background:#fff;color:var(--purple);font-size:13px;font-weight:700;padding:8px 20px;border-radius:8px;cursor:pointer;">Learn More →</div>
+  </div>
+</div>
+
+</div><!-- /layout -->
+</div><!-- /main -->
+
+<script>
+function switchTab(name) {
+  document.querySelectorAll('.asset-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.page-section').forEach(s => s.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+}
+</script>
+
+</body>
+</html>

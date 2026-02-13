@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PilotAI — Multi-Asset Wireframe v2</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #FAF9FB; color: #1a1a2e; -webkit-font-smoothing: antialiased; }
+  
+  :root {
+    --purple: #9B6DFF; --pink: #E84FAD; --orange: #F59E42;
+    --profit: #22c55e; --loss: #ef4444; --border: #e5e7eb; --muted: #6b7280;
+  }
+
+  .gradient-text { background: linear-gradient(135deg, var(--purple), var(--pink), var(--orange)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .gradient-bg { background: linear-gradient(135deg, var(--purple), var(--pink), var(--orange)); }
+
+  /* Banner */
+  .wire-banner { background: linear-gradient(135deg, var(--purple), var(--pink)); color: #fff; text-align: center; padding: 8px; font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
+
+  /* Nav */
+  nav { background: #fff; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 50; }
+  nav .inner { max-width: 1200px; margin: 0 auto; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; height: 52px; }
+  nav .logo { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 800; text-decoration: none; }
+  nav .logo-icon { width: 28px; height: 28px; border-radius: 7px; display: flex; align-items: center; justify-content: center; transform: rotate(45deg); }
+  nav .logo-icon .sq { width: 14px; height: 14px; background: #fff; border-radius: 2px; }
+  nav .links { display: flex; gap: 4px; }
+  nav .links a { padding: 6px 12px; border-radius: 7px; font-size: 12px; font-weight: 600; color: var(--muted); text-decoration: none; }
+  nav .links a.active { color: #fff; background: var(--purple); }
+  nav .right { display: flex; align-items: center; gap: 10px; }
+  .badge-open { display: flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 16px; background: #f0fdf4; font-size: 10px; font-weight: 600; color: var(--profit); }
+  .badge-open .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--profit); animation: pulse 2s infinite; }
+  .btn-cta { padding: 6px 14px; border-radius: 7px; color: #fff; font-size: 12px; font-weight: 600; text-decoration: none; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  /* Main */
+  .main { max-width: 1200px; margin: 0 auto; padding: 20px; }
+
+  /* Section */
+  .section { margin-bottom: 28px; }
+  .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #f3f4f6; }
+  .section-head h2 { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .section-head .count { font-size: 10px; font-weight: 700; background: var(--purple); color: #fff; border-radius: 10px; padding: 1px 7px; }
+  .section-head .badge-new { font-size: 9px; font-weight: 700; background: var(--orange); color: #fff; border-radius: 4px; padding: 2px 5px; text-transform: uppercase; letter-spacing: .5px; }
+  .section-head .more { font-size: 12px; color: var(--purple); font-weight: 600; text-decoration: none; }
+
+  /* Horizontal Scroll Row */
+  .card-row { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+  .card-row::-webkit-scrollbar { height: 4px; }
+  .card-row::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px; }
+
+  /* Card */
+  .card { background: #fff; border-radius: 12px; border: 1px solid var(--border); min-width: 300px; max-width: 340px; flex-shrink: 0; scroll-snap-align: start; transition: all .15s; overflow: hidden; }
+  .card:hover { border-color: rgba(155,109,255,.3); box-shadow: 0 4px 16px rgba(155,109,255,.08); }
+  .card-top { padding: 14px 14px 0; }
+  .card-mid { padding: 10px 14px; }
+  .card-bot { padding: 10px 14px; border-top: 1px solid #f3f4f6; background: #fafafa; display: flex; align-items: center; justify-content: space-between; }
+
+  /* Stacked layout for wider screens */
+  @media (min-width: 900px) {
+    .card-row { flex-wrap: wrap; overflow-x: visible; }
+    .card { min-width: 0; max-width: none; flex: 1 1 calc(33.33% - 8px); min-width: 280px; }
+  }
+
+  /* Tags */
+  .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+  .tag { display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 600; }
+  .tag-bear { background: #fef2f2; color: var(--loss); }
+  .tag-bull { background: #f0fdf4; color: var(--profit); }
+  .tag-ai { background: rgba(155,109,255,.08); color: var(--purple); }
+  .tag-yes { background: #f0fdf4; color: var(--profit); }
+  .tag-no { background: #fef2f2; color: var(--loss); }
+  .tag-fut { background: #fef3c7; color: #d97706; }
+  .tag-cry { background: #ede9fe; color: #7c3aed; }
+  .tag-pred { background: #fce7f3; color: #db2777; }
+  .tag-short { background: #fef2f2; color: var(--loss); }
+  .tag-long { background: #f0fdf4; color: var(--profit); }
+  .lev { display: inline-flex; padding: 1px 6px; border-radius: 3px; font-size: 9px; font-weight: 700; background: #fef3c7; color: #d97706; margin-left: 6px; }
+
+  /* Ticker */
+  .tk { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .tk-name { font-size: 18px; font-weight: 800; }
+  .tk-price { font-size: 14px; color: var(--muted); }
+  .tk-sub { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+
+  /* Crypto icon */
+  .c-icon { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
+
+  /* Stats */
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .st { text-align: center; }
+  .st-v { font-size: 14px; font-weight: 700; }
+  .st-l { font-size: 9px; color: var(--muted); margin-top: 1px; }
+  .profit { color: var(--profit); }
+  .loss { color: var(--loss); }
+
+  /* Prob bar */
+  .pb { display: flex; align-items: center; gap: 6px; }
+  .pb-track { flex: 1; height: 5px; background: #f3f4f6; border-radius: 3px; overflow: hidden; }
+  .pb-fill { height: 100%; border-radius: 3px; }
+  .pb-g { background: var(--profit); }
+  .pb-p { background: var(--purple); }
+  .pb-v { font-size: 14px; font-weight: 700; }
+
+  /* PM bar */
+  .pm { display: flex; gap: 2px; height: 22px; border-radius: 5px; overflow: hidden; margin: 8px 0; }
+  .pm-y { background: var(--profit); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 10px; font-weight: 700; }
+  .pm-n { background: var(--loss); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 10px; font-weight: 700; }
+
+  /* Edge box */
+  .edge { margin-top: 8px; padding: 6px 10px; background: #f5f3ff; border-radius: 6px; font-size: 11px; color: var(--purple); line-height: 1.4; }
+
+  /* Trade btn */
+  .btn-t { display: inline-flex; align-items: center; gap: 4px; padding: 6px 14px; border-radius: 7px; font-size: 11px; font-weight: 700; color: #fff; border: none; cursor: pointer; background: linear-gradient(135deg, var(--purple), var(--pink)); }
+  .btn-t:hover { opacity: .9; }
+
+  .footer-note { font-size: 10px; color: var(--muted); max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Portfolio strip */
+  .port-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 24px; }
+  .port-item { background: #fff; border-radius: 10px; border: 1px solid var(--border); padding: 12px; text-align: center; }
+  .port-item .icon { font-size: 20px; margin-bottom: 4px; }
+  .port-item .val { font-size: 16px; font-weight: 800; }
+  .port-item .lbl { font-size: 10px; color: var(--muted); }
+  @media (max-width: 600px) { .port-strip { grid-template-columns: repeat(2, 1fr); } }
+
+  /* Responsive cards */
+  @media (max-width: 600px) {
+    .card { min-width: 260px; }
+    .tk-name { font-size: 16px; }
+    nav .links { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wire-banner">📐 Wireframe v2 — All Asset Classes Visible — Alerts by PilotAI</div>
+
+<nav>
+  <div class="inner">
+    <a class="logo" href="#">
+      <div class="logo-icon gradient-bg"><div class="sq"></div></div>
+      <span class="gradient-text">Alerts by PilotAI</span>
+    </a>
+    <div class="links">
+      <a href="#" class="active">Alerts</a>
+      <a href="#">My Trades</a>
+      <a href="#">System Results</a>
+      <a href="#">Learn</a>
+    </div>
+    <div class="right">
+      <div class="badge-open"><div class="dot"></div> Open</div>
+      <a href="#" class="btn-cta gradient-bg">Try PilotAI →</a>
+    </div>
+  </div>
+</nav>
+
+<div class="main">
+
+<!-- Portfolio Strip -->
+<div class="port-strip">
+  <div class="port-item">
+    <div class="icon">📊</div>
+    <div class="val profit">+$1,420</div>
+    <div class="lbl">Options • 7 open</div>
+  </div>
+  <div class="port-item">
+    <div class="icon">📈</div>
+    <div class="val profit">+$380</div>
+    <div class="lbl">Futures • 2 open</div>
+  </div>
+  <div class="port-item">
+    <div class="icon">₿</div>
+    <div class="val loss">-$125</div>
+    <div class="lbl">Crypto • 3 open</div>
+  </div>
+  <div class="port-item">
+    <div class="icon">🎯</div>
+    <div class="val profit">+$486</div>
+    <div class="lbl">Predictions • 4 open</div>
+  </div>
+</div>
+
+<!-- ========== OPTIONS ========== -->
+<div class="section">
+  <div class="section-head">
+    <h2>📊 Credit Spread Alerts <span class="count">5</span></h2>
+    <a href="#" class="more">View All →</a>
+  </div>
+  <div class="card-row">
+    <div class="card">
+      <div class="card-top">
+        <div class="tags"><span class="tag tag-bear">▼ Bearish</span><span class="tag tag-ai">✨ AI</span></div>
+        <div class="tk"><span class="tk-name">SPY</span><span class="tk-price">$681.27</span></div>
+        <div class="tk-sub">Bear Call Spread • $700/$705 • 34 DTE</div>
+      </div>
+      <div class="card-mid">
+        <div class="stats">
+          <div class="st"><div class="st-v profit">$2.05</div><div class="st-l">Max Profit</div></div>
+          <div class="st"><div class="st-v loss">$2.95</div><div class="st-l">Max Loss</div></div>
+          <div class="st"><div class="pb"><div class="pb-track"><div class="pb-fill pb-g" style="width:86%"></div></div><span class="pb-v">86%</span></div><div class="st-l">PoP</div></div>
+        </div>
+      </div>
+      <div class="card-bot"><span class="footer-note">6 contracts • $1,056 credit</span><button class="btn-t">📈 Paper Trade</button></div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <div class="tags"><span class="tag tag-bear">▼ Bearish</span><span class="tag tag-ai">✨ AI</span></div>
+        <div class="tk"><span class="tk-name">SPY</span><span class="tk-price">$681.27</span></div>
+        <div class="tk-sub">Bear Call Spread • $696/$701 • 34 DTE</div>
+      </div>
+      <div class="card-mid">
+        <div class="stats">
+          <div class="st"><div class="st-v profit">$2.17</div><div class="st-l">Max Profit</div></div>
+          <div class="st"><div class="st-v loss">$2.83</div><div class="st-l">Max Loss</div></div>
+          <div class="st"><div class="pb"><div class="pb-track"><div class="pb-fill pb-g" style="width:82%"></div></div><span class="pb-v">82%</span></div><div class="st-l">PoP</div></div>
+        </div>
+      </div>
+      <div class="card-bot"><span class="footer-note">7 contracts • $1,519 credit</span><button class="btn-t">📈 Paper Trade</button></div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <div class="tags"><span class="tag tag-bull">▲ Bullish</span><span class="tag tag-ai">✨ AI</span></div>
+        <div class="tk"><span class="tk-name">IWM</span><span class="tk-price">$259.54</span></div>
+        <div class="tk-sub">Bull Put Spread • $245/$240 • 34 DTE</div>
+      </div>
+      <div class="card-mid">
+        <div class="stats">
+          <div class="st"><div class="st-v profit">$1.85</div><div class="st-l">Max Profit</div></div>
+          <div class="st"><div class="st-v loss">$3.15</div><div class="st-l">Max Loss</div></div>
+          <div class="st"><div class="pb"><div class="pb-track"><div class="pb-fill pb-g" style="width:79%"></div></div><span class="pb-v">79%</span></div><div class="st-l">PoP</div></div>
+        </div>
+      </div>
+      <div class="card-bot"><span class="footer-note">5 contracts • $925 credit</span><button class="btn-t">📈 Paper Trade</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== FUTURES ========== -->
+<div class="section">
+  <div class="section-head">
+    <h2>📈 Futures Alerts <span class="count">3</span> <span class="badge-new">New</span></h2>
+    <a href="#" class="more">View All →</a>
+  </div>
+  <div class="card-row">
+    <div class="card">
+      <div class="card-top">
+        <div class="tags"><span class="tag tag-short">▼ Short</span><span class="tag tag-fut">⚡ Futures</span><span class="tag tag-ai">✨ AI</span></div>
+        <div class="tk"><span class="tk-name">ES</span><span class="tk-price">5,842.50</span><span class="lev">50×</span></div>
+        <div class="tk-sub">E-mini S&P 500 • Mar 2026 • Mean Reverting regime</div>
+      </div>
+      <div class="card-mid">
+        <div class="stats" style="margin-bottom:8px;">
+          <div class="st"><div class="st-v">5,820</div><div class="st-l">Entry</div></div>
+          <div class="st"><div class="st-v profit">5,780</div><div class="st-l">Target</div></div>
+          <div class="st"><div class="st-v loss">5,845</div><div class="st-l">Stop</div></div>
+        </div>
+        <div class="stats">
+          <div class="st"><div class="st-v profit">$2,000</div><div class="st-l">Profit</div></div>
+          <div class="st"><div class="st-v loss">$1,250</div><div class="st-l">Risk</div></div>
+          <div class="st"><div class="pb"><div class="pb-track"><div class="pb-fill pb-g" style="width:72%"></div></div><span class="pb-v">72%</span></div><div class="st-l">Win Prob</div></div>
+        </div>
+      </div>
+      <div class="card-bot"><span class="footer-note">R:R 1.6 • Margin $12,650</span><button class="btn-t">📈 Paper Trade</button></div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <div class="tags"><span class="tag tag-long">▲ Long</span><span class="tag tag-fut">⚡ Futures</span><span class="tag tag-ai">✨ AI</span></div>
+        <div class="tk"><span class="tk-name">NQ</span><span class="tk-price">20,965</span><span class="lev">20×</span></div>
+        <div class="tk-sub">E-mini Nasdaq 100 • Mar 2026 • Breakout setup</div>
+      </div>
+      <div class="card-mid">
+        <div class="stats" style="margin-bottom:8px;">
+          <div class="st"><div class="st-v">20,900</div><div class="st-l">Entry</div></div>
+          <div class="st"><div class="st-v profit">21,200</div><div class="st-l">Target</div></div>
+          <div class="st"><div class="st-v loss">20,750</div><div class="st-l">Stop</div></div>
+        </div>
+        <div class="stats">
+          <div class="st"><div class="st-v profit">$6,000</div><div class="st-l">Profit</div></div>
+          <div class="st"><div class="st-v loss">$3,000</div><div class="st-l">Risk</div></div>
+          <div class="st"><div class="pb"><div class="pb-track"><div class="pb-fill pb-g" style="width:65%"></div></div><span class="pb-v">65%</span></div><div class="st-l">Win Prob</div></div>
+        </div>
+      </div>
+      <div class="card-bot"><span class="footer-note">R:R 2.0 • Margin $18,200</span><button class="btn-t">📈 Paper Trade</button></div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <div class="tags"><span class="tag tag-long">▲ Long</span><span class="tag tag-fut">⚡ Futures</span></div>
+        <div class="tk"><span class="tk-name">CL</span><span class="tk-price">$71.42</span><span class="lev">15×</span></div>
+        <div class="tk-sub">Crude Oil WTI • Apr 2026 • Supply squeeze</div>
+      </div>
+      <div class="card-mid">
+        <div class="stats">
+          <div class="st"><div class="st-v">$71.00</div><div class="st-l">Entry</div></div>
+          <div class="st"><div class="st-v profit">$73.50</div><div class="st-l">Target</div></div>
+          <div class="st"><div class="pb"><div class="pb-track"><div class="pb-fill pb-g" style="width:68%"></div></div><span class="pb-v">68%</span></div><div class="st-l">Win Prob</div></div>
+        </div>
+      </div>
+      <div class="card-bot"><span class="footer-note">R:R 2.5 • $2,500/contract</span><button class="btn-t">📈 Paper Trade</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== CRYPTO ========== -->
+<div class="section">
+  <div class="section-head">
+    <h2>₿ Crypto Alerts <span class="count">4</span> <span class="badge-new">New</span></h2>
+    <a href="#" class="more">View All →</a>
+  </div>
+  <div class="card-row">
+    <div class="card">
+      <div class="card-top">
+        <div class="tags"><span class="tag tag-long">▲ Long</span><span class="tag tag-cry">₿ Crypto</span><span class="tag tag-ai">✨ AI</span></div>
+        <div class="tk">
+          <div class="c-icon" style="background:#f7931a22;color:#f7931a;">₿</div>
+          <span class="tk-name">BTC</span><span class="tk-price">$96,482</span>
+        </div>
+        <div class="tk-sub">Bitcoin • Spot + Perp • 3× leverage • Funding +0.012%</div>
+      </div>
+      <div class="card-mid">
+        <div class="stats" style="margin-bottom:8px;">
+          <div class="st"><div class="st-v">$95,800</div><div class="st-l">Entry Zone</div></div>
+          <div class="st"><div class="st-v profit">$102K</div><div class="st-l">Target</div></div>
+          <div class="st"><div class="st-v loss">$93,500</div><div class="st-l">Stop</div></div>
+        </div>
+        <div class="stats">
+          <div class="st"><div class="st-v profit">+6.5%</div><div class="st-l">Target Return</div></div>
+          <div class="st"><div class="st-v">3×</div><div class="st-l">Leverage</div></div>
+          <div class="st"><div class="pb"><div class="pb-track"><div class="pb-fill pb-p" style="width:74%"></div></div><span class="pb-v">74%</span></div><div class="st-l">Win Prob</div></div>
+        </div>
+      </div>
+      <div class="card-bot"><span class="footer-note">Whale accumulation • RSI divergence</span><button class="btn-t">📈 Paper Trade</button></div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <div class="tags"><span class="tag tag-long">▲ Long</span><span class="tag tag-cry">₿ Crypto</span><span class="tag tag-ai">✨ AI</span></div>
+        <div class="tk">
+          <div class="c-icon" style="background:#627eea22;color:#627eea;">Ξ</div>
+          <span class="tk-name">ETH</span><span class="tk-price">$2,684</span>
+        </div>
+        <div class="tk-sub">Ethereum • Spot • Pectra upgrade catalyst</div>
+      </div>
+      <div class="card-mid">
+        <div class="stats">
+          <div class="st"><div class="st-v">$2,650</div><div class="st-l">Entry</div></div>
+          <div class="st"><div class="st-v profit">$3,000</div><div class="st-l">Target</div></div>
+          <div class="st"><div class="pb"><div class="pb-track"><div class="pb-fill pb-p" style="width:62%"></div></div><span class="pb-v">62%</span></div><div class="st-l">Win Prob</div></div>
+        </div>
+      </div>
+      <div class="card-bot"><span class="footer-note">ETH/BTC at support</span><button class="btn-t">📈 Paper Trade</button></div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <div class="tags"><span class="tag tag-short">▼ Short</span><span class="tag tag-cry">₿ Crypto</span></div>
+        <div class="tk">
+          <div class="c-icon" style="background:#9945ff22;color:#9945ff;">◎</div>
+          <span class="tk-name">SOL</span><span class="tk-price">$198.40</span>
+        </div>
+        <div class="tk-sub">Solana • Perp Short • Overbought RSI</div>
+      </div>
+      <div class="card-mid">
+        <div class="stats">
+          <div class="st"><div class="st-v">$200</div><div class="st-l">Entry</div></div>
+          <div class="st"><div class="st-v profit">$178</div><div class="st-l">Target</div></div>
+          <div class="st"><div class="pb"><div class="pb-track"><div class="pb-fill pb-p" style="width:58%"></div></div><span class="pb-v">58%</span></div><div class="st-l">Win Prob</div></div>
+        </div>
+      </div>
+      <div class="card-bot"><span class="footer-note">$200 resistance rejection</span><button class="btn-t">📈 Paper Trade</button></div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <div class="tags"><span class="tag tag-long">▲ Long</span><span class="tag tag-cry">₿ Crypto</span></div>
+        <div class="tk">
+          <div class="c-icon" style="background:#2775ca22;color:#2775ca;">◈</div>
+          <span class="tk-name">LINK</span><span class="tk-price">$18.92</span>
+        </div>
+        <div class="tk-sub">Chainlink • Spot • Oracle demand surge</div>
+      </div>
+      <div class="card-mid">
+        <div class="stats">
+          <div class="st"><div class="st-v">$18.50</div><div class="st-l">Entry</div></div>
+          <div class="st"><div class="st-v profit">$22.00</div><div class="st-l">Target</div></div>
+          <div class="st"><div class="pb"><div class="pb-track"><div class="pb-fill pb-p" style="width:66%"></div></div><span class="pb-v">66%</span></div><div class="st-l">Win Prob</div></div>
+        </div>
+      </div>
+      <div class="card-bot"><span class="footer-note">RWA narrative • accumulation zone</span><button class="btn-t">📈 Paper Trade</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== PREDICTION MARKETS ========== -->
+<div class="section">
+  <div class="section-head">
+    <h2>🎯 Prediction Market Alerts <span class="count">4</span> <span class="badge-new">New</span></h2>
+    <a href="#" class="more">View All →</a>
+  </div>
+  <div class="card-row">
+    <div class="card">
+      <div class="card-top">
+        <div class="tags"><span class="tag tag-yes">✓ YES</span><span class="tag tag-pred">🎯 Prediction</span><span class="tag tag-ai">✨ AI</span></div>
+        <div style="font-size:15px;font-weight:700;margin-bottom:2px;">Fed cuts rates by June 2026?</div>
+        <div class="tk-sub">Polymarket • Resolves Jun 30 • Vol: $4.2M</div>
+      </div>
+      <div class="card-mid">
+        <div class="pm"><div class="pm-y" style="width:62%;">YES 62¢</div><div class="pm-n" style="width:38%;">NO 38¢</div></div>
+        <div class="stats">
+          <div class="st"><div class="st-v profit">62¢</div><div class="st-l">Buy YES</div></div>
+          <div class="st"><div class="st-v profit">+61%</div><div class="st-l">Potential</div></div>
+          <div class="st"><div class="pb"><div class="pb-track"><div class="pb-fill pb-p" style="width:78%"></div></div><span class="pb-v">78%</span></div><div class="st-l">AI Fair Value</div></div>
+        </div>
+        <div class="edge"><strong>16% edge</strong> — CME FedWatch confirms dovish tilt, market underpricing cut probability</div>
+      </div>
+      <div class="card-bot"><span class="footer-note">136 days to resolution</span><button class="btn-t">🎯 Buy YES</button></div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <div class="tags"><span class="tag tag-yes">✓ YES</span><span class="tag tag-pred">🎯 Prediction</span><span class="tag tag-ai">✨ AI</span></div>
+        <div style="font-size:15px;font-weight:700;margin-bottom:2px;">BTC above $100K by March?</div>
+        <div class="tk-sub">Polymarket • Resolves Mar 31 • Vol: $8.1M</div>
+      </div>
+      <div class="card-mid">
+        <div class="pm"><div class="pm-y" style="width:71%;">YES 71¢</div><div class="pm-n" style="width:29%;">NO 29¢</div></div>
+        <div class="stats">
+          <div class="st"><div class="st-v profit">71¢</div><div class="st-l">Buy YES</div></div>
+          <div class="st"><div class="st-v profit">+41%</div><div class="st-l">Potential</div></div>
+          <div class="st"><div class="pb"><div class="pb-track"><div class="pb-fill pb-p" style="width:85%"></div></div><span class="pb-v">85%</span></div><div class="st-l">AI Fair Value</div></div>
+        </div>
+        <div class="edge"><strong>14% edge</strong> — BTC at $96.5K, ETF inflows + halving cycle support</div>
+      </div>
+      <div class="card-bot"><span class="footer-note">46 days to resolution</span><button class="btn-t">🎯 Buy YES</button></div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <div class="tags"><span class="tag tag-no">✗ NO</span><span class="tag tag-pred">🎯 Prediction</span></div>
+        <div style="font-size:15px;font-weight:700;margin-bottom:2px;">US recession declared in 2026?</div>
+        <div class="tk-sub">Polymarket • Resolves Dec 31 • Vol: $12.4M</div>
+      </div>
+      <div class="card-mid">
+        <div class="pm"><div class="pm-y" style="width:24%;">YES 24¢</div><div class="pm-n" style="width:76%;">NO 76¢</div></div>
+        <div class="stats">
+          <div class="st"><div class="st-v">76¢</div><div class="st-l">Buy NO</div></div>
+          <div class="st"><div class="st-v profit">+32%</div><div class="st-l">Potential</div></div>
+          <div class="st"><div class="pb"><div class="pb-track"><div class="pb-fill pb-p" style="width:82%"></div></div><span class="pb-v">82%</span></div><div class="st-l">AI Fair Value</div></div>
+        </div>
+        <div class="edge"><strong>6% edge</strong> — GDP growth stable, labor market resilient</div>
+      </div>
+      <div class="card-bot"><span class="footer-note">321 days to resolution</span><button class="btn-t">🎯 Buy NO</button></div>
+    </div>
+    <div class="card">
+      <div class="card-top">
+        <div class="tags"><span class="tag tag-yes">✓ YES</span><span class="tag tag-pred">🎯 Prediction</span></div>
+        <div style="font-size:15px;font-weight:700;margin-bottom:2px;">ETH ETF approved by Q2 2026?</div>
+        <div class="tk-sub">Polymarket • Resolves Jun 30 • Vol: $2.8M</div>
+      </div>
+      <div class="card-mid">
+        <div class="pm"><div class="pm-y" style="width:55%;">YES 55¢</div><div class="pm-n" style="width:45%;">NO 45¢</div></div>
+        <div class="stats">
+          <div class="st"><div class="st-v profit">55¢</div><div class="st-l">Buy YES</div></div>
+          <div class="st"><div class="st-v profit">+82%</div><div class="st-l">Potential</div></div>
+          <div class="st"><div class="pb"><div class="pb-track"><div class="pb-fill pb-p" style="width:72%"></div></div><span class="pb-v">72%</span></div><div class="st-l">AI Fair Value</div></div>
+        </div>
+        <div class="edge"><strong>17% edge</strong> — SEC shifting stance, institutional demand strong</div>
+      </div>
+      <div class="card-bot"><span class="footer-note">136 days to resolution</span><button class="btn-t">🎯 Buy YES</button></div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /main -->
+</body>
+</html>
