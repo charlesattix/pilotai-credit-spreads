@@ -5,6 +5,7 @@ Base URL: https://api.polygon.io
 """
 
 import logging
+import os
 import requests
 import pandas as pd
 import numpy as np
@@ -275,7 +276,7 @@ if __name__ == "__main__":
     import json
 
     logging.basicConfig(level=logging.INFO)
-    provider = PolygonProvider(api_key="REDACTED_POLYGON_KEY")
+    provider = PolygonProvider(api_key=os.environ.get("POLYGON_API_KEY", ""))
 
     print("=== Testing Polygon Provider ===\n")
 

@@ -85,8 +85,8 @@ alerts:
 # Alpaca Paper Trading
 alpaca:
   enabled: true
-  api_key: "REDACTED_ALPACA_KEY"
-  api_secret: "REDACTED_ALPACA_SECRET"
+  api_key: "${ALPACA_API_KEY}"
+  api_secret: "${ALPACA_API_SECRET}"
   paper: true  # true = paper trading, false = live
 
 # Data Settings
@@ -100,7 +100,7 @@ data:
 
   # Polygon.io / Massive API settings
   polygon:
-    api_key: "REDACTED_POLYGON_KEY"
+    api_key: "${POLYGON_API_KEY}"
     sandbox: true  # true = sandbox (free), false = production
 
   # Historical data lookback for backtesting (days)

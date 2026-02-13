@@ -10,9 +10,24 @@ import yaml
 import colorlog
 
 
+def _resolve_env_vars(obj):
+    """Recursively resolve ${ENV_VAR} references in config values."""
+    import os, re
+    if isinstance(obj, str):
+        def replacer(m):
+            return os.environ.get(m.group(1), m.group(0))
+        return re.sub(r'\$\{(\w+)\}', replacer, obj)
+    elif isinstance(obj, dict):
+        return {k: _resolve_env_vars(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_resolve_env_vars(i) for i in obj]
+    return obj
+
+
 def load_config(config_file: str = 'config.yaml') -> Dict:
     """
     Load configuration from YAML file.
+    Supports ${ENV_VAR} substitution in string values.
     
     Args:
         config_file: Path to config file
@@ -20,6 +35,9 @@ def load_config(config_file: str = 'config.yaml') -> Dict:
     Returns:
         Configuration dictionary
     """
+    from dotenv import load_dotenv
+    load_dotenv()
+    
     config_path = Path(config_file)
     
     if not config_path.exists():
@@ -28,7 +46,7 @@ def load_config(config_file: str = 'config.yaml') -> Dict:
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     
-    return config
+    return _resolve_env_vars(config)
 
 
 def setup_logging(config: Dict):
