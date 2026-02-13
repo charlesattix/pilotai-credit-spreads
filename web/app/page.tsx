@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { StatsBar } from '@/components/layout/stats-bar'
 import { AlertCard } from '@/components/alerts/alert-card'
 import { AIChat } from '@/components/sidebar/ai-chat'
@@ -12,56 +12,22 @@ import { Alert } from '@/lib/api'
 import LivePositions from '@/components/positions/live-positions'
 import { RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
+import { useAlerts, usePositions } from '@/lib/hooks'
 
 type FilterType = 'all' | 'bullish' | 'bearish' | 'neutral' | 'high-prob'
 
-interface PositionsData {
-  closed_count: number
-  win_rate: number
-  total_trades: number
-  closed_trades: Array<{ exit_pnl: number | null }>
-}
-
 export default function HomePage() {
-  const [alerts, setAlerts] = useState<Alert[]>([])
-  const [loading, setLoading] = useState(true)
+  const { data: alertsData, isLoading: alertsLoading, mutate: mutateAlerts } = useAlerts()
+  const { data: positions } = usePositions()
   const [filter, setFilter] = useState<FilterType>('all')
   const [scanning, setScanning] = useState(false)
-  const [positions, setPositions] = useState<PositionsData | null>(null)
 
-  const fetchAlerts = async () => {
-    try {
-      const res = await fetch('/api/alerts')
-      const data = await res.json()
-      setAlerts(data.alerts || data.opportunities || [])
-    } catch (error) {
-      console.error('Failed to fetch alerts:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const fetchPositions = async () => {
-    try {
-      const res = await fetch('/api/positions')
-      const data = await res.json()
-      setPositions(data)
-    } catch (error) {
-      console.error('Failed to fetch positions:', error)
-    }
-  }
-
-  useEffect(() => {
-    fetchAlerts()
-    fetchPositions()
-    const interval = setInterval(fetchAlerts, 60000)
-    return () => clearInterval(interval)
-  }, [])
+  const alerts: Alert[] = alertsData?.alerts || alertsData?.opportunities || []
 
   const runScan = async () => {
     setScanning(true)
     toast.info('Refreshing alerts...')
-    await fetchAlerts()
+    await mutateAlerts()
     toast.success('Alerts refreshed! Scans run automatically every 30 minutes.')
     setScanning(false)
   }
@@ -79,16 +45,16 @@ export default function HomePage() {
 
   // Compute real stats from positions data
   const closedTrades = positions?.closed_trades || []
-  const winners = closedTrades.filter(t => (t.exit_pnl || 0) > 0)
-  const losers = closedTrades.filter(t => (t.exit_pnl || 0) <= 0)
+  const winners = closedTrades.filter((t: any) => (t.exit_pnl || 0) > 0)
+  const losers = closedTrades.filter((t: any) => (t.exit_pnl || 0) <= 0)
   const realWinRate = closedTrades.length > 0 ? (winners.length / closedTrades.length) * 100 : 0
-  const avgWinnerPct = winners.length > 0 ? winners.reduce((s, t) => s + (t.exit_pnl || 0), 0) / winners.length : 0
-  const avgLoserPct = losers.length > 0 ? losers.reduce((s, t) => s + (t.exit_pnl || 0), 0) / losers.length : 0
+  const avgWinnerPct = winners.length > 0 ? winners.reduce((s: number, t: any) => s + (t.exit_pnl || 0), 0) / winners.length : 0
+  const avgLoserPct = losers.length > 0 ? losers.reduce((s: number, t: any) => s + (t.exit_pnl || 0), 0) / losers.length : 0
   const profitFactor = losers.length > 0 && avgLoserPct !== 0
-    ? Math.abs(winners.reduce((s, t) => s + (t.exit_pnl || 0), 0) / losers.reduce((s, t) => s + (t.exit_pnl || 0), 0))
+    ? Math.abs(winners.reduce((s: number, t: any) => s + (t.exit_pnl || 0), 0) / losers.reduce((s: number, t: any) => s + (t.exit_pnl || 0), 0))
     : 0
 
-  if (loading) {
+  if (alertsLoading) {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-200px)]">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-brand-purple border-t-transparent"></div>
@@ -102,12 +68,12 @@ export default function HomePage() {
         alertsCount={alerts.length}
         avgPOP={avgPOP}
         winRate30d={closedTrades.length > 0 ? realWinRate : 0}
-        avgReturn={closedTrades.length > 0 ? (closedTrades.reduce((s, t) => s + (t.exit_pnl || 0), 0) / closedTrades.length) : 0}
+        avgReturn={closedTrades.length > 0 ? (closedTrades.reduce((s: number, t: any) => s + (t.exit_pnl || 0), 0) / closedTrades.length) : 0}
         alertsThisWeek={alerts.length}
       />
 
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6">
-        {/* Live System Positions */}
+        {/* Live System Positions — uses shared SWR data, no extra fetch */}
         <LivePositions />
 
         <div className="flex gap-6">

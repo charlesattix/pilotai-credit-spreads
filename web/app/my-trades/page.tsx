@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useState } from 'react'
 import { TrendingUp, TrendingDown, DollarSign, Target, Clock, XCircle, BarChart3, ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { getUserId, PAPER_TRADING_ENABLED } from '@/lib/user-id'
+import { usePaperTrades } from '@/lib/hooks'
 
 interface PaperTrade {
   id: string
@@ -58,29 +59,10 @@ function formatDate(dateStr: string): string {
 }
 
 export default function MyTradesPage() {
-  const [trades, setTrades] = useState<PaperTrade[]>([])
-  const [stats, setStats] = useState<Stats | null>(null)
-  const [loading, setLoading] = useState(true)
+  const { data: tradesData, isLoading: loading, mutate } = usePaperTrades(getUserId())
+  const trades: PaperTrade[] = tradesData?.trades || []
+  const stats: Stats | null = tradesData?.stats || null
   const [tab, setTab] = useState<'open' | 'closed' | 'all'>('open')
-
-  const fetchTrades = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/paper-trades?userId=${getUserId()}`)
-      const data = await res.json()
-      setTrades(data.trades || [])
-      setStats(data.stats || null)
-    } catch (error) {
-      console.error('Failed to fetch trades:', error)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    fetchTrades()
-    const interval = setInterval(fetchTrades, 30000) // refresh every 30s
-    return () => clearInterval(interval)
-  }, [fetchTrades])
 
   const closeTrade = async (tradeId: string, reason: string = 'manual') => {
     try {
@@ -90,7 +72,7 @@ export default function MyTradesPage() {
       if (res.ok) {
         const pnl = data.trade?.realized_pnl || 0
         toast.success(`Trade closed: ${pnl >= 0 ? 'Profit' : 'Loss'} ${formatCurrency(pnl)} — moved to Closed tab`)
-        fetchTrades()
+        mutate()
         setTab('closed')
       } else {
         toast.error(data.error || 'Failed to close trade')

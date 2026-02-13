@@ -1,6 +1,5 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import { TrendingUp, TrendingDown, Clock, DollarSign, Activity } from 'lucide-react'
 
 interface Position {
@@ -34,28 +33,11 @@ function formatCurrency(value: number): string {
   return `${prefix}$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
 }
 
-export default function LivePositions() {
-  const [data, setData] = useState<PositionsData | null>(null)
-  const [loading, setLoading] = useState(true)
+interface LivePositionsProps {
+  data?: PositionsData | null
+}
 
-  useEffect(() => {
-    const fetchPositions = async () => {
-      try {
-        const res = await fetch('/api/positions')
-        const json = await res.json()
-        setData(json)
-      } catch (err) {
-        console.error('Failed to fetch positions:', err)
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchPositions()
-    const interval = setInterval(fetchPositions, 15000) // refresh every 15s
-    return () => clearInterval(interval)
-  }, [])
-
-  if (loading) return null
+export default function LivePositions({ data }: LivePositionsProps) {
   if (!data || data.open_count === 0) return null
 
   return (
@@ -85,7 +67,6 @@ export default function LivePositions() {
 
           return (
             <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between py-2 px-2 sm:px-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors gap-1 sm:gap-0">
-              {/* Top row on mobile / Left on desktop */}
               <div className="flex items-center justify-between sm:justify-start gap-2 sm:gap-3">
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs sm:text-sm font-bold">{pos.ticker}</span>
@@ -96,13 +77,11 @@ export default function LivePositions() {
                 <span className="text-[10px] sm:text-xs text-muted-foreground">
                   ${pos.short_strike}/{pos.long_strike} × {pos.contracts}
                 </span>
-                {/* Mobile P&L inline */}
                 <div className={`sm:hidden text-xs font-bold ml-auto ${pnl >= 0 ? 'text-profit' : 'text-loss'}`}>
                   {formatCurrency(pnl)}
                 </div>
               </div>
 
-              {/* Progress bar row */}
               <div className="flex items-center gap-2 flex-1 sm:mx-4 max-w-full sm:max-w-[200px]">
                 <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
                   <div
@@ -115,7 +94,6 @@ export default function LivePositions() {
                 </span>
               </div>
 
-              {/* Right: P&L (desktop only) */}
               <div className="hidden sm:block text-right">
                 <div className={`text-sm font-bold ${pnl >= 0 ? 'text-profit' : 'text-loss'}`}>
                   {formatCurrency(pnl)}

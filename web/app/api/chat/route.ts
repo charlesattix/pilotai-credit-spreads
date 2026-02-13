@@ -1,4 +1,30 @@
+import { logger } from "@/lib/logger"
 import { NextResponse } from "next/server";
+
+// Simple in-memory rate limiter: IP-based, 10 requests per minute
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT_MAX = 10;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= RATE_LIMIT_MAX) return false;
+  entry.count++;
+  return true;
+}
+
+// Periodic cleanup to prevent memory leak
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of Array.from(rateLimitMap)) {
+    if (now > val.resetAt) rateLimitMap.delete(key);
+  }
+}, 60_000);
 
 const SYSTEM_PROMPT = `You are the PilotAI Trading Assistant — an expert in credit spread options strategies. You help users understand their trades, analyze market conditions, and learn options trading concepts.
 
@@ -22,6 +48,11 @@ Format tips: Use bullet points for lists. Bold key numbers. Keep it scannable.`;
 
 export async function POST(request: Request) {
   try {
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+    if (!checkRateLimit(ip)) {
+      return NextResponse.json({ error: "Rate limit exceeded. Max 10 requests per minute." }, { status: 429 });
+    }
+
     const { messages, alerts } = await request.json();
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
@@ -52,11 +83,12 @@ export async function POST(request: Request) {
           model: 'gpt-4o-mini',
           messages: [
             { role: 'system', content: contextPrompt },
-            ...messages.slice(-10), // last 10 messages for context
+            ...messages.slice(-10),
           ],
           max_tokens: 500,
           temperature: 0.7,
         }),
+        signal: AbortSignal.timeout(15000),
       });
 
       if (response.ok) {
@@ -64,15 +96,19 @@ export async function POST(request: Request) {
         const reply = data.choices?.[0]?.message?.content || "I couldn't generate a response.";
         return NextResponse.json({ reply });
       }
+
+      // Log error response body for debugging
+      const errorBody = await response.text().catch(() => 'unreadable');
+      console.error(`OpenAI API error ${response.status}:`, errorBody);
     }
 
     // Fallback: smart local responses based on keywords
     const lastMessage = messages[messages.length - 1]?.content?.toLowerCase() || '';
     const reply = generateLocalResponse(lastMessage, alerts);
-    return NextResponse.json({ reply });
+    return NextResponse.json({ reply, fallback: true });
 
   } catch (error) {
-    console.error("Chat error:", error);
+    logger.error("Chat error", { error: String(error) });
     return NextResponse.json({ error: "Chat failed" }, { status: 500 });
   }
 }
