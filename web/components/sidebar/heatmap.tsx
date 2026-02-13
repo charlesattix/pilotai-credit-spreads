@@ -1,0 +1,74 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+
+export function Heatmap() {
+  const [days, setDays] = useState<string[]>(Array(28).fill('none'))
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const res = await fetch('/api/positions')
+        const data = await res.json()
+        const closedTrades: Array<{ exit_date: string | null; exit_pnl: number | null }> = data.closed_trades || []
+        
+        // Build a map of date → win/loss from real closed trades
+        const tradeMap: Record<string, string> = {}
+        closedTrades.forEach(t => {
+          if (t.exit_date) {
+            const dateKey = t.exit_date.split('T')[0]
+            tradeMap[dateKey] = (t.exit_pnl || 0) > 0 ? 'win' : 'loss'
+          }
+        })
+
+        // Generate last 28 days
+        const result: string[] = []
+        for (let i = 27; i >= 0; i--) {
+          const d = new Date()
+          d.setDate(d.getDate() - i)
+          const key = d.toISOString().split('T')[0]
+          result.push(tradeMap[key] || 'none')
+        }
+        setDays(result)
+      } catch {
+        // Keep all 'none' on error
+      }
+    }
+    fetchData()
+  }, [])
+
+  return (
+    <div className="bg-white rounded-lg border border-border p-4">
+      <h3 className="font-semibold mb-4">Recent 28 Days</h3>
+      <div className="grid grid-cols-7 gap-1">
+        {days.map((status, idx) => (
+          <div
+            key={idx}
+            className={`aspect-square rounded-sm ${
+              status === 'win'
+                ? 'bg-profit'
+                : status === 'loss'
+                ? 'bg-loss'
+                : 'bg-secondary'
+            }`}
+            title={status === 'win' ? 'Win' : status === 'loss' ? 'Loss' : 'No trade'}
+          />
+        ))}
+      </div>
+      <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 bg-profit rounded-sm"></div>
+          <span>Win</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 bg-loss rounded-sm"></div>
+          <span>Loss</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 bg-secondary rounded-sm"></div>
+          <span>None</span>
+        </div>
+      </div>
+    </div>
+  )
+}

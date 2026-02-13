@@ -1,0 +1,132 @@
+"""
+Utility functions for the credit spread system.
+"""
+
+import logging
+import logging.handlers
+from pathlib import Path
+from typing import Dict
+import yaml
+import colorlog
+
+
+def load_config(config_file: str = 'config.yaml') -> Dict:
+    """
+    Load configuration from YAML file.
+    
+    Args:
+        config_file: Path to config file
+        
+    Returns:
+        Configuration dictionary
+    """
+    config_path = Path(config_file)
+    
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found: {config_file}")
+    
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    return config
+
+
+def setup_logging(config: Dict):
+    """
+    Setup logging configuration.
+    
+    Args:
+        config: Configuration dictionary
+    """
+    log_config = config['logging']
+    
+    # Create logs directory
+    log_file = Path(log_config['file'])
+    log_file.parent.mkdir(exist_ok=True)
+    
+    # Setup formatters
+    file_formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    console_formatter = colorlog.ColoredFormatter(
+        '%(log_color)s%(asctime)s - %(name)s - %(levelname)s - %(message)s%(reset)s',
+        datefmt='%H:%M:%S',
+        log_colors={
+            'DEBUG': 'cyan',
+            'INFO': 'green',
+            'WARNING': 'yellow',
+            'ERROR': 'red',
+            'CRITICAL': 'red,bg_white',
+        }
+    )
+    
+    # Setup handlers
+    handlers = []
+    
+    # File handler (rotating)
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_file,
+        maxBytes=10*1024*1024,  # 10 MB
+        backupCount=5
+    )
+    file_handler.setFormatter(file_formatter)
+    handlers.append(file_handler)
+    
+    # Console handler
+    if log_config.get('console', True):
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(console_formatter)
+        handlers.append(console_handler)
+    
+    # Configure root logger
+    log_level = getattr(logging, log_config['level'])
+    
+    logging.basicConfig(
+        level=log_level,
+        handlers=handlers
+    )
+    
+    # Reduce noise from some libraries
+    logging.getLogger('urllib3').setLevel(logging.WARNING)
+    logging.getLogger('yfinance').setLevel(logging.WARNING)
+
+
+def validate_config(config: Dict) -> bool:
+    """
+    Validate configuration.
+    
+    Args:
+        config: Configuration dictionary
+        
+    Returns:
+        True if valid
+    """
+    required_sections = ['tickers', 'strategy', 'risk', 'alerts', 'data', 'logging', 'backtest']
+    
+    for section in required_sections:
+        if section not in config:
+            raise ValueError(f"Missing required config section: {section}")
+    
+    # Validate tickers
+    if not config['tickers']:
+        raise ValueError("No tickers specified")
+    
+    # Validate strategy params
+    strategy = config['strategy']
+    if strategy['min_dte'] >= strategy['max_dte']:
+        raise ValueError("min_dte must be less than max_dte")
+    
+    if strategy['min_delta'] >= strategy['max_delta']:
+        raise ValueError("min_delta must be less than max_delta")
+    
+    # Validate risk params
+    risk = config['risk']
+    if risk['account_size'] <= 0:
+        raise ValueError("account_size must be positive")
+    
+    if risk['max_risk_per_trade'] <= 0 or risk['max_risk_per_trade'] > 100:
+        raise ValueError("max_risk_per_trade must be between 0 and 100")
+    
+    return True
