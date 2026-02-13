@@ -7,7 +7,26 @@
 
 This is a trading system -- one config flag away from real money -- with zero tests, zero auth, zero deployment infrastructure, hardcoded API keys committed to git, and a core options filtering bug that means it literally cannot find trades when using its configured data provider.
 
-**Total findings: 154** across all panels.
+**Total findings: 157** across all panels.
+
+---
+
+## SCORE SUMMARY
+
+| Panel | Score | CRIT | HIGH | MED | LOW | Total |
+|---|---|---|---|---|---|---|
+| Architecture | 2/10 | 6 | 10 | 10 | 1 | 27 |
+| Code Quality | 3/10 | 3 | 8 | 13 | 11 | 35 |
+| Security | 1/10 | 4 | 4 | 4 | 4 | 16 |
+| Performance | 2/10 | 4 | 8 | 5 | 2 | 19 |
+| Error Handling | 1/10 | 7 | 10 | 8 | 0 | 25 |
+| Testing | 0/10 | 7 | 7 | 5 | 2 | 21 |
+| Production Readiness | 1.5/10 | 3 | 5 | 5 | 1 | 14 |
+| **TOTAL** | **1.5/10** | **34** | **52** | **50** | **21** | **157** |
+
+**Worst panels:** Testing (literally zero tests), Security (3-request full takeover chain), Error Handling (bare excepts hiding financial losses).
+
+**Single most dangerous finding:** An unauthenticated attacker can steal all API keys, flip paper-to-live, and trigger real trades -- all without logging in. Three HTTP requests. Zero authentication.
 
 ---
 
