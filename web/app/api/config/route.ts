@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger"
 import { NextResponse } from 'next/server'
 import { promises as fs } from 'fs'
 import path from 'path'
@@ -97,7 +98,7 @@ export async function GET() {
     const config = yaml.load(data)
     return NextResponse.json(stripSecrets(config))
   } catch (error) {
-    console.error('Failed to read config:', error)
+    logger.error('Failed to read config', { error: String(error) })
     return NextResponse.json({ error: 'Failed to read config' }, { status: 500 })
   }
 }
@@ -114,7 +115,7 @@ export async function POST(request: Request) {
     await fs.writeFile(configPath, yamlStr, 'utf-8')
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Failed to write config:', error)
+    logger.error('Failed to write config', { error: String(error) })
     return NextResponse.json({ error: 'Failed to write config' }, { status: 500 })
   }
 }

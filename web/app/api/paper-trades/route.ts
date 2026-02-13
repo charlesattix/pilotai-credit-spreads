@@ -1,8 +1,36 @@
+import { logger } from "@/lib/logger"
 import { NextResponse } from "next/server";
 import { readFile, writeFile, mkdir } from "fs/promises";
 import path from "path";
+import { z } from "zod";
 import { PaperTrade, Portfolio } from "@/lib/types";
 import { calcUnrealizedPnL } from "@/lib/pnl";
+
+const AlertSchema = z.object({
+  ticker: z.string().min(1).max(10),
+  credit: z.number().positive(),
+  spread_width: z.number().positive(),
+  dte: z.number().positive(),
+  expiration: z.string().min(1),
+  type: z.string().min(1),
+  current_price: z.number().optional(),
+  short_strike: z.number().optional(),
+  long_strike: z.number().optional(),
+  pop: z.number().optional(),
+  score: z.number().optional(),
+  short_delta: z.number().optional(),
+}).refine(d => d.spread_width > d.credit, {
+  message: "spread_width must be greater than credit",
+});
+
+const PostTradeSchema = z.object({
+  alert: AlertSchema,
+  contracts: z.number().int().min(1).max(100).default(1),
+});
+
+function getUserId(request: Request): string {
+  return request.headers.get('x-user-id') || 'default';
+}
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const TRADES_DIR = path.join(DATA_DIR, "user_trades");
@@ -51,8 +79,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ trades: [], stats: { disabled: true }, message: "Paper trading is temporarily disabled" });
   }
 
-  const { searchParams } = new URL(request.url);
-  const userId = searchParams.get('userId') || 'default';
+  const userId = getUserId(request);
 
   return withLock(userId, async () => {
     const portfolio = await readPortfolio(userId);
@@ -98,11 +125,12 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const { alert, contracts = 1, userId = 'default' } = body;
-
-    if (!alert) {
-      return NextResponse.json({ error: "Alert data required" }, { status: 400 });
+    const parsed = PostTradeSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
     }
+    const { alert, contracts } = parsed.data;
+    const userId = getUserId(request);
 
     return withLock(userId, async () => {
       const portfolio = await readPortfolio(userId);
@@ -130,14 +158,14 @@ export async function POST(request: Request) {
         id: `PT-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
         ticker: alert.ticker,
         type: alert.type,
-        short_strike: alert.short_strike,
-        long_strike: alert.long_strike,
+        short_strike: alert.short_strike ?? 0,
+        long_strike: alert.long_strike ?? 0,
         spread_width: spreadWidth,
         expiration: alert.expiration,
         dte_at_entry: alert.dte,
         entry_credit: creditPerContract,
-        entry_price: alert.current_price,
-        current_price: alert.current_price,
+        entry_price: alert.current_price ?? 0,
+        current_price: alert.current_price ?? 0,
         contracts,
         max_profit: creditPerContract * 100 * contracts,
         max_loss: (spreadWidth - creditPerContract) * 100 * contracts,
@@ -156,7 +184,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, trade });
     });
   } catch (error) {
-    console.error("Failed to create paper trade:", error);
+    logger.error("Failed to create paper trade", { error: String(error) });
     return NextResponse.json({ error: "Failed to create trade" }, { status: 500 });
   }
 }
@@ -171,7 +199,7 @@ export async function DELETE(request: Request) {
     const { searchParams } = new URL(request.url);
     const tradeId = searchParams.get('id');
     const reason = searchParams.get('reason') || 'manual';
-    const userId = searchParams.get('userId') || 'default';
+    const userId = getUserId(request);
 
     if (!tradeId) {
       return NextResponse.json({ error: "Trade ID required" }, { status: 400 });
@@ -204,7 +232,7 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ success: true, trade: portfolio.trades[tradeIdx] });
     });
   } catch (error) {
-    console.error("Failed to close paper trade:", error);
+    logger.error("Failed to close paper trade", { error: String(error) });
     return NextResponse.json({ error: "Failed to close trade" }, { status: 500 });
   }
 }

@@ -99,7 +99,7 @@ export async function POST(request: Request) {
 
       // Log error response body for debugging
       const errorBody = await response.text().catch(() => 'unreadable');
-      console.error(`OpenAI API error ${response.status}:`, errorBody);
+      logger.error(`OpenAI API error ${response.status}`, { error: String(errorBody) });
     }
 
     // Fallback: smart local responses based on keywords

@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger"
 import { NextResponse } from 'next/server';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -24,7 +25,7 @@ export async function POST() {
     });
 
     if (stderr) {
-      console.error('Backtest stderr:', stderr);
+      logger.error('Backtest stderr', { error: String(stderr) });
     }
 
     const backtestPath = path.join(systemPath, 'output/backtest_results.json');
@@ -45,7 +46,7 @@ export async function POST() {
     }
   } catch (error: unknown) {
     const err = error as { message: string };
-    console.error('Backtest failed:', err);
+    logger.error('Backtest failed', { error: String(err) });
     return NextResponse.json(
       { success: false, error: err.message },
       { status: 500 }

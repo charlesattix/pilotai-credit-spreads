@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger"
 import { NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
@@ -72,7 +73,7 @@ export async function GET() {
 
     return NextResponse.json(response);
   } catch (error) {
-    console.error('Failed to read positions:', error);
+    logger.error('Failed to read positions', { error: String(error) });
     return NextResponse.json(EMPTY_RESPONSE);
   }
 }
