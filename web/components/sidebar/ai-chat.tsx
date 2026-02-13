@@ -25,7 +25,10 @@ export function AIChat({ forceExpanded }: { forceExpanded?: boolean } = {}) {
   const inputRef = useRef<HTMLInputElement>(null)
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const container = messagesEndRef.current?.parentElement
+    if (container) {
+      container.scrollTop = container.scrollHeight
+    }
   }
 
   useEffect(() => {
