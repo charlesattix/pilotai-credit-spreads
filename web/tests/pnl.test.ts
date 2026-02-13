@@ -98,4 +98,49 @@ describe('calculateUnrealizedPnL', () => {
     const trade = makeTrade({ status: 'closed_profit', realized_pnl: 120 })
     expect(calculateUnrealizedPnL(trade)).toBe(120)
   })
+
+  it('very large DTE (365+ days) returns bounded P&L', () => {
+    const future = new Date()
+    future.setDate(future.getDate() + 400)
+    const trade = makeTrade({
+      dte_at_entry: 400,
+      expiration: future.toISOString().split('T')[0],
+    })
+    const pnl = calculateUnrealizedPnL(trade)
+    expect(pnl).toBeGreaterThanOrEqual(-trade.max_loss)
+    expect(pnl).toBeLessThanOrEqual(trade.max_profit)
+    expect(Number.isFinite(pnl)).toBe(true)
+  })
+
+  it('negative current_price returns finite P&L', () => {
+    const trade = makeTrade({ current_price: -10 })
+    const pnl = calculateUnrealizedPnL(trade)
+    expect(Number.isFinite(pnl)).toBe(true)
+  })
+
+  it('max_profit = 0 returns 0', () => {
+    const trade = makeTrade({ max_profit: 0, max_loss: 350 })
+    const pnl = calculateUnrealizedPnL(trade)
+    expect(pnl).toBe(0)
+  })
+
+  it('max_loss = 0 returns bounded P&L', () => {
+    const trade = makeTrade({ max_loss: 0 })
+    const pnl = calculateUnrealizedPnL(trade)
+    expect(Number.isFinite(pnl)).toBe(true)
+    expect(pnl).toBeLessThanOrEqual(trade.max_profit)
+  })
+
+  it('handles all-zero numeric inputs gracefully', () => {
+    const trade = makeTrade({
+      max_profit: 0,
+      max_loss: 0,
+      entry_price: 0,
+      current_price: 0,
+      dte_at_entry: 0,
+      contracts: 0,
+    })
+    const pnl = calculateUnrealizedPnL(trade)
+    expect(Number.isFinite(pnl)).toBe(true)
+  })
 })
