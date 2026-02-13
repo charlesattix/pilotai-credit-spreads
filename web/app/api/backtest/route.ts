@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger"
 import { NextResponse } from 'next/server'
 import { promises as fs } from 'fs'
 import path from 'path'
@@ -29,7 +30,7 @@ export async function GET() {
       })
     }
   } catch (error) {
-    console.error('Failed to read backtest results:', error)
+    logger.error('Failed to read backtest results', { error: String(error) })
     return NextResponse.json({ error: 'Failed to read backtest results' }, { status: 500 })
   }
 }
