@@ -28,7 +28,7 @@ export default function BacktestCharts({ results }: { results: BacktestResult })
               <YAxis stroke="#6B7280" />
               <Tooltip
                 contentStyle={{ backgroundColor: '#fff', border: '1px solid #E5E7EB', borderRadius: '8px' }}
-                formatter={(value: any) => formatCurrency(value)}
+                formatter={(value: number | string) => formatCurrency(Number(value))}
               />
               <Legend />
               <Line type="monotone" dataKey="equity" stroke="#9B6DFF" strokeWidth={2} dot={false} />

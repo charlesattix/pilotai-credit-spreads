@@ -51,18 +51,17 @@ export default function SettingsPage() {
     }
   }
 
-  const updateConfig = (path: string[], value: any) => {
-    if (!config) return
-
-    const newConfig = { ...config }
-    let current: any = newConfig
-
-    for (let i = 0; i < path.length - 1; i++) {
-      current = current[path[i]]
-    }
-
-    current[path[path.length - 1]] = value
-    setConfig(newConfig)
+  const updateConfig = (path: string[], value: unknown) => {
+    setConfig(prev => {
+      if (!prev) return prev
+      const newConfig = JSON.parse(JSON.stringify(prev)); // deep clone
+      let current: Record<string, unknown> = newConfig;
+      for (let i = 0; i < path.length - 1; i++) {
+        current = current[path[i]] as Record<string, unknown>;
+      }
+      current[path[path.length - 1]] = value;
+      return newConfig;
+    });
   }
 
   if (loading) {

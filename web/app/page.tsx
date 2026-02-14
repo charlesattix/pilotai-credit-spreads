@@ -13,6 +13,7 @@ import LivePositions from '@/components/positions/live-positions'
 import { RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAlerts, usePositions } from '@/lib/hooks'
+import { PaperTrade } from '@/lib/types'
 
 type FilterType = 'all' | 'bullish' | 'bearish' | 'neutral' | 'high-prob'
 
@@ -44,14 +45,14 @@ export default function HomePage() {
   const avgPOP = alerts.length > 0 ? alerts.reduce((sum, a) => sum + (a.pop || 0), 0) / alerts.length : 0
 
   // Compute real stats from positions data
-  const closedTrades = positions?.closed_trades || []
-  const winners = closedTrades.filter((t: any) => (t.exit_pnl || 0) > 0)
-  const losers = closedTrades.filter((t: any) => (t.exit_pnl || 0) <= 0)
+  const closedTrades: PaperTrade[] = positions?.closed_trades || []
+  const winners = closedTrades.filter((t) => (t.realized_pnl || 0) > 0)
+  const losers = closedTrades.filter((t) => (t.realized_pnl || 0) <= 0)
   const realWinRate = closedTrades.length > 0 ? (winners.length / closedTrades.length) * 100 : 0
-  const avgWinnerPct = winners.length > 0 ? winners.reduce((s: number, t: any) => s + (t.exit_pnl || 0), 0) / winners.length : 0
-  const avgLoserPct = losers.length > 0 ? losers.reduce((s: number, t: any) => s + (t.exit_pnl || 0), 0) / losers.length : 0
+  const avgWinnerPct = winners.length > 0 ? winners.reduce((s, t) => s + (t.realized_pnl || 0), 0) / winners.length : 0
+  const avgLoserPct = losers.length > 0 ? losers.reduce((s, t) => s + (t.realized_pnl || 0), 0) / losers.length : 0
   const profitFactor = losers.length > 0 && avgLoserPct !== 0
-    ? Math.abs(winners.reduce((s: number, t: any) => s + (t.exit_pnl || 0), 0) / losers.reduce((s: number, t: any) => s + (t.exit_pnl || 0), 0))
+    ? Math.abs(winners.reduce((s, t) => s + (t.realized_pnl || 0), 0) / losers.reduce((s, t) => s + (t.realized_pnl || 0), 0))
     : 0
 
   if (alertsLoading) {
@@ -68,7 +69,7 @@ export default function HomePage() {
         alertsCount={alerts.length}
         avgPOP={avgPOP}
         winRate30d={closedTrades.length > 0 ? realWinRate : 0}
-        avgReturn={closedTrades.length > 0 ? (closedTrades.reduce((s: number, t: any) => s + (t.exit_pnl || 0), 0) / closedTrades.length) : 0}
+        avgReturn={closedTrades.length > 0 ? (closedTrades.reduce((s, t) => s + (t.realized_pnl || 0), 0) / closedTrades.length) : 0}
         alertsThisWeek={alerts.length}
       />
 
