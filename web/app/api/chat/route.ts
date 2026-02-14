@@ -1,6 +1,17 @@
 import { logger } from "@/lib/logger"
 import { NextResponse } from "next/server";
 
+interface ChatAlert {
+  ticker?: string;
+  type?: string;
+  short_strike?: number;
+  long_strike?: number;
+  expiration?: string;
+  credit?: number;
+  pop?: number;
+  score?: number;
+}
+
 // Simple in-memory rate limiter: IP-based, 10 requests per minute
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_MAX = 10;
@@ -60,7 +71,7 @@ export async function POST(request: Request) {
     // Build context with current alerts if available
     let contextPrompt = SYSTEM_PROMPT;
     if (alerts && alerts.length > 0) {
-      const alertSummary = alerts.slice(0, 5).map((a: any) =>
+      const alertSummary = alerts.slice(0, 5).map((a: ChatAlert) =>
         `${a.ticker} ${a.type}: ${a.short_strike}/${a.long_strike} exp ${a.expiration}, credit $${a.credit?.toFixed(2)}, PoP ${a.pop?.toFixed(0)}%, score ${a.score}`
       ).join('\n');
       contextPrompt += `\n\nCurrent active alerts:\n${alertSummary}`;
@@ -70,34 +81,41 @@ export async function POST(request: Request) {
     const apiKey = process.env.OPENAI_API_KEY;
     
     if (apiKey) {
-      // Use OpenAI
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: contextPrompt },
-            ...messages.slice(-10),
-          ],
-          max_tokens: 500,
-          temperature: 0.7,
-        }),
-        signal: AbortSignal.timeout(15000),
-      });
+      const RETRYABLE = [429, 500, 503];
+      const MAX_ATTEMPTS = 2;
 
-      if (response.ok) {
-        const data = await response.json();
-        const reply = data.choices?.[0]?.message?.content || "I couldn't generate a response.";
-        return NextResponse.json({ reply });
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 1000));
+
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [
+              { role: 'system', content: contextPrompt },
+              ...messages.slice(-10),
+            ],
+            max_tokens: 500,
+            temperature: 0.7,
+          }),
+          signal: AbortSignal.timeout(15000),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const reply = data.choices?.[0]?.message?.content || "I couldn't generate a response.";
+          return NextResponse.json({ reply });
+        }
+
+        const errorBody = await response.text().catch(() => 'unreadable');
+        logger.error(`OpenAI API error ${response.status} (attempt ${attempt + 1})`, { error: String(errorBody) });
+
+        if (!RETRYABLE.includes(response.status)) break;
       }
-
-      // Log error response body for debugging
-      const errorBody = await response.text().catch(() => 'unreadable');
-      logger.error(`OpenAI API error ${response.status}`, { error: String(errorBody) });
     }
 
     // Fallback: smart local responses based on keywords
@@ -111,7 +129,7 @@ export async function POST(request: Request) {
   }
 }
 
-function generateLocalResponse(message: string, alerts?: any[]): string {
+function generateLocalResponse(message: string, alerts?: ChatAlert[]): string {
   // Credit spread questions
   if (message.includes('credit spread') || message.includes('what is a')) {
     return `**Credit spreads** are options strategies where you sell a higher-premium option and buy a lower-premium option at a different strike, collecting a net credit.
