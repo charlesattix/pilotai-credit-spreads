@@ -6,34 +6,7 @@ import { toast } from 'sonner'
 import Link from 'next/link'
 import { getUserId, PAPER_TRADING_ENABLED } from '@/lib/user-id'
 import { usePaperTrades } from '@/lib/hooks'
-
-interface PaperTrade {
-  id: string
-  ticker: string
-  type: string
-  short_strike: number
-  long_strike: number
-  spread_width: number
-  expiration: string
-  dte_at_entry: number
-  entry_credit: number
-  entry_price: number
-  current_price?: number
-  contracts: number
-  max_profit: number
-  max_loss: number
-  status: string
-  entry_date: string
-  exit_date?: string
-  realized_pnl?: number
-  unrealized_pnl?: number
-  days_remaining?: number
-  profit_target: number
-  stop_loss: number
-  pop: number
-  score: number
-  short_delta: number
-}
+import { PaperTrade } from '@/lib/types'
 
 interface Stats {
   total_trades: number

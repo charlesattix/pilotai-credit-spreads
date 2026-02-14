@@ -8,6 +8,12 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 
 function checkRateLimit(ip: string): boolean {
   const now = Date.now();
+  // Lazy cleanup: delete stale entries when map grows large
+  if (rateLimitMap.size > 1000) {
+    for (const [key, val] of Array.from(rateLimitMap)) {
+      if (now > val.resetAt) rateLimitMap.delete(key);
+    }
+  }
   const entry = rateLimitMap.get(ip);
   if (!entry || now > entry.resetAt) {
     rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
@@ -17,14 +23,6 @@ function checkRateLimit(ip: string): boolean {
   entry.count++;
   return true;
 }
-
-// Periodic cleanup to prevent memory leak
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, val] of Array.from(rateLimitMap)) {
-    if (now > val.resetAt) rateLimitMap.delete(key);
-  }
-}, 60_000);
 
 const SYSTEM_PROMPT = `You are the PilotAI Trading Assistant — an expert in credit spread options strategies. You help users understand their trades, analyze market conditions, and learn options trading concepts.
 
