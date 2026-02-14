@@ -42,6 +42,8 @@ data/
 output/
 *.csv
 *.json
+!web/package-lock.json
+!web/package.json
 
 # Keep example files
 !data/.gitkeep
