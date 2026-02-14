@@ -139,10 +139,22 @@ export interface Config {
 
 // Retry wrapper for API calls — retries on 500/503 with 1s delay, max 2 retries
 async function apiFetch<T>(url: string, options?: RequestInit, retries = 2): Promise<T> {
+  const authToken = typeof window !== 'undefined'
+    ? process.env.NEXT_PUBLIC_API_AUTH_TOKEN
+    : undefined
+  const authHeaders: Record<string, string> = {}
+  if (authToken) {
+    authHeaders['Authorization'] = `Bearer ${authToken}`
+  }
+
   let lastError: Error | null = null
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const res = await fetch(url, { cache: 'no-store', ...options })
+      const res = await fetch(url, {
+        cache: 'no-store',
+        ...options,
+        headers: { ...authHeaders, ...options?.headers },
+      })
       if (res.ok) return res.json()
       if ((res.status === 500 || res.status === 503) && attempt < retries) {
         await new Promise(r => setTimeout(r, 1000))

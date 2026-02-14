@@ -7,6 +7,7 @@ import logging
 from typing import Dict
 import numpy as np
 import pandas as pd
+from shared.indicators import calculate_rsi
 try:
     import talib
     HAS_TALIB = True
@@ -79,14 +80,17 @@ class TechnicalAnalyzer:
         """
         fast_period = self.tech_params['fast_ma']
         slow_period = self.tech_params['slow_ma']
-        
+
+        # Work on a copy to avoid mutating the caller's DataFrame
+        df = price_data.copy()
+
         # Calculate MAs
-        price_data['MA_fast'] = price_data['Close'].rolling(window=fast_period).mean()
-        price_data['MA_slow'] = price_data['Close'].rolling(window=slow_period).mean()
-        
-        current_price = price_data['Close'].iloc[-1]
-        ma_fast = price_data['MA_fast'].iloc[-1]
-        ma_slow = price_data['MA_slow'].iloc[-1]
+        df['MA_fast'] = df['Close'].rolling(window=fast_period).mean()
+        df['MA_slow'] = df['Close'].rolling(window=slow_period).mean()
+
+        current_price = df['Close'].iloc[-1]
+        ma_fast = df['MA_fast'].iloc[-1]
+        ma_slow = df['MA_slow'].iloc[-1]
         
         # Determine trend
         if current_price > ma_fast > ma_slow:
@@ -117,11 +121,7 @@ class TechnicalAnalyzer:
         if HAS_TALIB:
             rsi = pd.Series(talib.RSI(price_data['Close'].values, timeperiod=rsi_period), index=price_data.index)
         else:
-            delta = price_data['Close'].diff()
-            gain = delta.where(delta > 0, 0).rolling(window=rsi_period).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=rsi_period).mean()
-            rs = gain / loss
-            rsi = 100 - (100 / (1 + rs))
+            rsi = calculate_rsi(price_data['Close'], period=rsi_period)
         current_rsi = rsi.iloc[-1]
         
         # RSI conditions
@@ -144,10 +144,7 @@ class TechnicalAnalyzer:
             Dictionary with support/resistance levels
         """
         current_price = price_data['Close'].iloc[-1]
-        
-        # Find recent highs and lows (last 20 days)
-        recent_data = price_data.tail(20)
-        
+
         # Support: recent lows
         support_levels = self._find_support_levels(price_data)
         
@@ -224,7 +221,9 @@ class TechnicalAnalyzer:
         consolidated = [levels[0]]
         
         for level in levels[1:]:
-            if abs(level - consolidated[-1]) / consolidated[-1] > threshold:
+            if consolidated[-1] != 0 and abs(level - consolidated[-1]) / abs(consolidated[-1]) > threshold:
+                consolidated.append(level)
+            elif consolidated[-1] == 0:
                 consolidated.append(level)
         
         return consolidated

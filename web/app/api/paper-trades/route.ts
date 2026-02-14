@@ -1,10 +1,12 @@
 import { logger } from "@/lib/logger"
 import { NextResponse } from "next/server";
+import { apiError } from "@/lib/api-error";
 import { readFile, writeFile, mkdir } from "fs/promises";
 import path from "path";
 import { z } from "zod";
 import { PaperTrade, Portfolio } from "@/lib/types";
 import { calcUnrealizedPnL } from "@/lib/pnl";
+import { calculatePortfolioStats } from "@/lib/paper-trades";
 
 const AlertSchema = z.object({
   ticker: z.string().min(1).max(10),
@@ -92,25 +94,21 @@ export async function GET(request: Request) {
       return trade;
     });
 
-    const closedTrades = trades.filter((t) => t.status !== 'open');
-    const openTrades = trades.filter((t) => t.status === 'open');
-    const winners = closedTrades.filter((t) => (t.realized_pnl || 0) > 0);
-    const totalRealizedPnL = closedTrades.reduce((s, t) => s + (t.realized_pnl || 0), 0);
-    const totalUnrealizedPnL = openTrades.reduce((s, t) => s + (t.unrealized_pnl || 0), 0);
+    const ps = calculatePortfolioStats(trades);
 
     return NextResponse.json({
       trades,
       stats: {
-        total_trades: trades.length,
-        open_trades: openTrades.length,
-        closed_trades: closedTrades.length,
-        winners: winners.length,
-        losers: closedTrades.length - winners.length,
-        win_rate: closedTrades.length > 0 ? (winners.length / closedTrades.length) * 100 : 0,
-        total_realized_pnl: totalRealizedPnL,
-        total_unrealized_pnl: totalUnrealizedPnL,
-        total_pnl: totalRealizedPnL + totalUnrealizedPnL,
-        balance: portfolio.starting_balance + totalRealizedPnL,
+        total_trades: ps.totalTrades,
+        open_trades: ps.openTrades,
+        closed_trades: ps.closedTrades,
+        winners: ps.winners,
+        losers: ps.losers,
+        win_rate: ps.winRate,
+        total_realized_pnl: ps.totalRealizedPnL,
+        total_unrealized_pnl: ps.totalUnrealizedPnL,
+        total_pnl: ps.totalPnL,
+        balance: portfolio.starting_balance + ps.totalRealizedPnL,
         starting_balance: portfolio.starting_balance,
       },
     });
@@ -120,14 +118,14 @@ export async function GET(request: Request) {
 // POST — open a new paper trade
 export async function POST(request: Request) {
   if (!PAPER_TRADING_ENABLED) {
-    return NextResponse.json({ error: "Paper trading is temporarily disabled" }, { status: 403 });
+    return apiError("Paper trading is temporarily disabled", 403);
   }
 
   try {
     const body = await request.json();
     const parsed = PostTradeSchema.safeParse(body);
     if (!parsed.success) {
-      return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
+      return apiError("Validation failed", 400, parsed.error.flatten());
     }
     const { alert, contracts } = parsed.data;
     const userId = getUserId(request);
@@ -137,7 +135,7 @@ export async function POST(request: Request) {
 
       const openCount = portfolio.trades.filter((t) => t.status === 'open').length;
       if (openCount >= MAX_OPEN_POSITIONS) {
-        return NextResponse.json({ error: `Maximum ${MAX_OPEN_POSITIONS} open positions allowed` }, { status: 400 });
+        return apiError(`Maximum ${MAX_OPEN_POSITIONS} open positions allowed`, 400);
       }
 
       const duplicate = portfolio.trades.find((t) =>
@@ -148,7 +146,7 @@ export async function POST(request: Request) {
         t.long_strike === alert.long_strike
       );
       if (duplicate) {
-        return NextResponse.json({ error: "You already have this position open" }, { status: 400 });
+        return apiError("You already have this position open", 400);
       }
 
       const creditPerContract = alert.credit;
@@ -185,14 +183,14 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     logger.error("Failed to create paper trade", { error: String(error) });
-    return NextResponse.json({ error: "Failed to create trade" }, { status: 500 });
+    return apiError("Failed to create trade", 500);
   }
 }
 
 // DELETE — close a paper trade
 export async function DELETE(request: Request) {
   if (!PAPER_TRADING_ENABLED) {
-    return NextResponse.json({ error: "Paper trading is temporarily disabled" }, { status: 403 });
+    return apiError("Paper trading is temporarily disabled", 403);
   }
 
   try {
@@ -202,7 +200,7 @@ export async function DELETE(request: Request) {
     const userId = getUserId(request);
 
     if (!tradeId) {
-      return NextResponse.json({ error: "Trade ID required" }, { status: 400 });
+      return apiError("Trade ID required", 400);
     }
 
     return withLock(userId, async () => {
@@ -210,12 +208,12 @@ export async function DELETE(request: Request) {
       const tradeIdx = portfolio.trades.findIndex((t) => t.id === tradeId);
 
       if (tradeIdx === -1) {
-        return NextResponse.json({ error: "Trade not found" }, { status: 404 });
+        return apiError("Trade not found", 404);
       }
 
       const trade = portfolio.trades[tradeIdx];
       if (trade.status !== 'open') {
-        return NextResponse.json({ error: "Trade is already closed" }, { status: 400 });
+        return apiError("Trade is already closed", 400);
       }
 
       const { unrealized_pnl } = calcUnrealizedPnL(trade);
@@ -233,6 +231,6 @@ export async function DELETE(request: Request) {
     });
   } catch (error) {
     logger.error("Failed to close paper trade", { error: String(error) });
-    return NextResponse.json({ error: "Failed to close trade" }, { status: 500 });
+    return apiError("Failed to close trade", 500);
   }
 }

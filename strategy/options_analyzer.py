@@ -9,6 +9,7 @@ from typing import Dict, Optional
 import numpy as np
 import pandas as pd
 import yfinance as yf
+from constants import DEFAULT_RISK_FREE_RATE
 
 logger = logging.getLogger(__name__)
 
@@ -112,10 +113,18 @@ class OptionsAnalyzer:
                 return pd.DataFrame()
             
             all_options = []
-            
+
+            min_dte = self.config.get('strategy', {}).get('min_dte', 30) - 5  # buffer
+            max_dte = self.config.get('strategy', {}).get('max_dte', 45) + 5
+            now = datetime.now()
+
             for exp_date_str in expirations:
                 exp_date = datetime.strptime(exp_date_str, '%Y-%m-%d')
-                
+
+                dte = (exp_date - now).days
+                if dte < min_dte or dte > max_dte:
+                    continue
+
                 # Get options chain for this expiration
                 opt_chain = stock.option_chain(exp_date_str)
                 
@@ -149,7 +158,7 @@ class OptionsAnalyzer:
             logger.error(f"Error retrieving options for {ticker}: {e}")
             return pd.DataFrame()
     
-    def _clean_options_data(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _clean_options_data(self, df: pd.DataFrame, current_price: float = None) -> pd.DataFrame:
         """
         Clean and standardize options data.
         """
@@ -161,29 +170,29 @@ class OptionsAnalyzer:
             'contractSymbol': 'contract_symbol',
             'lastPrice': 'last',
         }
-        
+
         df = df.rename(columns=column_mapping)
-        
+
         # Ensure required columns exist
         required_cols = ['strike', 'bid', 'ask', 'type', 'expiration']
         for col in required_cols:
             if col not in df.columns:
                 logger.error(f"Missing required column: {col}")
                 return pd.DataFrame()
-        
+
         # Calculate mid price
         df['mid'] = (df['bid'] + df['ask']) / 2
-        
+
         # Ensure delta exists (calculate if missing)
         if 'delta' not in df.columns:
-            df['delta'] = self._estimate_delta(df)
-        
+            df['delta'] = self._estimate_delta(df, current_price)
+
         # Remove rows with zero bid/ask
         df = df[(df['bid'] > 0) & (df['ask'] > 0)].copy()
-        
+
         return df
-    
-    def _estimate_delta(self, df: pd.DataFrame) -> pd.Series:
+
+    def _estimate_delta(self, df: pd.DataFrame, current_price: float = None) -> pd.Series:
         """
         Estimate delta using vectorized Black-Scholes approximation.
         """
@@ -191,9 +200,9 @@ class OptionsAnalyzer:
 
         logger.warning("Delta not available in data, using estimates")
 
-        spot = df['strike'].median()
+        spot = current_price if current_price is not None else df['strike'].median()
         now = datetime.now()
-        risk_free = 0.045
+        risk_free = DEFAULT_RISK_FREE_RATE
 
         K = df['strike'].values.astype(float)
         T = np.maximum((df['expiration'] - now).dt.days.values / 365.0, 1/365)
@@ -207,7 +216,7 @@ class OptionsAnalyzer:
         is_call = (df['type'] == 'call').values
         delta = np.where(is_call, call_delta, put_delta)
 
-        return pd.Series(np.round(np.abs(delta), 4), index=df.index)
+        return pd.Series(np.round(delta, 4), index=df.index)
     
     def calculate_iv_rank(self, ticker: str, current_iv: float) -> Dict:
         """

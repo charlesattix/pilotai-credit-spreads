@@ -335,17 +335,19 @@ class PositionSizer:
                 ml_confidence = abs(new_prob - 0.5) * 2  # Simple confidence
                 
                 sizing = self.calculate_position_size(
-                    win_prob=win_prob,
+                    win_probability=win_prob,
                     expected_return=expected_return,
                     expected_loss=expected_loss,
                     ml_confidence=ml_confidence,
                     current_positions=positions,
                     ticker=ticker,
                 )
-                
+
                 recommended_size = sizing['recommended_size']
-                
+
                 # Check if rebalancing needed (>20% difference)
+                if current_size == 0:
+                    continue
                 if abs(recommended_size - current_size) / current_size > 0.20:
                     recommendations.append({
                         'ticker': ticker,

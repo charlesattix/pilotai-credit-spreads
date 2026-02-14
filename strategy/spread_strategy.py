@@ -168,81 +168,9 @@ class CreditSpreadStrategy:
         current_price: float,
         expiration: datetime
     ) -> List[Dict]:
-        """
-        Find bull put spread opportunities.
-        
-        A bull put spread involves:
-        - Selling a put at higher strike (short put)
-        - Buying a put at lower strike (long put)
-        """
-        spreads = []
-        
-        # Filter puts only
-        puts = option_chain[option_chain['type'] == 'put'].copy()
-        
-        if puts.empty:
-            return spreads
-        
-        # Find short strikes with target delta
-        target_delta_min = self.strategy_params['min_delta']
-        target_delta_max = self.strategy_params['max_delta']
-        
-        # For puts, delta is negative, so we look for -0.15 to -0.10
-        short_candidates = puts[
-            (puts['delta'] >= -target_delta_max) &
-            (puts['delta'] <= -target_delta_min)
-        ]
-        
-        spread_width = self.strategy_params['spread_width']
-        
-        for _, short_put in short_candidates.iterrows():
-            short_strike = short_put['strike']
-            long_strike = short_strike - spread_width
-            
-            # Find corresponding long put
-            long_put = puts[puts['strike'] == long_strike]
-            
-            if long_put.empty:
-                continue
-            
-            long_put = long_put.iloc[0]
-            
-            # Calculate credit and risk
-            credit = short_put['bid'] - long_put['ask']
-            max_loss = spread_width - credit
-            
-            # Check minimum credit requirement
-            min_credit = spread_width * (self.risk_params['min_credit_pct'] / 100)
-            if credit < min_credit:
-                continue
-            
-            # Calculate position metrics
-            dte = (expiration - datetime.now()).days
-            
-            spread = {
-                'ticker': ticker,
-                'type': 'bull_put_spread',
-                'expiration': expiration,
-                'dte': dte,
-                'short_strike': short_strike,
-                'long_strike': long_strike,
-                'short_delta': abs(short_put['delta']),
-                'credit': round(credit, 2),
-                'max_loss': round(max_loss, 2),
-                'max_profit': round(credit, 2),
-                'profit_target': round(credit * 0.5, 2),  # 50% profit target
-                'stop_loss': round(credit * self.risk_params['stop_loss_multiplier'], 2),
-                'spread_width': spread_width,
-                'current_price': current_price,
-                'distance_to_short': short_strike - current_price,
-                'pop': self._calculate_pop(short_put['delta']),  # Probability of profit
-                'risk_reward': round(credit / max_loss, 2) if max_loss > 0 else 0,
-            }
-            
-            spreads.append(spread)
-        
-        return spreads
-    
+        """Find bull put spread opportunities (thin wrapper)."""
+        return self._find_spreads(ticker, option_chain, current_price, expiration, 'bull_put')
+
     def _find_bear_call_spreads(
         self,
         ticker: str,
@@ -250,63 +178,106 @@ class CreditSpreadStrategy:
         current_price: float,
         expiration: datetime
     ) -> List[Dict]:
+        """Find bear call spread opportunities (thin wrapper)."""
+        return self._find_spreads(ticker, option_chain, current_price, expiration, 'bear_call')
+
+    def _find_spreads(
+        self,
+        ticker: str,
+        option_chain: pd.DataFrame,
+        current_price: float,
+        expiration: datetime,
+        spread_type: str,
+    ) -> List[Dict]:
         """
-        Find bear call spread opportunities.
-        
-        A bear call spread involves:
-        - Selling a call at lower strike (short call)
-        - Buying a call at higher strike (long call)
+        Find credit spread opportunities.
+
+        Args:
+            ticker: Stock ticker symbol
+            option_chain: Options chain data
+            current_price: Current underlying price
+            expiration: Option expiration date
+            spread_type: 'bull_put' or 'bear_call'
+
+        Returns:
+            List of spread opportunity dicts
         """
         spreads = []
-        
-        # Filter calls only
-        calls = option_chain[option_chain['type'] == 'call'].copy()
-        
-        if calls.empty:
+
+        if spread_type == 'bull_put':
+            option_type = 'put'
+            spread_label = 'bull_put_spread'
+        else:
+            option_type = 'call'
+            spread_label = 'bear_call_spread'
+
+        # Filter by option type
+        legs = option_chain[option_chain['type'] == option_type].copy()
+
+        if legs.empty:
             return spreads
-        
+
         target_delta_min = self.strategy_params['min_delta']
         target_delta_max = self.strategy_params['max_delta']
-        
-        # For calls, delta is positive
-        short_candidates = calls[
-            (calls['delta'] >= target_delta_min) &
-            (calls['delta'] <= target_delta_max)
-        ]
-        
+
+        # Delta filtering differs by spread type
+        if spread_type == 'bull_put':
+            # For puts, delta is negative
+            short_candidates = legs[
+                (legs['delta'] >= -target_delta_max) &
+                (legs['delta'] <= -target_delta_min)
+            ]
+        else:
+            # For calls, delta is positive
+            short_candidates = legs[
+                (legs['delta'] >= target_delta_min) &
+                (legs['delta'] <= target_delta_max)
+            ]
+
         spread_width = self.strategy_params['spread_width']
-        
-        for _, short_call in short_candidates.iterrows():
-            short_strike = short_call['strike']
-            long_strike = short_strike + spread_width
-            
-            # Find corresponding long call
-            long_call = calls[calls['strike'] == long_strike]
-            
-            if long_call.empty:
+
+        for _, short_leg in short_candidates.iterrows():
+            short_strike = short_leg['strike']
+
+            # Long strike direction differs
+            if spread_type == 'bull_put':
+                long_strike = short_strike - spread_width
+            else:
+                long_strike = short_strike + spread_width
+
+            # Find corresponding long leg
+            long_leg = legs[legs['strike'] == long_strike]
+
+            if long_leg.empty:
                 continue
-            
-            long_call = long_call.iloc[0]
-            
+
+            long_leg = long_leg.iloc[0]
+
             # Calculate credit and risk
-            credit = short_call['bid'] - long_call['ask']
+            credit = short_leg['bid'] - long_leg['ask']
             max_loss = spread_width - credit
-            
+
             # Check minimum credit requirement
             min_credit = spread_width * (self.risk_params['min_credit_pct'] / 100)
             if credit < min_credit:
                 continue
-            
+
             dte = (expiration - datetime.now()).days
-            
+
+            # Distance to short strike direction differs
+            if spread_type == 'bull_put':
+                distance_to_short = short_strike - current_price
+            else:
+                distance_to_short = current_price - short_strike
+
             spread = {
                 'ticker': ticker,
-                'type': 'bear_call_spread',
+                'type': spread_label,
                 'expiration': expiration,
                 'dte': dte,
                 'short_strike': short_strike,
                 'long_strike': long_strike,
-                'short_delta': abs(short_call['delta']),
+                'short_delta': abs(short_leg['delta']),
                 'credit': round(credit, 2),
                 'max_loss': round(max_loss, 2),
                 'max_profit': round(credit, 2),
@@ -314,13 +285,13 @@ class CreditSpreadStrategy:
                 'stop_loss': round(credit * self.risk_params['stop_loss_multiplier'], 2),
                 'spread_width': spread_width,
                 'current_price': current_price,
-                'distance_to_short': current_price - short_strike,
-                'pop': self._calculate_pop(short_call['delta']),
+                'distance_to_short': distance_to_short,
+                'pop': self._calculate_pop(short_leg['delta']),
                 'risk_reward': round(credit / max_loss, 2) if max_loss > 0 else 0,
             }
-            
+
             spreads.append(spread)
-        
+
         return spreads
     
     def _calculate_pop(self, delta: float) -> float:

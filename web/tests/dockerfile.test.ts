@@ -7,7 +7,7 @@ import path from 'path'
 
 describe('Production Readiness', () => {
   it('Dockerfile exists with multi-stage build', () => {
-    const dockerPath = path.resolve(__dirname, '../Dockerfile')
+    const dockerPath = path.resolve(__dirname, '../../Dockerfile')
     expect(fs.existsSync(dockerPath)).toBe(true)
     const content = fs.readFileSync(dockerPath, 'utf-8')
     expect(content).toContain('FROM')
@@ -16,7 +16,7 @@ describe('Production Readiness', () => {
   })
 
   it('.dockerignore exists', () => {
-    const ignorePath = path.resolve(__dirname, '../.dockerignore')
+    const ignorePath = path.resolve(__dirname, '../../.dockerignore')
     expect(fs.existsSync(ignorePath)).toBe(true)
     const content = fs.readFileSync(ignorePath, 'utf-8')
     expect(content).toContain('node_modules')

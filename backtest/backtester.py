@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 import yfinance as yf
+from constants import BACKTEST_SHORT_STRIKE_OTM_FRACTION, BACKTEST_CREDIT_FRACTION
 
 logger = logging.getLogger(__name__)
 
@@ -164,12 +165,12 @@ class Backtester:
         
         # Simulate a bull put spread
         # Short strike at ~10 delta (roughly 10% below current price)
-        short_strike = price * 0.90
+        short_strike = price * BACKTEST_SHORT_STRIKE_OTM_FRACTION
         long_strike = short_strike - self.strategy_params['spread_width']
         
         # Estimate credit (simplified)
         # Typically 30-40% of spread width for high prob spreads
-        credit = self.strategy_params['spread_width'] * 0.35
+        credit = self.strategy_params['spread_width'] * BACKTEST_CREDIT_FRACTION
         
         # Apply slippage and commissions
         credit -= self.slippage
@@ -202,8 +203,8 @@ class Backtester:
             'current_value': credit * contracts * 100,
         }
         
-        # Deduct cost (receive credit)
-        self.capital += (credit * contracts * 100) - commission_cost
+        # Deduct entry commissions
+        self.capital -= commission_cost
         
         logger.debug(f"Opened position: {ticker} bull put spread @ ${short_strike:.2f}")
         

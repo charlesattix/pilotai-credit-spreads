@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import { RefreshCw, TrendingUp, TrendingDown, DollarSign, Target, BarChart3, Clock } from 'lucide-react'
+import { usePositions } from '@/lib/hooks'
+import Link from 'next/link'
 
 interface Position {
   id: number
@@ -58,24 +59,9 @@ function daysUntil(dateStr: string) {
 }
 
 export default function PaperTradingPage() {
-  const [data, setData] = useState<PortfolioData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const { data, isLoading, mutate } = usePositions()
 
-  const fetchData = async () => {
-    try {
-      const res = await fetch('/api/positions')
-      const json = await res.json()
-      setData(json)
-    } catch (e) {
-      console.error('Failed to fetch positions:', e)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => { fetchData() }, [])
-
-  if (loading) return (
+  if (isLoading) return (
     <div className="min-h-screen bg-[#FAF9FB] flex items-center justify-center">
       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#9B6DFF]" />
     </div>
@@ -86,6 +72,8 @@ export default function PaperTradingPage() {
       Failed to load data
     </div>
   )
+
+  const portfolioData = data as PortfolioData
 
   return (
     <div className="min-h-screen bg-[#FAF9FB]">
@@ -101,8 +89,8 @@ export default function PaperTradingPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <a href="/" className="text-sm text-gray-500 hover:text-gray-700 transition">← Alerts</a>
-            <button onClick={fetchData}
+            <Link href="/" className="text-sm text-gray-500 hover:text-gray-700 transition">← Alerts</Link>
+            <button onClick={() => mutate()}
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition"
               style={{ background: 'linear-gradient(135deg, #9B6DFF, #E84FAD)' }}>
               <RefreshCw className="w-3.5 h-3.5" /> Refresh
@@ -114,15 +102,15 @@ export default function PaperTradingPage() {
       <main className="max-w-7xl mx-auto px-6 py-6 space-y-6">
         {/* Stats Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard icon={<DollarSign className="w-5 h-5" />} label="Balance" 
-            value={`$${data.current_balance.toLocaleString()}`} color="#9B6DFF" />
-          <StatCard icon={<TrendingUp className="w-5 h-5" />} label="Total P&L" 
-            value={formatMoney(data.total_pnl)} 
-            color={data.total_pnl >= 0 ? '#22c55e' : '#ef4444'} />
-          <StatCard icon={<Target className="w-5 h-5" />} label="Credit Collected" 
-            value={`$${data.total_credit.toLocaleString()}`} color="#E84FAD" />
-          <StatCard icon={<BarChart3 className="w-5 h-5" />} label="Win Rate" 
-            value={data.closed_count > 0 ? `${data.win_rate.toFixed(0)}%` : 'N/A'} color="#F59E42" />
+          <StatCard icon={<DollarSign className="w-5 h-5" />} label="Balance"
+            value={`$${portfolioData.current_balance.toLocaleString()}`} color="#9B6DFF" />
+          <StatCard icon={<TrendingUp className="w-5 h-5" />} label="Total P&L"
+            value={formatMoney(portfolioData.total_pnl)}
+            color={portfolioData.total_pnl >= 0 ? '#22c55e' : '#ef4444'} />
+          <StatCard icon={<Target className="w-5 h-5" />} label="Credit Collected"
+            value={`$${portfolioData.total_credit.toLocaleString()}`} color="#E84FAD" />
+          <StatCard icon={<BarChart3 className="w-5 h-5" />} label="Win Rate"
+            value={portfolioData.closed_count > 0 ? `${portfolioData.win_rate.toFixed(0)}%` : 'N/A'} color="#F59E42" />
         </div>
 
         {/* Portfolio Risk Bar */}
@@ -130,29 +118,29 @@ export default function PaperTradingPage() {
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium text-gray-700">Portfolio Risk</span>
             <span className="text-sm text-gray-500">
-              {data.open_count} open · Max loss: ${data.total_max_loss.toLocaleString()}
+              {portfolioData.open_count} open · Max loss: ${portfolioData.total_max_loss.toLocaleString()}
             </span>
           </div>
           <div className="w-full bg-gray-100 rounded-full h-3">
-            <div className="h-3 rounded-full transition-all" 
-              style={{ 
-                width: `${Math.min(100, (data.total_max_loss / data.account_size) * 100)}%`,
-                background: 'linear-gradient(90deg, #9B6DFF, #E84FAD, #F59E42)' 
+            <div className="h-3 rounded-full transition-all"
+              style={{
+                width: `${Math.min(100, (portfolioData.total_max_loss / portfolioData.account_size) * 100)}%`,
+                background: 'linear-gradient(90deg, #9B6DFF, #E84FAD, #F59E42)'
               }} />
           </div>
           <p className="text-xs text-gray-400 mt-1">
-            {((data.total_max_loss / data.account_size) * 100).toFixed(1)}% of account at risk
+            {((portfolioData.total_max_loss / portfolioData.account_size) * 100).toFixed(1)}% of account at risk
           </p>
         </div>
 
         {/* Open Positions */}
         <div>
-          <h2 className="text-base font-semibold text-gray-800 mb-3">Open Positions ({data.open_count})</h2>
+          <h2 className="text-base font-semibold text-gray-800 mb-3">Open Positions ({portfolioData.open_count})</h2>
           <div className="space-y-3">
-            {data.open_positions.map((pos) => (
+            {portfolioData.open_positions.map((pos) => (
               <PositionCard key={pos.id} position={pos} />
             ))}
-            {data.open_positions.length === 0 && (
+            {portfolioData.open_positions.length === 0 && (
               <div className="bg-white rounded-xl border border-gray-100 p-8 text-center text-gray-400">
                 No open positions
               </div>
@@ -161,11 +149,11 @@ export default function PaperTradingPage() {
         </div>
 
         {/* Closed Trades */}
-        {data.closed_trades.length > 0 && (
+        {portfolioData.closed_trades.length > 0 && (
           <div>
-            <h2 className="text-base font-semibold text-gray-800 mb-3">Trade History ({data.closed_count})</h2>
+            <h2 className="text-base font-semibold text-gray-800 mb-3">Trade History ({portfolioData.closed_count})</h2>
             <div className="space-y-3">
-              {data.closed_trades.map((pos) => (
+              {portfolioData.closed_trades.map((pos) => (
                 <PositionCard key={pos.id} position={pos} closed />
               ))}
             </div>
@@ -201,7 +189,7 @@ function PositionCard({ position: p, closed }: { position: Position; closed?: bo
           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
             p.type.includes('bear') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'
           }`}>
-            {p.type.includes('bear') ? '🐻 Bear Call' : '🐂 Bull Put'}
+            {p.type.includes('bear') ? 'Bear Call' : 'Bull Put'}
           </span>
           {closed && (
             <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -223,7 +211,7 @@ function PositionCard({ position: p, closed }: { position: Position; closed?: bo
         </div>
         <div>
           <span className="text-gray-400 text-xs">Contracts</span>
-          <p className="font-medium text-gray-700">×{p.contracts}</p>
+          <p className="font-medium text-gray-700">x{p.contracts}</p>
         </div>
         <div>
           <span className="text-gray-400 text-xs">Credit</span>

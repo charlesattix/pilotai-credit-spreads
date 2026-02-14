@@ -85,7 +85,9 @@ class TelegramBot:
             self.bot.send_message(
                 chat_id=self.chat_id,
                 text=message,
-                parse_mode='HTML'
+                parse_mode='HTML',
+                read_timeout=10,
+                write_timeout=10,
             )
             logger.info("Telegram alert sent")
             return True

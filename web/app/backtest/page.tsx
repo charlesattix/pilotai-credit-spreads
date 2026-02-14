@@ -5,6 +5,7 @@ import { formatCurrency } from '@/lib/utils'
 import { PlayCircle, TrendingUp, TrendingDown, BarChart3 } from 'lucide-react'
 import { toast } from 'sonner'
 import dynamic from 'next/dynamic'
+import { logger } from '@/lib/logger'
 
 // Lazy load recharts to prevent SSR issues
 const LazyCharts = dynamic(() => import('@/components/backtest/charts'), { 
@@ -39,7 +40,7 @@ export default function BacktestPage() {
         const data = await res.json()
         setResults(data)
       } catch (error) {
-        console.error('Failed to fetch backtest results:', error)
+        logger.error('Failed to fetch backtest results', { error: String(error) })
       } finally {
         setLoading(false)
       }

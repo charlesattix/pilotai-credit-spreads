@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Trade } from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
+import { logger } from '@/lib/logger'
 
 export default function PositionsPage() {
   const [trades, setTrades] = useState<Trade[]>([])
@@ -16,7 +17,7 @@ export default function PositionsPage() {
         const data = await res.json()
         setTrades(data || [])
       } catch (error) {
-        console.error('Failed to fetch trades:', error)
+        logger.error('Failed to fetch trades', { error: String(error) })
       } finally {
         setLoading(false)
       }

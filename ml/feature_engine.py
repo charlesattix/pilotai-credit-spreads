@@ -17,6 +17,8 @@ from datetime import datetime, timedelta
 import logging
 import yfinance as yf
 from scipy import stats
+from shared.indicators import calculate_rsi
+from shared.constants import FOMC_DATES
 
 logger = logging.getLogger(__name__)
 
@@ -33,34 +35,30 @@ class FeatureEngine:
     5. Seasonal: day of week, month, OPEX
     """
     
-    def __init__(self):
+    def __init__(self, data_cache=None):
         """
         Initialize feature engine.
+
+        Args:
+            data_cache: Optional DataCache instance for shared data retrieval.
         """
+        self.data_cache = data_cache
         self.feature_cache = {}
         self.cache_timestamps = {}
         
-        # Known FOMC meeting dates 2025-2026 (approximate)
-        self.fomc_dates = [
-            datetime(2025, 1, 29),
-            datetime(2025, 3, 19),
-            datetime(2025, 5, 7),
-            datetime(2025, 6, 18),
-            datetime(2025, 7, 30),
-            datetime(2025, 9, 17),
-            datetime(2025, 11, 5),
-            datetime(2025, 12, 17),
-            datetime(2026, 2, 4),
-            datetime(2026, 3, 18),
-            datetime(2026, 5, 6),
-            datetime(2026, 6, 17),
-        ]
+        # Known FOMC meeting dates 2025-2026
+        self.fomc_dates = FOMC_DATES
         
         # CPI release dates (typically 2nd week of month)
         self.cpi_months = list(range(1, 13))
         
         logger.info("FeatureEngine initialized")
-    
+
+    def _download(self, ticker, period='6mo'):
+        if self.data_cache:
+            return self.data_cache.get_history(ticker, period)
+        return yf.download(ticker, period=period, progress=False)
+
     def build_features(
         self,
         ticker: str,
@@ -136,7 +134,7 @@ class FeatureEngine:
         """
         try:
             # Fetch price data
-            stock = yf.download(ticker, period='6mo', progress=False)
+            stock = self._download(ticker, period='6mo')
             
             if stock.empty:
                 return self._get_default_technical_features()
@@ -204,7 +202,7 @@ class FeatureEngine:
             features = {}
             
             # Realized volatility (historical)
-            stock = yf.download(ticker, period='3mo', progress=False)
+            stock = self._download(ticker, period='3mo')
             
             if not stock.empty:
                 returns = stock['Close'].pct_change()
@@ -268,7 +266,7 @@ class FeatureEngine:
             features = {}
             
             # VIX
-            vix = yf.download('^VIX', period='5d', progress=False)
+            vix = self._download('^VIX', period='5d')
             if not vix.empty:
                 features['vix_level'] = float(vix['Close'].iloc[-1])
                 features['vix_change_1d'] = float(vix['Close'].pct_change().iloc[-1] * 100)
@@ -281,7 +279,7 @@ class FeatureEngine:
             features['put_call_ratio'] = 1.0  # Placeholder
             
             # Market trend (SPY)
-            spy = yf.download('SPY', period='3mo', progress=False)
+            spy = self._download('SPY', period='3mo')
             if not spy.empty:
                 spy_returns = spy['Close'].pct_change()
                 features['spy_return_5d'] = float((spy['Close'].iloc[-1] / spy['Close'].iloc[-6] - 1) * 100 if len(spy) > 5 else 0)
@@ -329,7 +327,8 @@ class FeatureEngine:
                     features['days_to_earnings'] = max(0, days_to_earnings)
                 else:
                     features['days_to_earnings'] = 999  # Unknown
-            except:
+            except Exception as e:
+                logger.warning(f"Failed to get earnings for {ticker}: {e}")
                 features['days_to_earnings'] = 999
             
             # Days to next FOMC
@@ -474,12 +473,7 @@ class FeatureEngine:
     
     def _calculate_rsi(self, prices: pd.Series, period: int = 14) -> pd.Series:
         """Calculate RSI."""
-        delta = prices.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-        return rsi
+        return calculate_rsi(prices, period)
     
     def _calculate_macd(self, prices: pd.Series, fast=12, slow=26, signal=9) -> tuple:
         """Calculate MACD."""

@@ -1,0 +1,20 @@
+[run]
+source = .
+omit =
+    tests/*
+    ml/models/*
+    web/*
+    .venv/*
+    strategy/tradier_provider.py
+    strategy/polygon_provider.py
+    strategy/alpaca_provider.py
+    ml/iv_analyzer.py
+    ml/ml_pipeline.py
+    ml/sentiment_scanner.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    if __name__ == .__main__
+    raise NotImplementedError

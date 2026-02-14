@@ -1,5 +1,6 @@
 import { logger } from "@/lib/logger"
 import { NextResponse } from "next/server";
+import { apiError } from "@/lib/api-error";
 
 interface ChatAlert {
   ticker?: string;
@@ -19,9 +20,14 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 
 function checkRateLimit(ip: string): boolean {
   const now = Date.now();
-  // Lazy cleanup: delete stale entries when map grows large
-  if (rateLimitMap.size > 1000) {
-    for (const [key, val] of Array.from(rateLimitMap)) {
+  // Clean expired entry for this IP
+  const existing = rateLimitMap.get(ip);
+  if (existing && now > existing.resetAt) {
+    rateLimitMap.delete(ip);
+  }
+  // Hard cap to prevent memory exhaustion
+  if (rateLimitMap.size > 500) {
+    for (const [key, val] of rateLimitMap) {
       if (now > val.resetAt) rateLimitMap.delete(key);
     }
   }
@@ -57,15 +63,18 @@ Format tips: Use bullet points for lists. Bold key numbers. Keep it scannable.`;
 
 export async function POST(request: Request) {
   try {
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+    const forwarded = request.headers.get('x-forwarded-for');
+    const ip = forwarded
+      ? forwarded.split(',').map(s => s.trim()).filter(Boolean).pop() || 'unknown'
+      : 'unknown';
     if (!checkRateLimit(ip)) {
-      return NextResponse.json({ error: "Rate limit exceeded. Max 10 requests per minute." }, { status: 429 });
+      return apiError("Rate limit exceeded. Max 10 requests per minute.", 429);
     }
 
     const { messages, alerts } = await request.json();
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      return NextResponse.json({ error: "Messages required" }, { status: 400 });
+      return apiError("Messages required", 400);
     }
 
     // Build context with current alerts if available
@@ -125,7 +134,7 @@ export async function POST(request: Request) {
 
   } catch (error) {
     logger.error("Chat error", { error: String(error) });
-    return NextResponse.json({ error: "Chat failed" }, { status: 500 });
+    return apiError("Chat failed", 500);
   }
 }
 

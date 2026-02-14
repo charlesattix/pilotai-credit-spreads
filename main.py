@@ -15,6 +15,7 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add current directory to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -25,6 +26,7 @@ from alerts import AlertGenerator, TelegramBot
 from backtest import Backtester, PerformanceMetrics
 from tracker import TradeTracker, PnLDashboard
 from paper_trader import PaperTrader
+from shared.data_cache import DataCache
 
 import yfinance as yf
 
@@ -63,12 +65,13 @@ class CreditSpreadSystem:
         self.tracker = TradeTracker(self.config)
         self.dashboard = PnLDashboard(self.config, self.tracker)
         self.paper_trader = PaperTrader(self.config)
-        
+        self.data_cache = DataCache()
+
         # Initialize ML pipeline (graceful fallback if it fails)
         self.ml_pipeline = None
         try:
             from ml.ml_pipeline import MLPipeline
-            self.ml_pipeline = MLPipeline(self.config)
+            self.ml_pipeline = MLPipeline(self.config, data_cache=self.data_cache)
             self.ml_pipeline.initialize()
             logger.info("ML pipeline initialized successfully")
         except Exception as e:
@@ -83,12 +86,19 @@ class CreditSpreadSystem:
         logger.info("Starting opportunity scan")
         
         all_opportunities = []
-        
-        for ticker in self.config['tickers']:
-            logger.info(f"Analyzing {ticker}...")
-            
-            opportunities = self._analyze_ticker(ticker)
-            all_opportunities.extend(opportunities)
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {
+                executor.submit(self._analyze_ticker, ticker): ticker
+                for ticker in self.config['tickers']
+            }
+            for future in as_completed(futures):
+                ticker = futures[future]
+                try:
+                    opportunities = future.result()
+                    all_opportunities.extend(opportunities)
+                except Exception as e:
+                    logger.error(f"Error analyzing {ticker}: {e}", exc_info=True)
         
         if not all_opportunities:
             logger.info("No opportunities found")
@@ -120,8 +130,8 @@ class CreditSpreadSystem:
                 hist = stock.history(period='1d')
                 if not hist.empty:
                     current_prices[ticker] = hist['Close'].iloc[-1]
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to fetch price for {ticker}: {e}")
         
         if current_prices:
             closed = self.paper_trader.check_positions(current_prices)

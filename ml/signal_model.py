@@ -14,7 +14,7 @@ import pandas as pd
 from typing import Dict, Optional, Tuple
 from datetime import datetime
 import logging
-import pickle
+import joblib
 from pathlib import Path
 
 try:
@@ -173,7 +173,7 @@ class SignalModel:
             
             # Save model
             if save_model:
-                self.save(f"signal_model_{datetime.now().strftime('%Y%m%d')}.pkl")
+                self.save(f"signal_model_{datetime.now().strftime('%Y%m%d')}.joblib")
             
             return stats
             
@@ -386,8 +386,7 @@ class SignalModel:
                 'timestamp': datetime.now().isoformat(),
             }
             
-            with open(filepath, 'wb') as f:
-                pickle.dump(model_data, f)
+            joblib.dump(model_data, filepath)
             
             logger.info(f"✓ Model saved to {filepath}")
             
@@ -407,7 +406,7 @@ class SignalModel:
         try:
             if filename is None:
                 # Find most recent model file
-                model_files = list(self.model_dir.glob('signal_model_*.pkl'))
+                model_files = list(self.model_dir.glob('signal_model_*.joblib'))
                 if not model_files:
                     logger.warning("No saved models found")
                     return False
@@ -420,8 +419,7 @@ class SignalModel:
                 logger.warning(f"Model file not found: {filepath}")
                 return False
             
-            with open(filepath, 'rb') as f:
-                model_data = pickle.load(f)
+            model_data = joblib.load(filepath)
             
             self.model = model_data['model']
             self.calibrated_model = model_data.get('calibrated_model')

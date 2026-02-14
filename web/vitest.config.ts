@@ -14,8 +14,9 @@ export default defineConfig({
     env: { NODE_ENV: 'test' },
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json-summary'],
+      reporter: ['text', 'json-summary', 'lcov'],
       exclude: ['node_modules/', '.next/', 'tests/', '*.config.*'],
+      thresholds: { lines: 50, functions: 50, branches: 40, statements: 50 },
     },
   },
   resolve: {

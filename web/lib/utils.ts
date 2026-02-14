@@ -18,11 +18,14 @@ export function formatPercent(value: number): string {
 }
 
 export function formatDate(date: string | Date): string {
+  const d = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
+    ? new Date(date + 'T00:00:00')
+    : new Date(date)
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
-  }).format(new Date(date))
+  }).format(d)
 }
 
 export function formatDateTime(date: string | Date): string {

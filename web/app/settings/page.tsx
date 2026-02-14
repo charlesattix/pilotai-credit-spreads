@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Config } from '@/lib/api'
 import { Save } from 'lucide-react'
 import { toast } from 'sonner'
+import { logger } from '@/lib/logger'
 
 export default function SettingsPage() {
   const [config, setConfig] = useState<Config | null>(null)
@@ -17,7 +18,7 @@ export default function SettingsPage() {
         const data = await res.json()
         setConfig(data)
       } catch (error) {
-        console.error('Failed to fetch config:', error)
+        logger.error('Failed to fetch config', { error: String(error) })
         toast.error('Failed to load configuration')
       } finally {
         setLoading(false)
@@ -44,7 +45,7 @@ export default function SettingsPage() {
         toast.error('Failed to save configuration')
       }
     } catch (error) {
-      console.error('Failed to save config:', error)
+      logger.error('Failed to save config', { error: String(error) })
       toast.error('Failed to save configuration')
     } finally {
       setSaving(false)

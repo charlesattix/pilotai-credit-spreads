@@ -1,5 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+function timingSafeCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -21,7 +30,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.json({ error: 'Auth not configured' }, { status: 503 });
   }
 
-  if (!token || token !== expectedToken) {
+  if (!token || !timingSafeCompare(token, expectedToken)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

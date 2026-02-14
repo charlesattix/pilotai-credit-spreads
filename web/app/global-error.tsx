@@ -1,6 +1,12 @@
 'use client'
 
+import { useEffect } from 'react'
+
 export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+  useEffect(() => {
+    console.error(JSON.stringify({ level: 'error', msg: 'Error boundary triggered', error: error.message, digest: error.digest }))
+  }, [error])
+
   return (
     <html>
       <body style={{ margin: 0, backgroundColor: '#030712', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>

@@ -18,6 +18,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 from hmmlearn import hmm
 import yfinance as yf
+from shared.indicators import calculate_rsi
 
 logger = logging.getLogger(__name__)
 
@@ -42,14 +43,16 @@ class RegimeDetector:
         3: 'crisis',                # Extreme vol + fear (avoid new trades)
     }
     
-    def __init__(self, lookback_days: int = 252):
+    def __init__(self, lookback_days: int = 252, data_cache=None):
         """
         Initialize regime detector.
-        
+
         Args:
             lookback_days: Historical data window for training
+            data_cache: Optional DataCache instance for shared data retrieval.
         """
         self.lookback_days = lookback_days
+        self.data_cache = data_cache
         self.hmm_model = None
         self.rf_model = None
         self.scaler = StandardScaler()
@@ -57,7 +60,12 @@ class RegimeDetector:
         self.trained = False
         
         logger.info(f"RegimeDetector initialized (lookback={lookback_days} days)")
-    
+
+    def _download(self, ticker, period='6mo'):
+        if self.data_cache:
+            return self.data_cache.get_history(ticker, period)
+        return yf.download(ticker, period=period, progress=False)
+
     def fit(self, force_retrain: bool = False) -> bool:
         """
         Train the regime detection models.
@@ -263,9 +271,9 @@ class RegimeDetector:
         """
         try:
             # Fetch recent data
-            spy = yf.download('SPY', period='3mo', progress=False)
-            vix = yf.download('^VIX', period='3mo', progress=False)
-            tlt = yf.download('TLT', period='3mo', progress=False)
+            spy = self._download('SPY', period='3mo')
+            vix = self._download('^VIX', period='3mo')
+            tlt = self._download('TLT', period='3mo')
             
             if spy.empty or vix.empty:
                 return None
@@ -344,14 +352,7 @@ class RegimeDetector:
         """
         Calculate RSI (Relative Strength Index).
         """
-        delta = prices.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-        
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-        
-        return rsi
+        return calculate_rsi(prices, period)
     
     def _get_feature_columns(self) -> list:
         """

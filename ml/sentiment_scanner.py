@@ -18,6 +18,8 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
 import logging
 import yfinance as yf
+from shared.constants import FOMC_DATES as _SHARED_FOMC_DATES
+from shared.constants import CPI_RELEASE_DAYS as _SHARED_CPI_RELEASE_DAYS
 
 logger = logging.getLogger(__name__)
 
@@ -35,29 +37,11 @@ class SentimentScanner:
     """
     
     # Known FOMC meeting dates 2025-2026
-    FOMC_DATES = [
-        datetime(2025, 1, 29),
-        datetime(2025, 3, 19),
-        datetime(2025, 5, 7),
-        datetime(2025, 6, 18),
-        datetime(2025, 7, 30),
-        datetime(2025, 9, 17),
-        datetime(2025, 11, 5),
-        datetime(2025, 12, 17),
-        datetime(2026, 1, 28),
-        datetime(2026, 2, 4),
-        datetime(2026, 3, 18),
-        datetime(2026, 5, 6),
-        datetime(2026, 6, 17),
-        datetime(2026, 7, 29),
-        datetime(2026, 9, 16),
-        datetime(2026, 11, 4),
-        datetime(2026, 12, 16),
-    ]
-    
+    FOMC_DATES = _SHARED_FOMC_DATES
+
     # CPI release dates (typically 2nd Tuesday-Thursday of month)
     # These are approximate - actual dates vary
-    CPI_RELEASE_DAYS = [12, 13, 14]  # Days of month
+    CPI_RELEASE_DAYS = _SHARED_CPI_RELEASE_DAYS
     
     def __init__(self):
         """

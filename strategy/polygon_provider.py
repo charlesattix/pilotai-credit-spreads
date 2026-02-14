@@ -7,6 +7,8 @@ Base URL: https://api.polygon.io
 import logging
 import os
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -23,6 +25,9 @@ class PolygonProvider:
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.base_url = BASE_URL
+        self.session = requests.Session()
+        retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
+        self.session.mount("https://", HTTPAdapter(max_retries=retry))
         logger.info("PolygonProvider initialized")
 
     def _get(self, path: str, params: Optional[Dict] = None, timeout: int = 10) -> Dict:
@@ -30,7 +35,7 @@ class PolygonProvider:
         params = params or {}
         params["apiKey"] = self.api_key
         url = f"{self.base_url}{path}"
-        resp = requests.get(url, params=params, timeout=timeout)
+        resp = self.session.get(url, params=params, timeout=timeout)
         resp.raise_for_status()
         return resp.json()
 
@@ -67,7 +72,7 @@ class PolygonProvider:
         # Paginate
         next_url = data.get("next_url")
         while next_url:
-            resp = requests.get(next_url, params={"apiKey": self.api_key}, timeout=10)
+            resp = self.session.get(next_url, params={"apiKey": self.api_key}, timeout=10)
             resp.raise_for_status()
             page = resp.json()
             for c in page.get("results", []):
@@ -97,7 +102,7 @@ class PolygonProvider:
 
         next_url = data.get("next_url")
         while next_url:
-            resp = requests.get(next_url, params={"apiKey": self.api_key}, timeout=30)
+            resp = self.session.get(next_url, params={"apiKey": self.api_key}, timeout=30)
             resp.raise_for_status()
             page = resp.json()
             all_results.extend(page.get("results", []))
@@ -162,7 +167,7 @@ class PolygonProvider:
 
         next_url = data.get("next_url")
         while next_url:
-            resp = requests.get(next_url, params={"apiKey": self.api_key}, timeout=30)
+            resp = self.session.get(next_url, params={"apiKey": self.api_key}, timeout=30)
             resp.raise_for_status()
             page = resp.json()
             all_results.extend(page.get("results", []))

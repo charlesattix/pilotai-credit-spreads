@@ -1,19 +1,48 @@
-.PHONY: build test lint all clean
+.PHONY: all build test test-python test-web lint lint-python lint-web \
+        docker-build docker-run setup install clean
 
 all: lint test build
 
-# Build the web frontend
+# === SETUP ===
+setup: install
+	mkdir -p data output logs
+
+install:
+	pip install -r requirements.txt
+	cd web && npm ci
+
+# === BUILD ===
 build:
-	cd web && npm ci && npm run build
+	cd web && npm run build
 
-# Run tests
-test:
-	cd web && npm ci && npm test
+docker-build:
+	docker build -t pilotai-cs .
 
-# Run linter
-lint:
-	cd web && npm ci && npm run lint 2>/dev/null || echo "No lint script configured"
+docker-run:
+	docker run --rm -p 8080:8080 --env-file .env pilotai-cs
 
-# Clean build artifacts
+# === TEST ===
+test: test-python test-web
+
+test-python:
+	python -m pytest tests/ -v
+
+test-web:
+	cd web && npx vitest run
+
+# === LINT ===
+lint: lint-python lint-web
+
+lint-python:
+	python -m py_compile main.py
+	python -m py_compile paper_trader.py
+	python -m py_compile utils.py
+
+lint-web:
+	cd web && npm run lint 2>/dev/null || echo "No lint script configured"
+
+# === CLEAN ===
 clean:
-	rm -rf web/node_modules web/dist web/build
+	rm -rf web/node_modules web/.next
+	rm -rf __pycache__ **/__pycache__ .pytest_cache
+	rm -rf .coverage htmlcov

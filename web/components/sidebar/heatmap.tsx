@@ -1,41 +1,29 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { usePositions } from '@/lib/hooks'
 
 export function Heatmap() {
-  const [days, setDays] = useState<string[]>(Array(28).fill('none'))
+  const { data } = usePositions()
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const res = await fetch('/api/positions')
-        const data = await res.json()
-        const closedTrades: Array<{ exit_date: string | null; exit_pnl: number | null }> = data.closed_trades || []
-        
-        // Build a map of date → win/loss from real closed trades
-        const tradeMap: Record<string, string> = {}
-        closedTrades.forEach(t => {
-          if (t.exit_date) {
-            const dateKey = t.exit_date.split('T')[0]
-            tradeMap[dateKey] = (t.exit_pnl || 0) > 0 ? 'win' : 'loss'
-          }
-        })
+  const closedTrades: Array<{ exit_date: string | null; exit_pnl: number | null }> = data?.closed_trades || []
 
-        // Generate last 28 days
-        const result: string[] = []
-        for (let i = 27; i >= 0; i--) {
-          const d = new Date()
-          d.setDate(d.getDate() - i)
-          const key = d.toISOString().split('T')[0]
-          result.push(tradeMap[key] || 'none')
-        }
-        setDays(result)
-      } catch {
-        // Keep all 'none' on error
-      }
+  // Build a map of date -> win/loss from real closed trades
+  const tradeMap: Record<string, string> = {}
+  closedTrades.forEach(t => {
+    if (t.exit_date) {
+      const dateKey = t.exit_date.split('T')[0]
+      tradeMap[dateKey] = (t.exit_pnl || 0) > 0 ? 'win' : 'loss'
     }
-    fetchData()
-  }, [])
+  })
+
+  // Generate last 28 days
+  const days: string[] = []
+  for (let i = 27; i >= 0; i--) {
+    const d = new Date()
+    d.setDate(d.getDate() - i)
+    const key = d.toISOString().split('T')[0]
+    days.push(tradeMap[key] || 'none')
+  }
 
   return (
     <div className="bg-white rounded-lg border border-border p-4">

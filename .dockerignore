@@ -1,0 +1,14 @@
+.git
+node_modules
+web/node_modules
+web/.next
+data/
+output/
+logs/
+*.pyc
+__pycache__
+.env
+.env.*
+*.egg-info
+.pytest_cache
+.coverage

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { readFile } from "fs/promises";
 import path from "path";
+import { logger } from "@/lib/logger";
 
 async function tryRead(...paths: string[]): Promise<string | null> {
   for (const p of paths) {
@@ -29,7 +30,7 @@ export async function GET() {
       count: opportunities.length,
     });
   } catch (error) {
-    console.log("Failed to read alerts:", error);
+    logger.error("Failed to read alerts", { error: String(error) });
     return NextResponse.json({ alerts: [], opportunities: [], count: 0 });
   }
 }

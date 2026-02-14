@@ -1,16 +1,24 @@
-const isDev = process.env.NODE_ENV === 'development'
+type LogLevel = 'info' | 'error' | 'warn'
+
+function log(level: LogLevel, msg: string, meta?: Record<string, unknown>) {
+  const entry = {
+    level,
+    msg,
+    ts: new Date().toISOString(),
+    ...meta,
+  }
+  const output = JSON.stringify(entry)
+  if (level === 'error') {
+    console.error(output)
+  } else if (level === 'warn') {
+    console.warn(output)
+  } else {
+    console.log(output)
+  }
+}
 
 export const logger = {
-  info: (msg: string, data?: Record<string, unknown>) => {
-    if (isDev) console.log(`[INFO] ${msg}`, data || '')
-  },
-  warn: (msg: string, data?: Record<string, unknown>) => {
-    console.warn(`[WARN] ${msg}`, data || '')
-  },
-  error: (msg: string, data?: Record<string, unknown>) => {
-    console.error(`[ERROR] ${msg}`, data || '')
-  },
-  debug: (msg: string, data?: Record<string, unknown>) => {
-    if (isDev) console.debug(`[DEBUG] ${msg}`, data || '')
-  },
+  info: (msg: string, meta?: Record<string, unknown>) => log('info', msg, meta),
+  error: (msg: string, meta?: Record<string, unknown>) => log('error', msg, meta),
+  warn: (msg: string, meta?: Record<string, unknown>) => log('warn', msg, meta),
 }

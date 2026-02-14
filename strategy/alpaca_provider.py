@@ -259,13 +259,13 @@ class AlpacaProvider:
         legs = [
             OptionLegRequest(
                 symbol=short_sym,
-                ratio_qty=contracts,
+                ratio_qty=1,
                 side=OrderSide.BUY,
                 position_intent=PositionIntent.BUY_TO_CLOSE,
             ),
             OptionLegRequest(
                 symbol=long_sym,
-                ratio_qty=contracts,
+                ratio_qty=1,
                 side=OrderSide.SELL,
                 position_intent=PositionIntent.SELL_TO_CLOSE,
             ),
@@ -276,6 +276,7 @@ class AlpacaProvider:
         try:
             if limit_price is not None:
                 order_req = LimitOrderRequest(
+                    qty=contracts,
                     order_class=OrderClass.MLEG,
                     time_in_force=TimeInForce.DAY,
                     legs=legs,
@@ -285,6 +286,7 @@ class AlpacaProvider:
             else:
                 from alpaca.trading.requests import MarketOrderRequest
                 order_req = MarketOrderRequest(
+                    qty=contracts,
                     order_class=OrderClass.MLEG,
                     time_in_force=TimeInForce.DAY,
                     legs=legs,

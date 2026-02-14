@@ -1,7 +1,11 @@
 'use client'
-import React from 'react'
+import React, { useEffect } from 'react'
 
 export default function Error({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+  useEffect(() => {
+    console.error(JSON.stringify({ level: 'error', msg: 'Error boundary triggered', error: error.message, digest: error.digest }))
+  }, [error])
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-950 px-4">
       <div className="text-center max-w-md">

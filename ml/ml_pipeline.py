@@ -35,27 +35,29 @@ class MLPipeline:
     Orchestrates all ML components to provide enhanced trade analysis.
     """
     
-    def __init__(self, config: Optional[Dict] = None):
+    def __init__(self, config: Optional[Dict] = None, data_cache=None):
         """
         Initialize ML pipeline.
-        
+
         Args:
             config: Configuration dictionary
+            data_cache: Optional DataCache instance for shared data retrieval.
         """
         self.config = config or {}
-        
+
         # Initialize components
         logger.info("Initializing ML pipeline...")
-        
+
         self.regime_detector = RegimeDetector(
-            lookback_days=self.config.get('regime_lookback_days', 252)
+            lookback_days=self.config.get('regime_lookback_days', 252),
+            data_cache=data_cache,
         )
-        
+
         self.iv_analyzer = IVAnalyzer(
             lookback_days=self.config.get('iv_lookback_days', 252)
         )
-        
-        self.feature_engine = FeatureEngine()
+
+        self.feature_engine = FeatureEngine(data_cache=data_cache)
         
         self.signal_model = SignalModel(
             model_dir=self.config.get('model_dir', 'ml/models')

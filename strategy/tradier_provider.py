@@ -7,6 +7,8 @@ Production: https://api.tradier.com/v1/
 
 import logging
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -28,13 +30,17 @@ class TradierProvider:
             "Authorization": f"Bearer {api_key}",
             "Accept": "application/json",
         }
+        self.session = requests.Session()
+        self.session.headers.update(self.headers)
+        retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
+        self.session.mount("https://", HTTPAdapter(max_retries=retry))
         logger.info(f"TradierProvider initialized ({'sandbox' if sandbox else 'production'})")
 
     def get_quote(self, ticker: str) -> Dict:
         """Get real-time quote for a ticker."""
         url = f"{self.base_url}/markets/quotes"
         params = {"symbols": ticker, "greeks": "false"}
-        resp = requests.get(url, params=params, headers=self.headers, timeout=10)
+        resp = self.session.get(url, params=params, timeout=10)
         resp.raise_for_status()
         data = resp.json()
         quote = data.get("quotes", {}).get("quote", {})
@@ -44,7 +50,7 @@ class TradierProvider:
         """Get available option expiration dates."""
         url = f"{self.base_url}/markets/options/expirations"
         params = {"symbol": ticker, "includeAllRoots": "true", "strikes": "false"}
-        resp = requests.get(url, params=params, headers=self.headers, timeout=10)
+        resp = self.session.get(url, params=params, timeout=10)
         resp.raise_for_status()
         data = resp.json()
         expirations = data.get("expirations", {})
@@ -73,7 +79,7 @@ class TradierProvider:
             "expiration": expiration,
             "greeks": "true",
         }
-        resp = requests.get(url, params=params, headers=self.headers, timeout=10)
+        resp = self.session.get(url, params=params, timeout=10)
         resp.raise_for_status()
         data = resp.json()
 

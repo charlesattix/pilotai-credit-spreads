@@ -7,10 +7,12 @@ Monitors open positions and closes at profit target, stop loss, or expiration.
 import json
 import logging
 import os
+import tempfile
 import yaml
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from pathlib import Path
+from constants import MAX_CONTRACTS_PER_TRADE, MANAGEMENT_DTE_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
@@ -77,9 +79,23 @@ class PaperTrader:
             },
         }
 
+    @staticmethod
+    def _atomic_json_write(filepath: Path, data: dict):
+        """Write JSON atomically: write to temp file then rename."""
+        fd, tmp_path = tempfile.mkstemp(dir=filepath.parent, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(data, f, indent=2, default=str)
+            os.replace(tmp_path, filepath)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
     def _save_trades(self):
-        with open(PAPER_LOG, "w") as f:
-            json.dump(self.trades, f, indent=2, default=str)
+        self._atomic_json_write(PAPER_LOG, self.trades)
         # Also write to trades.json for the web dashboard
         self._export_for_dashboard()
 
@@ -95,8 +111,7 @@ class PaperTrader:
             "stats": self.trades["stats"],
             "updated_at": datetime.now().isoformat(),
         }
-        with open(TRADES_FILE, "w") as f:
-            json.dump(dashboard_data, f, indent=2, default=str)
+        self._atomic_json_write(TRADES_FILE, dashboard_data)
 
     @property
     def open_trades(self) -> List[Dict]:
@@ -172,7 +187,7 @@ class PaperTrader:
         # Position sizing: max risk per trade
         max_risk_dollars = self.trades["current_balance"] * self.max_risk_per_trade
         max_contracts = max(1, int(max_risk_dollars / (max_loss * 100)))
-        contracts = min(max_contracts, 10)  # Cap at 10 contracts
+        contracts = min(max_contracts, MAX_CONTRACTS_PER_TRADE)
 
         trade = {
             "id": len(self.trades["trades"]) + 1,
@@ -256,10 +271,11 @@ class PaperTrader:
             exp_str = trade["expiration"].split(" ")[0] if " " in trade["expiration"] else trade["expiration"]
             try:
                 exp_date = datetime.strptime(exp_str, "%Y-%m-%d")
-            except:
+            except ValueError:
                 try:
                     exp_date = datetime.fromisoformat(trade["expiration"])
-                except:
+                except ValueError:
+                    logger.error(f"Could not parse expiration '{trade['expiration']}' for trade {trade.get('id')}, defaulting to +30d")
                     exp_date = now + timedelta(days=30)
 
             dte = (exp_date - now).days
@@ -316,8 +332,6 @@ class PaperTrader:
             # ITM — losing money
             current_spread_value = min(intrinsic * contracts * 100, trade["total_max_loss"])
             remaining_extrinsic = credit * max(0, 1 - time_passed_pct) * 0.3
-            pnl = round(credit - current_spread_value + remaining_extrinsic - credit, 2)
-            # Simplified: pnl = -(current_spread_value - remaining_extrinsic)
             pnl = round(-(current_spread_value - remaining_extrinsic), 2)
 
         # Check exit conditions
@@ -335,8 +349,8 @@ class PaperTrader:
         elif dte <= 1:
             close_reason = "expiration"
 
-        # 4. Manage at 21 DTE — close if profitable
-        elif dte <= 21 and pnl > 0:
+        # 4. Manage at DTE threshold — close if profitable
+        elif dte <= MANAGEMENT_DTE_THRESHOLD and pnl > 0:
             close_reason = "management_dte"
 
         return pnl, close_reason
@@ -356,7 +370,8 @@ class PaperTrader:
                 )
                 logger.info(f"Alpaca close order submitted for {trade['ticker']}")
             except Exception as e:
-                logger.warning(f"Alpaca close failed: {e}")
+                logger.error(f"Alpaca close failed: {e}")
+                trade["alpaca_sync_error"] = str(e)
 
         trade["status"] = "closed"
         trade["exit_date"] = datetime.now().isoformat()
