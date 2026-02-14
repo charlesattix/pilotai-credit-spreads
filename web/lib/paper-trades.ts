@@ -26,6 +26,13 @@ export function calculateUnrealizedPnL(trade: PaperTrade): number {
 
 // Check if a trade should be auto-closed
 export function shouldAutoClose(trade: PaperTrade): { close: boolean; reason: string } {
+  // Check expiration first — an expired trade is always closed regardless of P&L
+  const now = new Date();
+  const expiry = new Date(trade.expiration);
+  if (now >= expiry) {
+    return { close: true, reason: 'Expired' };
+  }
+
   const unrealizedPnL = calculateUnrealizedPnL(trade);
 
   if (trade.profit_target && unrealizedPnL >= trade.profit_target) {
@@ -34,12 +41,6 @@ export function shouldAutoClose(trade: PaperTrade): { close: boolean; reason: st
 
   if (trade.stop_loss && unrealizedPnL <= -(trade.stop_loss)) {
     return { close: true, reason: 'Stop loss triggered' };
-  }
-
-  const now = new Date();
-  const expiry = new Date(trade.expiration);
-  if (now >= expiry) {
-    return { close: true, reason: 'Expired' };
   }
 
   return { close: false, reason: '' };
