@@ -4,7 +4,7 @@ import time
 import logging
 import yfinance as yf
 import pandas as pd
-from typing import Optional
+from typing import List, Optional
 from shared.exceptions import DataFetchError
 
 logger = logging.getLogger(__name__)
@@ -19,14 +19,17 @@ class DataCache:
 
     def get_history(self, ticker: str, period: str = '1y') -> pd.DataFrame:
         """Get historical data, using cache if fresh."""
+        cached = None
         with self._lock:
             key = ticker.upper()
-            now = time.time()
             if key in self._cache:
                 data, ts = self._cache[key]
-                if now - ts < self._ttl:
+                if time.time() - ts < self._ttl:
                     logger.debug(f"Cache hit for {key}")
-                    return data.copy()
+                    cached = data
+
+        if cached is not None:
+            return cached.copy()
 
         # Download outside lock
         try:
@@ -39,6 +42,19 @@ class DataCache:
         except Exception as e:
             logger.error(f"Failed to download {ticker}: {e}", exc_info=True)
             raise DataFetchError(f"Failed to download data for {ticker}: {e}") from e
+
+    def pre_warm(self, tickers: List[str]) -> None:
+        """Pre-populate the cache for a list of tickers.
+
+        Errors are logged but do not propagate so that a single failed
+        ticker does not prevent the rest of the cache from being warmed.
+        """
+        for ticker in tickers:
+            try:
+                self.get_history(ticker)
+                logger.info(f"Pre-warmed cache for {ticker}")
+            except Exception as e:
+                logger.warning(f"Pre-warm failed for {ticker}: {e}")
 
     def get_ticker_obj(self, ticker: str) -> yf.Ticker:
         """Get a yfinance Ticker object (not cached, used for options chains)."""

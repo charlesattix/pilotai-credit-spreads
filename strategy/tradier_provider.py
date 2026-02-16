@@ -14,6 +14,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from shared.exceptions import ProviderError
+from shared.circuit_breaker import CircuitBreaker
 
 logger = logging.getLogger(__name__)
 
@@ -35,103 +36,111 @@ class TradierProvider:
         self.session.headers.update(self.headers)
         retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504], backoff_jitter=0.25)
         self.session.mount("https://", HTTPAdapter(max_retries=retry))
+        self._circuit_breaker = CircuitBreaker(failure_threshold=5, reset_timeout=60)
         logger.info(f"TradierProvider initialized ({'sandbox' if sandbox else 'production'})")
 
     def get_quote(self, ticker: str) -> Dict:
         """Get real-time quote for a ticker."""
-        url = f"{self.base_url}/markets/quotes"
-        params = {"symbols": ticker, "greeks": "false"}
-        try:
-            resp = self.session.get(url, params=params, timeout=10)
-            resp.raise_for_status()
-        except requests.exceptions.RequestException as e:
-            raise ProviderError(f"Tradier quote request failed for {ticker}: {e}") from e
-        data = resp.json()
-        quote = data.get("quotes", {}).get("quote", {})
-        return quote
+        def _do_get_quote():
+            url = f"{self.base_url}/markets/quotes"
+            params = {"symbols": ticker, "greeks": "false"}
+            try:
+                resp = self.session.get(url, params=params, timeout=10)
+                resp.raise_for_status()
+            except requests.exceptions.RequestException as e:
+                raise ProviderError(f"Tradier quote request failed for {ticker}: {e}") from e
+            data = resp.json()
+            quote = data.get("quotes", {}).get("quote", {})
+            return quote
+        return self._circuit_breaker.call(_do_get_quote)
 
     def get_expirations(self, ticker: str) -> List[str]:
         """Get available option expiration dates."""
-        url = f"{self.base_url}/markets/options/expirations"
-        params = {"symbol": ticker, "includeAllRoots": "true", "strikes": "false"}
-        try:
-            resp = self.session.get(url, params=params, timeout=10)
-            resp.raise_for_status()
-        except requests.exceptions.RequestException as e:
-            raise ProviderError(f"Tradier expirations request failed for {ticker}: {e}") from e
-        data = resp.json()
-        expirations = data.get("expirations", {})
-        if expirations is None:
-            return []
-        dates = expirations.get("date", [])
-        if isinstance(dates, str):
-            dates = [dates]
-        return dates
+        def _do_get_expirations():
+            url = f"{self.base_url}/markets/options/expirations"
+            params = {"symbol": ticker, "includeAllRoots": "true", "strikes": "false"}
+            try:
+                resp = self.session.get(url, params=params, timeout=10)
+                resp.raise_for_status()
+            except requests.exceptions.RequestException as e:
+                raise ProviderError(f"Tradier expirations request failed for {ticker}: {e}") from e
+            data = resp.json()
+            expirations = data.get("expirations", {})
+            if expirations is None:
+                return []
+            dates = expirations.get("date", [])
+            if isinstance(dates, str):
+                dates = [dates]
+            return dates
+        return self._circuit_breaker.call(_do_get_expirations)
 
     def get_options_chain(self, ticker: str, expiration: str) -> pd.DataFrame:
         """
         Get options chain for a specific expiration with real Greeks.
-        
+
         Args:
             ticker: Stock symbol
             expiration: Date string YYYY-MM-DD
-            
+
         Returns:
-            DataFrame with columns: strike, type, bid, ask, last, volume, 
+            DataFrame with columns: strike, type, bid, ask, last, volume,
             open_interest, iv, delta, gamma, theta, vega, mid, expiration
         """
-        url = f"{self.base_url}/markets/options/chains"
-        params = {
-            "symbol": ticker,
-            "expiration": expiration,
-            "greeks": "true",
-        }
-        try:
-            resp = self.session.get(url, params=params, timeout=10)
-            resp.raise_for_status()
-        except requests.exceptions.RequestException as e:
-            raise ProviderError(f"Tradier options chain request failed for {ticker}: {e}") from e
-        data = resp.json()
+        def _do_get_options_chain():
+            url = f"{self.base_url}/markets/options/chains"
+            params = {
+                "symbol": ticker,
+                "expiration": expiration,
+                "greeks": "true",
+            }
+            try:
+                resp = self.session.get(url, params=params, timeout=10)
+                resp.raise_for_status()
+            except requests.exceptions.RequestException as e:
+                raise ProviderError(f"Tradier options chain request failed for {ticker}: {e}") from e
+            data = resp.json()
 
-        options = data.get("options", {})
-        if options is None:
-            return pd.DataFrame()
-        
-        option_list = options.get("option", [])
-        if isinstance(option_list, dict):
-            option_list = [option_list]
-        if not option_list:
-            return pd.DataFrame()
+            options = data.get("options", {})
+            if options is None:
+                return pd.DataFrame()
 
-        rows = []
-        for opt in option_list:
-            greeks = opt.get("greeks") or {}
-            rows.append({
-                "contract_symbol": opt.get("symbol", ""),
-                "strike": opt.get("strike", 0),
-                "type": "call" if opt.get("option_type") == "call" else "put",
-                "bid": opt.get("bid", 0) or 0,
-                "ask": opt.get("ask", 0) or 0,
-                "last": opt.get("last", 0) or 0,
-                "volume": opt.get("volume", 0) or 0,
-                "open_interest": opt.get("open_interest", 0) or 0,
-                "iv": greeks.get("mid_iv", 0) or 0,
-                "delta": greeks.get("delta", 0) or 0,
-                "raw_delta": greeks.get("delta", 0) or 0,
-                "gamma": greeks.get("gamma", 0) or 0,
-                "theta": greeks.get("theta", 0) or 0,
-                "vega": greeks.get("vega", 0) or 0,
-                "mid": ((opt.get("bid", 0) or 0) + (opt.get("ask", 0) or 0)) / 2,
-                "expiration": datetime.strptime(expiration, "%Y-%m-%d"),
-                "itm": opt.get("strike", 0) < opt.get("last", 0) if opt.get("option_type") == "call" else opt.get("strike", 0) > opt.get("last", 0),
-            })
+            option_list = options.get("option", [])
+            if isinstance(option_list, dict):
+                option_list = [option_list]
+            if not option_list:
+                return pd.DataFrame()
 
-        df = pd.DataFrame(rows)
-        # Filter out zero bid/ask
-        df = df[(df["bid"] > 0) & (df["ask"] > 0)].copy()
-        
-        logger.info(f"Tradier: {len(df)} options for {ticker} exp {expiration}")
-        return df
+            rows = []
+            for opt in option_list:
+                greeks = opt.get("greeks") or {}
+                rows.append({
+                    "contract_symbol": opt.get("symbol", ""),
+                    "strike": opt.get("strike", 0),
+                    "type": "call" if opt.get("option_type") == "call" else "put",
+                    "bid": opt.get("bid", 0) or 0,
+                    "ask": opt.get("ask", 0) or 0,
+                    "last": opt.get("last", 0) or 0,
+                    "volume": opt.get("volume", 0) or 0,
+                    "open_interest": opt.get("open_interest", 0) or 0,
+                    "iv": greeks.get("mid_iv", 0) or 0,
+                    "delta": greeks.get("delta", 0) or 0,
+                    "raw_delta": greeks.get("delta", 0) or 0,
+                    "gamma": greeks.get("gamma", 0) or 0,
+                    "theta": greeks.get("theta", 0) or 0,
+                    "vega": greeks.get("vega", 0) or 0,
+                    "mid": ((opt.get("bid", 0) or 0) + (opt.get("ask", 0) or 0)) / 2,
+                    "expiration": datetime.strptime(expiration, "%Y-%m-%d"),
+                    "itm": opt.get("strike", 0) < opt.get("last", 0) if opt.get("option_type") == "call" else opt.get("strike", 0) > opt.get("last", 0),
+                })
+
+            df = pd.DataFrame(rows)
+            # Filter out zero bid/ask
+            df = df[(df["bid"] > 0) & (df["ask"] > 0)].copy()
+
+            logger.info(f"Tradier: {len(df)} options for {ticker} exp {expiration}")
+            return df
+
+        return self._circuit_breaker.call(_do_get_options_chain)
 
     def get_full_chain(self, ticker: str, min_dte: int = 25, max_dte: int = 50) -> pd.DataFrame:
         """

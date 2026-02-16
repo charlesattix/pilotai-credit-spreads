@@ -11,9 +11,12 @@ Based on research:
 
 import numpy as np
 import pandas as pd
+from collections import Counter
 from typing import Dict, List, Optional
 from datetime import datetime
 import logging
+
+from shared.types import PositionSizeResult
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +53,8 @@ class PositionSizer:
         self.kelly_fraction = kelly_fraction
         self.max_portfolio_risk = max_portfolio_risk
         self.max_correlated_exposure = max_correlated_exposure
-        
+        self.fallback_counter: Counter = Counter()
+
         logger.info(
             f"PositionSizer initialized: "
             f"max_pos={max_position_size:.2%}, "
@@ -66,7 +70,7 @@ class PositionSizer:
         ml_confidence: float,
         current_positions: Optional[List[Dict]] = None,
         ticker: str = '',
-    ) -> Dict:
+    ) -> PositionSizeResult:
         """
         Calculate optimal position size for a new trade.
         
@@ -141,7 +145,11 @@ class PositionSizer:
             return result
             
         except Exception as e:
-            logger.error(f"Error calculating position size: {e}", exc_info=True)
+            self.fallback_counter['calculate_position_size'] += 1
+            count = self.fallback_counter['calculate_position_size']
+            logger.error(f"Error calculating position size for {ticker} (fallback #{count}): {e}", exc_info=True)
+            if count >= 10:
+                logger.critical(f"PositionSizer calculate_position_size has fallen back {count} times — investigate")
             return self._get_default_sizing()
     
     def _calculate_kelly(
@@ -407,7 +415,7 @@ class PositionSizer:
             logger.error(f"Error calculating optimal leverage: {e}", exc_info=True)
             return 1.0
     
-    def _get_default_sizing(self) -> Dict:
+    def _get_default_sizing(self) -> PositionSizeResult:
         """
         Return default sizing when calculation fails.
         """
@@ -422,6 +430,10 @@ class PositionSizer:
             'kelly_fraction_used': self.kelly_fraction,
             'ml_confidence': 0.0,
         }
+
+    def get_fallback_stats(self) -> Dict[str, int]:
+        """Return fallback counts for monitoring."""
+        return dict(self.fallback_counter)
     
     def get_size_recommendation_text(self, sizing_result: Dict, portfolio_value: float) -> str:
         """

@@ -60,20 +60,15 @@ const ConfigSchema = z.object({
     csv_file: z.string().optional(),
     telegram: z.object({
       enabled: z.boolean().optional(),
-      bot_token: z.string().optional(),
-      chat_id: z.string().optional(),
     }).optional(),
   }).optional(),
   alpaca: z.object({
     enabled: z.boolean().optional(),
-    api_key: z.string().optional(),
-    api_secret: z.string().optional(),
-    paper: z.boolean().optional(),
   }).optional(),
   data: z.object({
     provider: z.enum(['yfinance', 'tradier', 'polygon']).optional(),
-    tradier: z.object({ api_key: z.string().optional() }).optional(),
-    polygon: z.object({ api_key: z.string().optional(), sandbox: z.boolean().optional() }).optional(),
+    tradier: z.object({}).optional(),
+    polygon: z.object({ sandbox: z.boolean().optional() }).optional(),
     backtest_lookback: z.number().int().positive().optional(),
     use_cache: z.boolean().optional(),
     cache_expiry_minutes: z.number().int().positive().optional(),

@@ -14,6 +14,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from shared.exceptions import ProviderError
+from shared.circuit_breaker import CircuitBreaker
 
 logger = logging.getLogger(__name__)
 
@@ -29,19 +30,22 @@ class PolygonProvider:
         self.session = requests.Session()
         retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504], backoff_jitter=0.25)
         self.session.mount("https://", HTTPAdapter(max_retries=retry))
+        self._circuit_breaker = CircuitBreaker(failure_threshold=5, reset_timeout=60)
         logger.info("PolygonProvider initialized")
 
     def _get(self, path: str, params: Optional[Dict] = None, timeout: int = 10) -> Dict:
         """Make authenticated GET request."""
-        params = params or {}
-        params["apiKey"] = self.api_key
-        url = f"{self.base_url}{path}"
-        try:
-            resp = self.session.get(url, params=params, timeout=timeout)
-            resp.raise_for_status()
-        except requests.exceptions.RequestException as e:
-            raise ProviderError(f"Polygon API request failed ({path}): {e}") from e
-        return resp.json()
+        def _do_request():
+            p = (params or {}).copy()
+            p["apiKey"] = self.api_key
+            url = f"{self.base_url}{path}"
+            try:
+                resp = self.session.get(url, params=p, timeout=timeout)
+                resp.raise_for_status()
+            except requests.exceptions.RequestException as e:
+                raise ProviderError(f"Polygon API request failed ({path}): {e}") from e
+            return resp.json()
+        return self._circuit_breaker.call(_do_request)
 
     def get_quote(self, ticker: str) -> Dict:
         """Get real-time quote for a ticker via stock snapshot."""

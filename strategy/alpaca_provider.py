@@ -67,7 +67,7 @@ class AlpacaProvider:
         try:
             acct = self.client.get_account()
             logger.info(
-                f"Alpaca connected | Account: {acct.account_number} | "
+                f"Alpaca connected | Account: ***{str(acct.account_number)[-4:]} | "
                 f"Status: {acct.status} | Cash: ${float(acct.cash):,.2f} | "
                 f"Options Level: {acct.options_trading_level}"
             )
@@ -145,6 +145,49 @@ class AlpacaProvider:
         return self._build_occ_symbol(ticker, expiration, strike, option_type)
 
     # ------------------------------------------------------------------
+    # Shared MLEG order submission
+    # ------------------------------------------------------------------
+
+    def _submit_mleg_order(
+        self,
+        legs: List[OptionLegRequest],
+        contracts: int,
+        limit_price: Optional[float],
+        client_id: str,
+    ) -> "alpaca.trading.models.Order":
+        """Build and submit a multi-leg option order.
+
+        Args:
+            legs: List of OptionLegRequest objects.
+            contracts: Number of spreads.
+            limit_price: Limit price (positive = credit). None for market.
+            client_id: Client order ID for tracking.
+
+        Returns:
+            The Alpaca Order object.
+        """
+        if limit_price is not None:
+            order_req = LimitOrderRequest(
+                qty=contracts,
+                order_class=OrderClass.MLEG,
+                time_in_force=TimeInForce.DAY,
+                legs=legs,
+                limit_price=round(limit_price, 2),
+                client_order_id=client_id,
+            )
+        else:
+            from alpaca.trading.requests import MarketOrderRequest
+            order_req = MarketOrderRequest(
+                qty=contracts,
+                order_class=OrderClass.MLEG,
+                time_in_force=TimeInForce.DAY,
+                legs=legs,
+                client_order_id=client_id,
+            )
+
+        return self.client.submit_order(order_req)
+
+    # ------------------------------------------------------------------
     # Submit credit spread
     # ------------------------------------------------------------------
 
@@ -210,26 +253,7 @@ class AlpacaProvider:
         client_id = f"cs-{ticker}-{uuid.uuid4().hex[:8]}"
 
         try:
-            if limit_price is not None:
-                order_req = LimitOrderRequest(
-                    qty=contracts,
-                    order_class=OrderClass.MLEG,
-                    time_in_force=TimeInForce.DAY,
-                    legs=legs,
-                    limit_price=round(limit_price, 2),
-                    client_order_id=client_id,
-                )
-            else:
-                from alpaca.trading.requests import MarketOrderRequest
-                order_req = MarketOrderRequest(
-                    qty=contracts,
-                    order_class=OrderClass.MLEG,
-                    time_in_force=TimeInForce.DAY,
-                    legs=legs,
-                    client_order_id=client_id,
-                )
-
-            order = self.client.submit_order(order_req)
+            order = self._submit_mleg_order(legs, contracts, limit_price, client_id)
 
             result = {
                 "status": "submitted",
@@ -302,26 +326,7 @@ class AlpacaProvider:
         client_id = f"close-{ticker}-{uuid.uuid4().hex[:8]}"
 
         try:
-            if limit_price is not None:
-                order_req = LimitOrderRequest(
-                    qty=contracts,
-                    order_class=OrderClass.MLEG,
-                    time_in_force=TimeInForce.DAY,
-                    legs=legs,
-                    limit_price=round(limit_price, 2),
-                    client_order_id=client_id,
-                )
-            else:
-                from alpaca.trading.requests import MarketOrderRequest
-                order_req = MarketOrderRequest(
-                    qty=contracts,
-                    order_class=OrderClass.MLEG,
-                    time_in_force=TimeInForce.DAY,
-                    legs=legs,
-                    client_order_id=client_id,
-                )
-
-            order = self.client.submit_order(order_req)
+            order = self._submit_mleg_order(legs, contracts, limit_price, client_id)
             logger.info(f"Close order submitted: {order.id} status={order.status}")
             return {
                 "status": "submitted",

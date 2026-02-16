@@ -14,6 +14,7 @@ This module:
 
 import numpy as np
 import pandas as pd
+from collections import Counter
 from typing import Dict, Optional
 from datetime import datetime
 import logging
@@ -24,6 +25,7 @@ from .feature_engine import FeatureEngine
 from .signal_model import SignalModel
 from .position_sizer import PositionSizer
 from .sentiment_scanner import SentimentScanner
+from shared.types import TradeAnalysis
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +75,8 @@ class MLPipeline:
         self.sentiment_scanner = SentimentScanner(data_cache=data_cache)
         
         self.initialized = False
-        
+        self.fallback_counter: Counter = Counter()
+
         logger.info("✓ ML pipeline initialized")
     
     def initialize(self, force_retrain: bool = False) -> bool:
@@ -123,7 +126,7 @@ class MLPipeline:
         expiration_date: Optional[datetime] = None,
         technical_signals: Optional[Dict] = None,
         current_positions: Optional[list] = None,
-    ) -> Dict:
+    ) -> TradeAnalysis:
         """
         Comprehensive ML-enhanced trade analysis.
         
@@ -226,7 +229,11 @@ class MLPipeline:
             return result
             
         except Exception as e:
-            logger.error(f"Error analyzing trade for {ticker}: {e}", exc_info=True)
+            self.fallback_counter['analyze_trade'] += 1
+            count = self.fallback_counter['analyze_trade']
+            logger.error(f"Error analyzing trade for {ticker} (fallback #{count}): {e}", exc_info=True)
+            if count >= 10:
+                logger.critical(f"ML pipeline analyze_trade has fallen back {count} times — investigate")
             return self._get_default_analysis(ticker, spread_type)
     
     def _calculate_enhanced_score(self, analysis: Dict) -> float:
@@ -466,7 +473,7 @@ class MLPipeline:
         
         return results
     
-    def _get_default_analysis(self, ticker: str, spread_type: str) -> Dict:
+    def _get_default_analysis(self, ticker: str, spread_type: str) -> TradeAnalysis:
         """
         Return default analysis when error occurs.
         """
@@ -485,6 +492,10 @@ class MLPipeline:
             },
             'error': True,
         }
+
+    def get_fallback_stats(self) -> Dict[str, int]:
+        """Return fallback counts for monitoring."""
+        return dict(self.fallback_counter)
     
     def get_summary_report(self, analysis: Dict) -> str:
         """

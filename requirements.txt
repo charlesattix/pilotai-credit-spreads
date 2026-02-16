@@ -48,3 +48,4 @@ sentry-sdk>=1.40.0
 # Testing (optional)
 pytest>=7.4.0
 pytest-cov>=4.1.0
+hypothesis>=6.90.0

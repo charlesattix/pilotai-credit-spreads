@@ -9,6 +9,8 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from shared.types import ScoredSpreadOpportunity, SpreadOpportunity
+
 logger = logging.getLogger(__name__)
 
 
@@ -50,9 +52,9 @@ class CreditSpreadStrategy:
             current_price: Current underlying price
             
         Returns:
-            List of spread opportunities with scores
+            List of scored spread opportunities
         """
-        opportunities = []
+        opportunities: List[ScoredSpreadOpportunity] = []
         
         # Filter by DTE
         valid_expirations = self._filter_by_dte(option_chain)
@@ -188,7 +190,7 @@ class CreditSpreadStrategy:
         current_price: float,
         expiration: datetime,
         spread_type: str,
-    ) -> List[Dict]:
+    ) -> List[SpreadOpportunity]:
         """
         Find credit spread opportunities.
 
@@ -202,7 +204,7 @@ class CreditSpreadStrategy:
         Returns:
             List of spread opportunity dicts
         """
-        spreads = []
+        spreads: List[SpreadOpportunity] = []
 
         if spread_type == 'bull_put':
             option_type = 'put'

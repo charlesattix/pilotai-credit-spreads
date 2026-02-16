@@ -58,51 +58,45 @@ class OptionsAnalyzer:
     def get_options_chain(self, ticker: str) -> pd.DataFrame:
         """
         Retrieve options chain for ticker.
-        
+
         Args:
             ticker: Stock ticker symbol
-            
+
         Returns:
             DataFrame with options chain data
         """
         # Use Tradier if available (real-time + real Greeks)
         if self.tradier:
-            return self._get_chain_tradier(ticker)
-        
+            return self._get_chain_from_provider(self.tradier, "Tradier", ticker)
+
         # Use Polygon if available
         if self.polygon:
-            return self._get_chain_polygon(ticker)
-        
+            return self._get_chain_from_provider(self.polygon, "Polygon", ticker)
+
         return self._get_chain_yfinance(ticker)
 
-    def _get_chain_tradier(self, ticker: str) -> pd.DataFrame:
-        """Get options chain via Tradier API with real Greeks."""
-        try:
-            min_dte = self.config['strategy'].get('min_dte', 30) - 5
-            max_dte = self.config['strategy'].get('max_dte', 45) + 5
-            chain = self.tradier.get_full_chain(ticker, min_dte=min_dte, max_dte=max_dte)
-            if chain.empty:
-                logger.warning(f"Tradier returned no data for {ticker}, falling back to yfinance")
-                return self._get_chain_yfinance(ticker)
-            logger.info(f"Retrieved {len(chain)} options for {ticker} via Tradier (real-time)")
-            return chain
-        except Exception as e:
-            logger.error(f"Tradier error for {ticker}: {e}, falling back to yfinance", exc_info=True)
-            return self._get_chain_yfinance(ticker)
+    def _get_chain_from_provider(self, provider, provider_name: str, ticker: str) -> pd.DataFrame:
+        """Get options chain from a provider (Tradier or Polygon) with yfinance fallback.
 
-    def _get_chain_polygon(self, ticker: str) -> pd.DataFrame:
-        """Get options chain via Polygon API with real Greeks."""
+        Args:
+            provider: Provider instance with a ``get_full_chain`` method.
+            provider_name: Human-readable name used in log messages.
+            ticker: Stock ticker symbol.
+
+        Returns:
+            DataFrame with options chain data.
+        """
         try:
             min_dte = self.config['strategy'].get('min_dte', 30) - 5
             max_dte = self.config['strategy'].get('max_dte', 45) + 5
-            chain = self.polygon.get_full_chain(ticker, min_dte=min_dte, max_dte=max_dte)
+            chain = provider.get_full_chain(ticker, min_dte=min_dte, max_dte=max_dte)
             if chain.empty:
-                logger.warning(f"Polygon returned no data for {ticker}, falling back to yfinance")
+                logger.warning(f"{provider_name} returned no data for {ticker}, falling back to yfinance")
                 return self._get_chain_yfinance(ticker)
-            logger.info(f"Retrieved {len(chain)} options for {ticker} via Polygon (real-time)")
+            logger.info(f"Retrieved {len(chain)} options for {ticker} via {provider_name} (real-time)")
             return chain
         except Exception as e:
-            logger.error(f"Polygon error for {ticker}: {e}, falling back to yfinance", exc_info=True)
+            logger.error(f"{provider_name} error for {ticker}: {e}, falling back to yfinance", exc_info=True)
             return self._get_chain_yfinance(ticker)
 
     def _get_chain_yfinance(self, ticker: str) -> pd.DataFrame:

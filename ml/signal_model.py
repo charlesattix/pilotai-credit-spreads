@@ -11,6 +11,7 @@ Based on research:
 
 import numpy as np
 import pandas as pd
+from collections import Counter
 from typing import Dict, Optional, Tuple
 from datetime import datetime
 import logging
@@ -27,6 +28,7 @@ from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
 from shared.indicators import sanitize_features
+from shared.types import PredictionResult
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +56,8 @@ class SignalModel:
         self.feature_names = None
         self.trained = False
         self.training_stats = {}
-        
+        self.fallback_counter: Counter = Counter()
+
         logger.info(f"SignalModel initialized (model_dir={model_dir})")
     
     def train(
@@ -182,7 +185,7 @@ class SignalModel:
             logger.error(f"Error training model: {e}", exc_info=True)
             return {}
     
-    def predict(self, features: Dict) -> Dict:
+    def predict(self, features: Dict) -> PredictionResult:
         """
         Predict profitability for a single trade.
         
@@ -225,7 +228,11 @@ class SignalModel:
             return result
             
         except Exception as e:
-            logger.error(f"Error making prediction: {e}", exc_info=True)
+            self.fallback_counter['predict'] += 1
+            count = self.fallback_counter['predict']
+            logger.error(f"Error making prediction (fallback #{count}): {e}", exc_info=True)
+            if count >= 10:
+                logger.critical(f"SignalModel predict has fallen back {count} times — investigate")
             return self._get_default_prediction()
     
     def predict_batch(self, features_df: pd.DataFrame) -> np.ndarray:
@@ -252,7 +259,11 @@ class SignalModel:
             return probabilities
             
         except Exception as e:
-            logger.error(f"Error in batch prediction: {e}", exc_info=True)
+            self.fallback_counter['predict_batch'] += 1
+            count = self.fallback_counter['predict_batch']
+            logger.error(f"Error in batch prediction (fallback #{count}): {e}", exc_info=True)
+            if count >= 10:
+                logger.critical(f"SignalModel predict_batch has fallen back {count} times — investigate")
             return np.ones(len(features_df)) * 0.5
     
     def backtest(self, features_df: pd.DataFrame, labels: np.ndarray) -> Dict:
@@ -436,7 +447,7 @@ class SignalModel:
             logger.error(f"Error loading model: {e}", exc_info=True)
             return False
     
-    def _get_default_prediction(self) -> Dict:
+    def _get_default_prediction(self) -> PredictionResult:
         """
         Return default prediction when model unavailable.
         """
@@ -449,6 +460,10 @@ class SignalModel:
             'timestamp': datetime.now().isoformat(),
             'fallback': True,
         }
+
+    def get_fallback_stats(self) -> Dict[str, int]:
+        """Return fallback counts for monitoring."""
+        return dict(self.fallback_counter)
     
     def generate_synthetic_training_data(
         self,

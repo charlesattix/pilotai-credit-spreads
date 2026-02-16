@@ -51,6 +51,7 @@ class PaperTrader:
 
         DATA_DIR.mkdir(exist_ok=True)
         self.trades = self._load_trades()
+        self._rebuild_cached_lists()
         logger.info(f"PaperTrader initialized | Balance: ${self.account_size:,.0f} | "
                      f"Open: {len(self.open_trades)} | Closed: {len(self.closed_trades)} | "
                      f"Alpaca: {'ON' if self.alpaca else 'OFF'}")
@@ -78,6 +79,11 @@ class PaperTrader:
                 "peak_balance": self.account_size,
             },
         }
+
+    def _rebuild_cached_lists(self):
+        """Build the cached open/closed lists from the trades list."""
+        self._open_trades = [t for t in self.trades["trades"] if t["status"] == "open"]
+        self._closed_trades = [t for t in self.trades["trades"] if t["status"] == "closed"]
 
     @staticmethod
     def _atomic_json_write(filepath: Path, data: dict):
@@ -115,11 +121,11 @@ class PaperTrader:
 
     @property
     def open_trades(self) -> List[Dict]:
-        return [t for t in self.trades["trades"] if t["status"] == "open"]
+        return self._open_trades
 
     @property
     def closed_trades(self) -> List[Dict]:
-        return [t for t in self.trades["trades"] if t["status"] == "closed"]
+        return self._closed_trades
 
     def execute_signals(self, opportunities: List[Dict]) -> List[Dict]:
         """
@@ -240,6 +246,7 @@ class PaperTrader:
                 trade["alpaca_status"] = "fallback_json"
 
         self.trades["trades"].append(trade)
+        self._open_trades.append(trade)
         self.trades["stats"]["total_trades"] += 1
 
         logger.info(
@@ -377,6 +384,11 @@ class PaperTrader:
         trade["exit_date"] = datetime.now().isoformat()
         trade["exit_reason"] = reason
         trade["exit_pnl"] = pnl
+
+        # Move from open to closed cached lists
+        if trade in self._open_trades:
+            self._open_trades.remove(trade)
+        self._closed_trades.append(trade)
 
         # Update balance
         self.trades["current_balance"] = round(self.trades["current_balance"] + pnl, 2)

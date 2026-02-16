@@ -79,8 +79,8 @@ alerts:
   # Telegram settings
   telegram:
     enabled: false  # Set to true when configured
-    bot_token: "YOUR_BOT_TOKEN_HERE"
-    chat_id: "YOUR_CHAT_ID_HERE"
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
 
 # Alpaca Paper Trading
 alpaca:
@@ -96,7 +96,7 @@ data:
 
   # Tradier API settings (get free key at https://developer.tradier.com)
   tradier:
-    api_key: "YOUR_TRADIER_API_KEY"
+    api_key: "${TRADIER_API_KEY}"
 
   # Polygon.io / Massive API settings
   polygon:

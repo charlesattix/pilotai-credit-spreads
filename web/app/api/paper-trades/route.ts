@@ -1,8 +1,9 @@
 import { logger } from "@/lib/logger"
 import { NextResponse } from "next/server";
 import { apiError } from "@/lib/api-error";
-import { readFile, writeFile, mkdir } from "fs/promises";
+import { readFile, writeFile as fsWriteFile, mkdir, rename, unlink } from "fs/promises";
 import path from "path";
+import { randomUUID } from "crypto";
 import { z } from "zod";
 import { PaperTrade, Portfolio } from "@/lib/types";
 import { calcUnrealizedPnL } from "@/lib/pnl";
@@ -72,7 +73,15 @@ async function readPortfolio(userId: string): Promise<Portfolio> {
 
 async function writePortfolio(userId: string, portfolio: Portfolio): Promise<void> {
   await ensureDirs();
-  await writeFile(userFile(userId), JSON.stringify(portfolio, null, 2));
+  const target = userFile(userId);
+  const tmp = path.join(path.dirname(target), `.${randomUUID()}.tmp`);
+  try {
+    await fsWriteFile(tmp, JSON.stringify(portfolio, null, 2));
+    await rename(tmp, target);
+  } catch (err) {
+    try { await unlink(tmp); } catch { /* ignore cleanup failure */ }
+    throw err;
+  }
 }
 
 // GET — fetch user's paper trades
