@@ -42,6 +42,9 @@ pytz>=2023.3
 # Logging
 colorlog>=6.7.0
 
+# Error tracking (optional)
+sentry-sdk>=1.40.0
+
 # Testing (optional)
 pytest>=7.4.0
 pytest-cov>=4.1.0

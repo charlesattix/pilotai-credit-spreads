@@ -13,6 +13,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
+from shared.exceptions import ProviderError
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class PolygonProvider:
         self.api_key = api_key
         self.base_url = BASE_URL
         self.session = requests.Session()
-        retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
+        retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504], backoff_jitter=0.25)
         self.session.mount("https://", HTTPAdapter(max_retries=retry))
         logger.info("PolygonProvider initialized")
 
@@ -35,8 +36,11 @@ class PolygonProvider:
         params = params or {}
         params["apiKey"] = self.api_key
         url = f"{self.base_url}{path}"
-        resp = self.session.get(url, params=params, timeout=timeout)
-        resp.raise_for_status()
+        try:
+            resp = self.session.get(url, params=params, timeout=timeout)
+            resp.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            raise ProviderError(f"Polygon API request failed ({path}): {e}") from e
         return resp.json()
 
     def get_quote(self, ticker: str) -> Dict:
@@ -135,7 +139,7 @@ class PolygonProvider:
                 "volume": day.get("volume", 0) or 0,
                 "open_interest": item.get("open_interest", 0) or 0,
                 "iv": greeks.get("iv", 0) or item.get("implied_volatility", 0) or 0,
-                "delta": abs(greeks.get("delta", 0) or 0),
+                "delta": greeks.get("delta", 0) or 0,
                 "raw_delta": greeks.get("delta", 0) or 0,
                 "gamma": greeks.get("gamma", 0) or 0,
                 "theta": greeks.get("theta", 0) or 0,
@@ -207,7 +211,7 @@ class PolygonProvider:
                 "volume": day.get("volume", 0) or 0,
                 "open_interest": item.get("open_interest", 0) or 0,
                 "iv": greeks.get("iv", 0) or item.get("implied_volatility", 0) or 0,
-                "delta": abs(greeks.get("delta", 0) or 0),
+                "delta": greeks.get("delta", 0) or 0,
                 "raw_delta": greeks.get("delta", 0) or 0,
                 "gamma": greeks.get("gamma", 0) or 0,
                 "theta": greeks.get("theta", 0) or 0,
@@ -273,7 +277,7 @@ class PolygonProvider:
                 "iv_max_52w": round(float(iv_max), 2),
             }
         except Exception as e:
-            logger.error(f"Error calculating IV rank for {ticker}: {e}")
+            logger.error(f"Error calculating IV rank for {ticker}: {e}", exc_info=True)
             return {"iv_rank": 0, "iv_percentile": 0, "current_iv": current_iv}
 
 

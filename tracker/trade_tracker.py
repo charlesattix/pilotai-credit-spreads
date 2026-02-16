@@ -33,7 +33,7 @@ class TradeTracker:
         self.data_dir = Path('data')
         self.data_dir.mkdir(exist_ok=True)
         
-        self.trades_file = self.data_dir / 'trades.json'
+        self.trades_file = self.data_dir / 'tracker_trades.json'
         self.positions_file = self.data_dir / 'positions.json'
         
         # Load existing data

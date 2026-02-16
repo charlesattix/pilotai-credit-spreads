@@ -65,3 +65,20 @@ def calculate_iv_rank(hv_values: pd.Series, current_iv: float) -> dict:
         'iv_min': round(iv_min, 2),
         'iv_max': round(iv_max, 2),
     }
+
+
+def sanitize_features(X):
+    """
+    Replace NaN and Inf values in a numpy array with safe defaults.
+
+    NaN  -> 0.0
+    +Inf -> 1e6
+    -Inf -> -1e6
+
+    Args:
+        X: numpy array (any shape).
+
+    Returns:
+        Cleaned numpy array with the same shape and dtype.
+    """
+    return np.nan_to_num(X, nan=0.0, posinf=1e6, neginf=-1e6)

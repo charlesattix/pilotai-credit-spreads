@@ -26,6 +26,7 @@ except ImportError:
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
+from shared.indicators import sanitize_features
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,7 @@ class SignalModel:
             y = labels
             
             # Handle NaN and inf
-            X = np.nan_to_num(X, nan=0.0, posinf=1e6, neginf=-1e6)
+            X = sanitize_features(X)
             
             # Train/test split
             X_train, X_test, y_train, y_test = train_test_split(
@@ -178,7 +179,7 @@ class SignalModel:
             return stats
             
         except Exception as e:
-            logger.error(f"Error training model: {e}")
+            logger.error(f"Error training model: {e}", exc_info=True)
             return {}
     
     def predict(self, features: Dict) -> Dict:
@@ -224,7 +225,7 @@ class SignalModel:
             return result
             
         except Exception as e:
-            logger.error(f"Error making prediction: {e}")
+            logger.error(f"Error making prediction: {e}", exc_info=True)
             return self._get_default_prediction()
     
     def predict_batch(self, features_df: pd.DataFrame) -> np.ndarray:
@@ -243,7 +244,7 @@ class SignalModel:
         
         try:
             X = features_df[self.feature_names].values
-            X = np.nan_to_num(X, nan=0.0, posinf=1e6, neginf=-1e6)
+            X = sanitize_features(X)
             
             model = self.calibrated_model if self.calibrated_model else self.model
             probabilities = model.predict_proba(X)[:, 1]
@@ -251,7 +252,7 @@ class SignalModel:
             return probabilities
             
         except Exception as e:
-            logger.error(f"Error in batch prediction: {e}")
+            logger.error(f"Error in batch prediction: {e}", exc_info=True)
             return np.ones(len(features_df)) * 0.5
     
     def backtest(self, features_df: pd.DataFrame, labels: np.ndarray) -> Dict:
@@ -320,7 +321,7 @@ class SignalModel:
             return results
             
         except Exception as e:
-            logger.error(f"Error in backtest: {e}")
+            logger.error(f"Error in backtest: {e}", exc_info=True)
             return {}
     
     def _features_to_array(self, features: Dict) -> Optional[np.ndarray]:
@@ -341,12 +342,12 @@ class SignalModel:
                 feature_values.append(value)
             
             X = np.array(feature_values).reshape(1, -1)
-            X = np.nan_to_num(X, nan=0.0, posinf=1e6, neginf=-1e6)
+            X = sanitize_features(X)
             
             return X
             
         except Exception as e:
-            logger.error(f"Error converting features to array: {e}")
+            logger.error(f"Error converting features to array: {e}", exc_info=True)
             return None
     
     def _log_feature_importance(self, top_n: int = 15):
@@ -369,7 +370,7 @@ class SignalModel:
                 logger.info(f"  {name}: {imp:.4f}")
             
         except Exception as e:
-            logger.error(f"Error logging feature importance: {e}")
+            logger.error(f"Error logging feature importance: {e}", exc_info=True)
     
     def save(self, filename: str):
         """
@@ -391,7 +392,7 @@ class SignalModel:
             logger.info(f"✓ Model saved to {filepath}")
             
         except Exception as e:
-            logger.error(f"Error saving model: {e}")
+            logger.error(f"Error saving model: {e}", exc_info=True)
     
     def load(self, filename: Optional[str] = None) -> bool:
         """
@@ -432,7 +433,7 @@ class SignalModel:
             return True
             
         except Exception as e:
-            logger.error(f"Error loading model: {e}")
+            logger.error(f"Error loading model: {e}", exc_info=True)
             return False
     
     def _get_default_prediction(self) -> Dict:

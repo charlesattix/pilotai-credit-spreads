@@ -43,10 +43,14 @@ class SentimentScanner:
     # These are approximate - actual dates vary
     CPI_RELEASE_DAYS = _SHARED_CPI_RELEASE_DAYS
     
-    def __init__(self):
+    def __init__(self, data_cache=None):
         """
         Initialize sentiment scanner.
+
+        Args:
+            data_cache: Optional DataCache instance for shared data retrieval.
         """
+        self.data_cache = data_cache
         self.earnings_cache = {}
         self.cache_timestamps = {}
         
@@ -128,7 +132,7 @@ class SentimentScanner:
             return result
             
         except Exception as e:
-            logger.error(f"Error scanning {ticker}: {e}")
+            logger.error(f"Error scanning {ticker}: {e}", exc_info=True)
             return self._get_default_scan()
     
     def _check_earnings(
@@ -151,7 +155,7 @@ class SentimentScanner:
                     return None
             
             # Fetch earnings date
-            stock = yf.Ticker(ticker)
+            stock = self.data_cache.get_ticker_obj(ticker) if self.data_cache else yf.Ticker(ticker)
             calendar = stock.calendar
             
             if calendar is None or 'Earnings Date' not in calendar:
@@ -253,7 +257,7 @@ class SentimentScanner:
             }
             
         except Exception as e:
-            logger.error(f"Error checking FOMC: {e}")
+            logger.error(f"Error checking FOMC: {e}", exc_info=True)
             return None
     
     def _check_cpi(
@@ -302,7 +306,7 @@ class SentimentScanner:
             }
             
         except Exception as e:
-            logger.error(f"Error checking CPI: {e}")
+            logger.error(f"Error checking CPI: {e}", exc_info=True)
             return None
     
     def _generate_recommendation(
@@ -365,7 +369,7 @@ class SentimentScanner:
             return df
             
         except Exception as e:
-            logger.error(f"Error getting earnings calendar: {e}")
+            logger.error(f"Error getting earnings calendar: {e}", exc_info=True)
             return pd.DataFrame()
     
     def get_economic_calendar(self, days_ahead: int = 30) -> List[Dict]:
@@ -402,7 +406,7 @@ class SentimentScanner:
             return events
             
         except Exception as e:
-            logger.error(f"Error getting economic calendar: {e}")
+            logger.error(f"Error getting economic calendar: {e}", exc_info=True)
             return []
     
     def should_avoid_trade(
@@ -438,7 +442,7 @@ class SentimentScanner:
             return False, "Acceptable event risk"
             
         except Exception as e:
-            logger.error(f"Error checking if should avoid trade: {e}")
+            logger.error(f"Error checking if should avoid trade: {e}", exc_info=True)
             return False, "Error checking event risk"
     
     def adjust_position_for_events(
@@ -480,7 +484,7 @@ class SentimentScanner:
             return adjusted_size
             
         except Exception as e:
-            logger.error(f"Error adjusting position for events: {e}")
+            logger.error(f"Error adjusting position for events: {e}", exc_info=True)
             return base_position_size
     
     def _get_default_scan(self) -> Dict:

@@ -125,7 +125,7 @@ class FeatureEngine:
             return features
             
         except Exception as e:
-            logger.error(f"Error building features for {ticker}: {e}")
+            logger.error(f"Error building features for {ticker}: {e}", exc_info=True)
             return {'ticker': ticker, 'error': str(e)}
     
     def _compute_technical_features(self, ticker: str, current_price: float) -> Dict:
@@ -186,7 +186,7 @@ class FeatureEngine:
             return features
             
         except Exception as e:
-            logger.error(f"Error computing technical features: {e}")
+            logger.error(f"Error computing technical features: {e}", exc_info=True)
             return self._get_default_technical_features()
     
     def _compute_volatility_features(
@@ -245,7 +245,7 @@ class FeatureEngine:
             return features
             
         except Exception as e:
-            logger.error(f"Error computing volatility features: {e}")
+            logger.error(f"Error computing volatility features: {e}", exc_info=True)
             return {
                 'realized_vol_10d': 20.0,
                 'realized_vol_20d': 20.0,
@@ -295,7 +295,7 @@ class FeatureEngine:
             return features
             
         except Exception as e:
-            logger.error(f"Error computing market features: {e}")
+            logger.error(f"Error computing market features: {e}", exc_info=True)
             return {
                 'vix_level': 15.0,
                 'vix_change_1d': 0.0,
@@ -373,7 +373,7 @@ class FeatureEngine:
             return features
             
         except Exception as e:
-            logger.error(f"Error computing event risk features: {e}")
+            logger.error(f"Error computing event risk features: {e}", exc_info=True)
             return {
                 'days_to_earnings': 999,
                 'days_to_fomc': 999,
@@ -410,7 +410,7 @@ class FeatureEngine:
             return features
             
         except Exception as e:
-            logger.error(f"Error computing seasonal features: {e}")
+            logger.error(f"Error computing seasonal features: {e}", exc_info=True)
             return {
                 'day_of_week': 2,
                 'day_of_month': 15,

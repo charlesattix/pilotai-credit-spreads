@@ -275,7 +275,7 @@ class PaperTrader:
                 try:
                     exp_date = datetime.fromisoformat(trade["expiration"])
                 except ValueError:
-                    logger.error(f"Could not parse expiration '{trade['expiration']}' for trade {trade.get('id')}, defaulting to +30d")
+                    logger.error(f"Could not parse expiration '{trade['expiration']}' for trade {trade.get('id')}, defaulting to +30d", exc_info=True)
                     exp_date = now + timedelta(days=30)
 
             dte = (exp_date - now).days
@@ -370,7 +370,7 @@ class PaperTrader:
                 )
                 logger.info(f"Alpaca close order submitted for {trade['ticker']}")
             except Exception as e:
-                logger.error(f"Alpaca close failed: {e}")
+                logger.error(f"Alpaca close failed: {e}", exc_info=True)
                 trade["alpaca_sync_error"] = str(e)
 
         trade["status"] = "closed"

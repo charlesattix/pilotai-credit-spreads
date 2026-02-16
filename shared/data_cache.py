@@ -5,6 +5,7 @@ import logging
 import yfinance as yf
 import pandas as pd
 from typing import Optional
+from shared.exceptions import DataFetchError
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +37,8 @@ class DataCache:
                 self._cache[ticker.upper()] = (data, time.time())
             return data.copy()
         except Exception as e:
-            logger.error(f"Failed to download {ticker}: {e}")
-            return pd.DataFrame()
+            logger.error(f"Failed to download {ticker}: {e}", exc_info=True)
+            raise DataFetchError(f"Failed to download data for {ticker}: {e}") from e
 
     def get_ticker_obj(self, ticker: str) -> yf.Ticker:
         """Get a yfinance Ticker object (not cached, used for options chains)."""

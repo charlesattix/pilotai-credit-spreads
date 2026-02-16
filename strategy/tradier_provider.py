@@ -13,6 +13,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
+from shared.exceptions import ProviderError
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ class TradierProvider:
         }
         self.session = requests.Session()
         self.session.headers.update(self.headers)
-        retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
+        retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504], backoff_jitter=0.25)
         self.session.mount("https://", HTTPAdapter(max_retries=retry))
         logger.info(f"TradierProvider initialized ({'sandbox' if sandbox else 'production'})")
 
@@ -40,8 +41,11 @@ class TradierProvider:
         """Get real-time quote for a ticker."""
         url = f"{self.base_url}/markets/quotes"
         params = {"symbols": ticker, "greeks": "false"}
-        resp = self.session.get(url, params=params, timeout=10)
-        resp.raise_for_status()
+        try:
+            resp = self.session.get(url, params=params, timeout=10)
+            resp.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            raise ProviderError(f"Tradier quote request failed for {ticker}: {e}") from e
         data = resp.json()
         quote = data.get("quotes", {}).get("quote", {})
         return quote
@@ -50,8 +54,11 @@ class TradierProvider:
         """Get available option expiration dates."""
         url = f"{self.base_url}/markets/options/expirations"
         params = {"symbol": ticker, "includeAllRoots": "true", "strikes": "false"}
-        resp = self.session.get(url, params=params, timeout=10)
-        resp.raise_for_status()
+        try:
+            resp = self.session.get(url, params=params, timeout=10)
+            resp.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            raise ProviderError(f"Tradier expirations request failed for {ticker}: {e}") from e
         data = resp.json()
         expirations = data.get("expirations", {})
         if expirations is None:
@@ -79,8 +86,11 @@ class TradierProvider:
             "expiration": expiration,
             "greeks": "true",
         }
-        resp = self.session.get(url, params=params, timeout=10)
-        resp.raise_for_status()
+        try:
+            resp = self.session.get(url, params=params, timeout=10)
+            resp.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            raise ProviderError(f"Tradier options chain request failed for {ticker}: {e}") from e
         data = resp.json()
 
         options = data.get("options", {})
@@ -106,7 +116,7 @@ class TradierProvider:
                 "volume": opt.get("volume", 0) or 0,
                 "open_interest": opt.get("open_interest", 0) or 0,
                 "iv": greeks.get("mid_iv", 0) or 0,
-                "delta": abs(greeks.get("delta", 0) or 0),
+                "delta": greeks.get("delta", 0) or 0,
                 "raw_delta": greeks.get("delta", 0) or 0,
                 "gamma": greeks.get("gamma", 0) or 0,
                 "theta": greeks.get("theta", 0) or 0,

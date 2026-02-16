@@ -141,7 +141,7 @@ class PositionSizer:
             return result
             
         except Exception as e:
-            logger.error(f"Error calculating position size: {e}")
+            logger.error(f"Error calculating position size: {e}", exc_info=True)
             return self._get_default_sizing()
     
     def _calculate_kelly(
@@ -181,7 +181,7 @@ class PositionSizer:
             return max(0.0, kelly)
             
         except Exception as e:
-            logger.error(f"Error in Kelly calculation: {e}")
+            logger.error(f"Error in Kelly calculation: {e}", exc_info=True)
             return 0.0
     
     def _apply_portfolio_constraints(
@@ -225,7 +225,7 @@ class PositionSizer:
             return proposed_size
             
         except Exception as e:
-            logger.error(f"Error applying portfolio constraints: {e}")
+            logger.error(f"Error applying portfolio constraints: {e}", exc_info=True)
             return proposed_size
     
     def _get_correlated_tickers(self, ticker: str) -> List[str]:
@@ -297,7 +297,7 @@ class PositionSizer:
             return metrics
             
         except Exception as e:
-            logger.error(f"Error calculating portfolio risk: {e}")
+            logger.error(f"Error calculating portfolio risk: {e}", exc_info=True)
             return {}
     
     def rebalance_positions(
@@ -363,7 +363,7 @@ class PositionSizer:
             return recommendations
             
         except Exception as e:
-            logger.error(f"Error rebalancing positions: {e}")
+            logger.error(f"Error rebalancing positions: {e}", exc_info=True)
             return []
     
     def calculate_optimal_leverage(
@@ -404,7 +404,7 @@ class PositionSizer:
             return round(optimal_leverage, 2)
             
         except Exception as e:
-            logger.error(f"Error calculating optimal leverage: {e}")
+            logger.error(f"Error calculating optimal leverage: {e}", exc_info=True)
             return 1.0
     
     def _get_default_sizing(self) -> Dict:

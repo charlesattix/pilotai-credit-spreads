@@ -16,7 +16,7 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
       - run: pip install -r requirements.txt
-      - run: python -m pytest tests/ -v --cov=strategy --cov=ml --cov=alerts --cov=shared --cov-report=term-missing
+      - run: python -m pytest tests/ -v --cov=strategy --cov=ml --cov=alerts --cov=shared --cov=backtest --cov=tracker --cov=paper_trader --cov-report=term-missing
 
   web-tests:
     runs-on: ubuntu-latest
@@ -32,7 +32,16 @@ jobs:
       - run: cd web && npm run build
 
   docker-build:
+    needs: [python-tests, web-tests]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t pilotai-credit-spreads .
+
+  deploy-gate:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [python-tests, web-tests, docker-build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All checks passed
+        run: echo "All CI checks passed. Safe for Railway auto-deploy."

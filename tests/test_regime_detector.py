@@ -15,7 +15,7 @@ from ml.regime_detector import RegimeDetector
 def _make_market_df(periods=300, seed=42):
     """Create a synthetic market DataFrame mimicking SPY data."""
     np.random.seed(seed)
-    dates = pd.date_range('2024-06-01', periods=periods, freq='B')
+    dates = pd.date_range(end=datetime.now(), periods=periods, freq='B')
     close = 450.0 + np.cumsum(np.random.randn(periods) * 1.5)
     return pd.DataFrame({
         'Open': close - np.random.rand(periods),
@@ -34,7 +34,7 @@ _MOCK_VIX = pd.DataFrame({
     'Close': np.random.uniform(12, 22, 300),
     'Volume': np.random.randint(100_000, 500_000, 300),
 }, index=_MOCK_SPY.index)
-_MOCK_TLT = _make_market_df(seed=99)
+_MOCK_TLT = _make_market_df(seed=99).set_index(_MOCK_SPY.index)
 
 
 def _mock_download(ticker, **kwargs):

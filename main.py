@@ -10,12 +10,22 @@ Usage:
     python main.py alerts        # Generate alerts only
 """
 
+import os
 import sys
+import signal
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+try:
+    import sentry_sdk
+    sentry_dsn = os.environ.get('SENTRY_DSN')
+    if sentry_dsn:
+        sentry_sdk.init(dsn=sentry_dsn, traces_sample_rate=0.1)
+except ImportError:
+    pass
 
 # Add current directory to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -57,15 +67,15 @@ class CreditSpreadSystem:
         logger.info("=" * 80)
         
         # Initialize components
+        self.data_cache = DataCache()
         self.strategy = CreditSpreadStrategy(self.config)
         self.technical_analyzer = TechnicalAnalyzer(self.config)
-        self.options_analyzer = OptionsAnalyzer(self.config)
+        self.options_analyzer = OptionsAnalyzer(self.config, data_cache=self.data_cache)
         self.alert_generator = AlertGenerator(self.config)
         self.telegram_bot = TelegramBot(self.config)
         self.tracker = TradeTracker(self.config)
         self.dashboard = PnLDashboard(self.config, self.tracker)
         self.paper_trader = PaperTrader(self.config)
-        self.data_cache = DataCache()
 
         # Initialize ML pipeline (graceful fallback if it fails)
         self.ml_pipeline = None
@@ -126,8 +136,7 @@ class CreditSpreadSystem:
         current_prices = {}
         for ticker in self.config['tickers']:
             try:
-                stock = yf.Ticker(ticker)
-                hist = stock.history(period='1d')
+                hist = self.data_cache.get_history(ticker, period='1y')
                 if not hist.empty:
                     current_prices[ticker] = hist['Close'].iloc[-1]
             except Exception as e:
@@ -154,8 +163,7 @@ class CreditSpreadSystem:
         """
         try:
             # Get price data
-            stock = yf.Ticker(ticker)
-            price_data = stock.history(period='3mo')
+            price_data = self.data_cache.get_history(ticker, period='1y')
             
             if price_data.empty:
                 logger.warning(f"No price data for {ticker}")
@@ -222,7 +230,7 @@ class CreditSpreadSystem:
             return opportunities
             
         except Exception as e:
-            logger.error(f"Error analyzing {ticker}: {e}")
+            logger.error(f"Error analyzing {ticker}: {e}", exc_info=True)
             return []
     
     def _generate_alerts(self, opportunities: list):
@@ -342,7 +350,18 @@ Examples:
     )
     
     args = parser.parse_args()
-    
+
+    # Register graceful shutdown handlers
+    def _shutdown_handler(signum, frame):
+        sig_name = signal.Signals(signum).name
+        logging.getLogger(__name__).info(
+            f"Received shutdown signal ({sig_name}), exiting gracefully..."
+        )
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _shutdown_handler)
+    signal.signal(signal.SIGINT, _shutdown_handler)
+
     try:
         # Initialize system
         system = CreditSpreadSystem(config_file=args.config)

@@ -131,7 +131,7 @@ class Backtester:
             data = stock.history(start=start_date, end=end_date)
             return data
         except Exception as e:
-            logger.error(f"Error getting historical data: {e}")
+            logger.error(f"Error getting historical data: {e}", exc_info=True)
             return pd.DataFrame()
     
     def _find_backtest_opportunity(

@@ -61,10 +61,10 @@ class TelegramBot:
             logger.info("Telegram bot initialized")
             
         except ImportError:
-            logger.error("python-telegram-bot not installed. Run: pip install python-telegram-bot")
+            logger.error("python-telegram-bot not installed. Run: pip install python-telegram-bot", exc_info=True)
             self.enabled = False
         except Exception as e:
-            logger.error(f"Error initializing Telegram bot: {e}")
+            logger.error(f"Error initializing Telegram bot: {e}", exc_info=True)
             self.enabled = False
     
     def send_alert(self, message: str) -> bool:
@@ -93,7 +93,7 @@ class TelegramBot:
             return True
             
         except Exception as e:
-            logger.error(f"Error sending Telegram alert: {e}")
+            logger.error(f"Error sending Telegram alert: {e}", exc_info=True)
             return False
     
     def send_alerts(self, opportunities: List[Dict], formatter) -> int:

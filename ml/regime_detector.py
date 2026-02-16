@@ -18,7 +18,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 from hmmlearn import hmm
 import yfinance as yf
-from shared.indicators import calculate_rsi
+from shared.indicators import calculate_rsi, sanitize_features
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,7 @@ class RegimeDetector:
             X = features_df[self._get_feature_columns()].values
             
             # Handle NaN values
-            X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+            X = sanitize_features(X)
             
             # Scale features
             X_scaled = self.scaler.fit_transform(X)
@@ -138,7 +138,7 @@ class RegimeDetector:
             return True
             
         except Exception as e:
-            logger.error(f"Error training regime models: {e}")
+            logger.error(f"Error training regime models: {e}", exc_info=True)
             return False
     
     def detect_regime(self, ticker: str = 'SPY') -> Dict:
@@ -165,7 +165,7 @@ class RegimeDetector:
             
             # Prepare feature vector
             X = np.array([features[col] for col in self._get_feature_columns()]).reshape(1, -1)
-            X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+            X = sanitize_features(X)
             X_scaled = self.scaler.transform(X)
             
             # Get HMM prediction
@@ -194,7 +194,7 @@ class RegimeDetector:
             return result
             
         except Exception as e:
-            logger.error(f"Error detecting regime: {e}")
+            logger.error(f"Error detecting regime: {e}", exc_info=True)
             return self._get_default_regime()
     
     def _fetch_training_data(self) -> pd.DataFrame:
@@ -203,15 +203,23 @@ class RegimeDetector:
         """
         end_date = datetime.now()
         start_date = end_date - timedelta(days=self.lookback_days + 60)
-        
-        # Fetch SPY (equity market)
-        spy = yf.download('SPY', start=start_date, end=end_date, progress=False)
-        
-        # Fetch VIX (volatility)
-        vix = yf.download('^VIX', start=start_date, end=end_date, progress=False)
-        
-        # Fetch TLT (bonds - for correlation)
-        tlt = yf.download('TLT', start=start_date, end=end_date, progress=False)
+
+        # Fetch via cache-aware helper (downloads 1y, we slice locally)
+        spy = self._download('SPY', period='1y')
+        vix = self._download('^VIX', period='1y')
+        tlt = self._download('TLT', period='1y')
+
+        # Slice to requested date range
+        for name, df in [('spy', spy), ('vix', vix), ('tlt', tlt)]:
+            if not df.empty and df.index.tz is not None:
+                df.index = df.index.tz_localize(None)
+
+        if not spy.empty:
+            spy = spy.loc[spy.index >= pd.Timestamp(start_date)]
+        if not vix.empty:
+            vix = vix.loc[vix.index >= pd.Timestamp(start_date)]
+        if not tlt.empty:
+            tlt = tlt.loc[tlt.index >= pd.Timestamp(start_date)]
         
         if spy.empty or vix.empty:
             logger.error("Failed to fetch market data")
@@ -313,7 +321,7 @@ class RegimeDetector:
             return features
             
         except Exception as e:
-            logger.error(f"Error computing current features: {e}")
+            logger.error(f"Error computing current features: {e}", exc_info=True)
             return None
     
     def _map_states_to_regimes(self, features_df: pd.DataFrame, hmm_states: np.ndarray) -> np.ndarray:

@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 from constants import DEFAULT_RISK_FREE_RATE
+from shared.indicators import calculate_iv_rank as _shared_iv_rank
 
 logger = logging.getLogger(__name__)
 
@@ -19,14 +20,16 @@ class OptionsAnalyzer:
     Analyze options chains and calculate metrics.
     """
     
-    def __init__(self, config: Dict):
+    def __init__(self, config: Dict, data_cache=None):
         """
         Initialize options analyzer.
-        
+
         Args:
             config: Configuration dictionary
+            data_cache: Optional DataCache instance for shared data retrieval.
         """
         self.config = config
+        self.data_cache = data_cache
         self.tradier = None
         self.polygon = None
         
@@ -84,7 +87,7 @@ class OptionsAnalyzer:
             logger.info(f"Retrieved {len(chain)} options for {ticker} via Tradier (real-time)")
             return chain
         except Exception as e:
-            logger.error(f"Tradier error for {ticker}: {e}, falling back to yfinance")
+            logger.error(f"Tradier error for {ticker}: {e}, falling back to yfinance", exc_info=True)
             return self._get_chain_yfinance(ticker)
 
     def _get_chain_polygon(self, ticker: str) -> pd.DataFrame:
@@ -99,13 +102,13 @@ class OptionsAnalyzer:
             logger.info(f"Retrieved {len(chain)} options for {ticker} via Polygon (real-time)")
             return chain
         except Exception as e:
-            logger.error(f"Polygon error for {ticker}: {e}, falling back to yfinance")
+            logger.error(f"Polygon error for {ticker}: {e}, falling back to yfinance", exc_info=True)
             return self._get_chain_yfinance(ticker)
 
     def _get_chain_yfinance(self, ticker: str) -> pd.DataFrame:
         """Get options chain via yfinance (delayed, estimated Greeks)."""
         try:
-            stock = yf.Ticker(ticker)
+            stock = self.data_cache.get_ticker_obj(ticker) if self.data_cache else yf.Ticker(ticker)
             expirations = stock.options
             
             if not expirations:
@@ -155,7 +158,7 @@ class OptionsAnalyzer:
             return options_df
             
         except Exception as e:
-            logger.error(f"Error retrieving options for {ticker}: {e}")
+            logger.error(f"Error retrieving options for {ticker}: {e}", exc_info=True)
             return pd.DataFrame()
     
     def _clean_options_data(self, df: pd.DataFrame, current_price: float = None) -> pd.DataFrame:
@@ -221,57 +224,49 @@ class OptionsAnalyzer:
     def calculate_iv_rank(self, ticker: str, current_iv: float) -> Dict:
         """
         Calculate IV rank and IV percentile.
-        
+
         IV Rank = (Current IV - 52-week Low IV) / (52-week High IV - 52-week Low IV)
-        
+
         Args:
             ticker: Stock ticker
             current_iv: Current implied volatility
-            
+
         Returns:
             Dictionary with IV metrics
         """
         try:
-            stock = yf.Ticker(ticker)
-            
             # Get historical data (1 year)
-            hist = stock.history(period='1y')
-            
+            if self.data_cache:
+                hist = self.data_cache.get_history(ticker, period='1y')
+            else:
+                stock = yf.Ticker(ticker)
+                hist = stock.history(period='1y')
+
             if hist.empty:
                 logger.warning(f"No historical data for {ticker}")
                 return {'iv_rank': 0, 'iv_percentile': 0, 'current_iv': current_iv}
-            
+
             # Calculate historical volatility as proxy for IV range
-            # (In production, you'd want actual historical IV data)
             returns = hist['Close'].pct_change().dropna()
             hv_values = returns.rolling(window=20).std() * np.sqrt(252) * 100
             hv_values = hv_values.dropna()
-            
+
             if len(hv_values) == 0:
                 return {'iv_rank': 0, 'iv_percentile': 0, 'current_iv': current_iv}
-            
-            # IV Rank
-            iv_min = hv_values.min()
-            iv_max = hv_values.max()
-            
-            if iv_max > iv_min:
-                iv_rank = ((current_iv - iv_min) / (iv_max - iv_min)) * 100
-            else:
-                iv_rank = 50
-            
-            # IV Percentile (what % of days had lower IV)
-            iv_percentile = (hv_values < current_iv).sum() / len(hv_values) * 100
-            
+
+            # Delegate to shared implementation
+            shared_result = _shared_iv_rank(hv_values, current_iv)
+
             return {
-                'iv_rank': round(iv_rank, 2),
-                'iv_percentile': round(iv_percentile, 2),
+                'iv_rank': shared_result['iv_rank'],
+                'iv_percentile': shared_result['iv_percentile'],
                 'current_iv': round(current_iv, 2),
-                'iv_min_52w': round(iv_min, 2),
-                'iv_max_52w': round(iv_max, 2),
+                'iv_min_52w': shared_result['iv_min'],
+                'iv_max_52w': shared_result['iv_max'],
             }
-            
+
         except Exception as e:
-            logger.error(f"Error calculating IV rank for {ticker}: {e}")
+            logger.error(f"Error calculating IV rank for {ticker}: {e}", exc_info=True)
             return {'iv_rank': 0, 'iv_percentile': 0, 'current_iv': current_iv}
     
     def get_current_iv(self, options_chain: pd.DataFrame) -> float:

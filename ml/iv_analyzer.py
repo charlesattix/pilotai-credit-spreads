@@ -17,6 +17,7 @@ from scipy import interpolate
 from scipy.stats import norm
 import logging
 import yfinance as yf
+from shared.indicators import calculate_iv_rank as _shared_iv_rank
 
 logger = logging.getLogger(__name__)
 
@@ -32,14 +33,16 @@ class IVAnalyzer:
     - Skew inversion (unusual patterns indicating opportunities)
     """
     
-    def __init__(self, lookback_days: int = 252):
+    def __init__(self, lookback_days: int = 252, data_cache=None):
         """
         Initialize IV analyzer.
-        
+
         Args:
             lookback_days: Historical IV lookback period
+            data_cache: Optional DataCache instance for shared data retrieval.
         """
         self.lookback_days = lookback_days
+        self.data_cache = data_cache
         self.iv_history_cache = {}
         self.cache_timestamp = {}
         
@@ -93,7 +96,7 @@ class IVAnalyzer:
             return result
             
         except Exception as e:
-            logger.error(f"Error analyzing IV surface for {ticker}: {e}")
+            logger.error(f"Error analyzing IV surface for {ticker}: {e}", exc_info=True)
             return self._get_default_analysis()
     
     def _compute_skew_metrics(self, options_chain: pd.DataFrame, current_price: float) -> Dict:
@@ -175,7 +178,7 @@ class IVAnalyzer:
             return metrics
             
         except Exception as e:
-            logger.error(f"Error computing skew metrics: {e}")
+            logger.error(f"Error computing skew metrics: {e}", exc_info=True)
             return {'available': False}
     
     def _compute_term_structure(self, options_chain: pd.DataFrame, current_price: float) -> Dict:
@@ -237,13 +240,13 @@ class IVAnalyzer:
             return metrics
             
         except Exception as e:
-            logger.error(f"Error computing term structure: {e}")
+            logger.error(f"Error computing term structure: {e}", exc_info=True)
             return {'available': False}
     
     def _compute_iv_rank_percentile(self, ticker: str, options_chain: pd.DataFrame) -> Dict:
         """
         Calculate IV rank and percentile using historical data.
-        
+
         IV Rank: Where current IV sits in its 52-week range
         IV Percentile: What % of days had lower IV
         """
@@ -251,46 +254,37 @@ class IVAnalyzer:
             # Get current ATM IV
             if 'iv' not in options_chain.columns:
                 return {'available': False}
-            
+
             current_iv = options_chain['iv'].median() * 100
-            
+
             # Fetch historical IV (using HV as proxy)
             iv_history = self._get_iv_history(ticker)
-            
+
             if iv_history is None or len(iv_history) < 50:
                 return {'available': False, 'current_iv': float(current_iv)}
-            
-            # Calculate IV rank
-            iv_min = iv_history.min()
-            iv_max = iv_history.max()
-            
-            if iv_max > iv_min:
-                iv_rank = ((current_iv - iv_min) / (iv_max - iv_min)) * 100
-            else:
-                iv_rank = 50
-            
-            # Calculate IV percentile
-            iv_percentile = (iv_history < current_iv).sum() / len(iv_history) * 100
-            
+
+            # Delegate core calculation to shared implementation
+            shared_result = _shared_iv_rank(iv_history, current_iv)
+
             # Mean reversion signal
             # High IV (>70% rank) suggests mean reversion down (good for credit spreads)
             # Low IV (<30% rank) suggests expansion risk (be cautious)
-            
+
             metrics = {
                 'available': True,
                 'current_iv': float(current_iv),
-                'iv_rank': float(iv_rank),
-                'iv_percentile': float(iv_percentile),
-                'iv_min_52w': float(iv_min),
-                'iv_max_52w': float(iv_max),
+                'iv_rank': float(shared_result['iv_rank']),
+                'iv_percentile': float(shared_result['iv_percentile']),
+                'iv_min_52w': float(shared_result['iv_min']),
+                'iv_max_52w': float(shared_result['iv_max']),
                 'iv_mean_52w': float(iv_history.mean()),
                 'iv_std_52w': float(iv_history.std()),
             }
-            
+
             return metrics
-            
+
         except Exception as e:
-            logger.error(f"Error computing IV rank/percentile: {e}")
+            logger.error(f"Error computing IV rank/percentile: {e}", exc_info=True)
             return {'available': False}
     
     def _get_iv_history(self, ticker: str) -> Optional[pd.Series]:
@@ -310,7 +304,10 @@ class IVAnalyzer:
             end_date = datetime.now()
             start_date = end_date - timedelta(days=self.lookback_days + 30)
             
-            stock = yf.download(ticker, start=start_date, end=end_date, progress=False)
+            if self.data_cache:
+                stock = self.data_cache.get_history(ticker, period='1y')
+            else:
+                stock = yf.download(ticker, start=start_date, end=end_date, progress=False)
             
             if stock.empty:
                 return None
@@ -327,7 +324,7 @@ class IVAnalyzer:
             return hv
             
         except Exception as e:
-            logger.error(f"Error fetching IV history for {ticker}: {e}")
+            logger.error(f"Error fetching IV history for {ticker}: {e}", exc_info=True)
             return None
     
     def _generate_signals(

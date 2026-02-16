@@ -6,6 +6,9 @@ Uses alpaca-py SDK for multi-leg option orders.
 
 import logging
 import uuid
+import time
+import random
+import functools
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
@@ -29,6 +32,29 @@ from alpaca.trading.enums import (
 logger = logging.getLogger(__name__)
 
 
+def _retry_with_backoff(max_retries: int = 2, base_delay: float = 1.0):
+    """Decorator that retries a method with exponential backoff + jitter."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exc = None
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as exc:
+                    last_exc = exc
+                    if attempt < max_retries:
+                        delay = base_delay * (2 ** attempt) + random.uniform(0, base_delay)
+                        logger.warning(
+                            f"{func.__name__} attempt {attempt + 1} failed: {exc}. "
+                            f"Retrying in {delay:.2f}s..."
+                        )
+                        time.sleep(delay)
+            raise last_exc
+        return wrapper
+    return decorator
+
+
 class AlpacaProvider:
     """Submit credit spread orders to Alpaca paper trading."""
 
@@ -46,7 +72,7 @@ class AlpacaProvider:
                 f"Options Level: {acct.options_trading_level}"
             )
         except Exception as e:
-            logger.error(f"Alpaca connection failed: {e}")
+            logger.error(f"Alpaca connection failed: {e}", exc_info=True)
             raise
 
     # ------------------------------------------------------------------
@@ -122,6 +148,7 @@ class AlpacaProvider:
     # Submit credit spread
     # ------------------------------------------------------------------
 
+    @_retry_with_backoff(max_retries=2, base_delay=1.0)
     def submit_credit_spread(
         self,
         ticker: str,
@@ -224,7 +251,7 @@ class AlpacaProvider:
             return result
 
         except Exception as e:
-            logger.error(f"Order submission failed: {e}")
+            logger.error(f"Order submission failed: {e}", exc_info=True)
             return {
                 "status": "error",
                 "message": str(e),
@@ -236,6 +263,7 @@ class AlpacaProvider:
     # Close spread position
     # ------------------------------------------------------------------
 
+    @_retry_with_backoff(max_retries=2, base_delay=1.0)
     def close_spread(
         self,
         ticker: str,
@@ -302,7 +330,7 @@ class AlpacaProvider:
             }
 
         except Exception as e:
-            logger.error(f"Close order failed: {e}")
+            logger.error(f"Close order failed: {e}", exc_info=True)
             return {"status": "error", "message": str(e)}
 
     # ------------------------------------------------------------------
@@ -382,7 +410,7 @@ class AlpacaProvider:
             logger.info(f"Order {order_id} cancelled")
             return True
         except Exception as e:
-            logger.error(f"Cancel failed: {e}")
+            logger.error(f"Cancel failed: {e}", exc_info=True)
             return False
 
     def cancel_all_orders(self):

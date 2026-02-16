@@ -54,7 +54,8 @@ class MLPipeline:
         )
 
         self.iv_analyzer = IVAnalyzer(
-            lookback_days=self.config.get('iv_lookback_days', 252)
+            lookback_days=self.config.get('iv_lookback_days', 252),
+            data_cache=data_cache,
         )
 
         self.feature_engine = FeatureEngine(data_cache=data_cache)
@@ -69,7 +70,7 @@ class MLPipeline:
             max_portfolio_risk=self.config.get('max_portfolio_risk', 0.20),
         )
         
-        self.sentiment_scanner = SentimentScanner()
+        self.sentiment_scanner = SentimentScanner(data_cache=data_cache)
         
         self.initialized = False
         
@@ -110,7 +111,7 @@ class MLPipeline:
             return True
             
         except Exception as e:
-            logger.error(f"Error initializing ML pipeline: {e}")
+            logger.error(f"Error initializing ML pipeline: {e}", exc_info=True)
             return False
     
     def analyze_trade(
@@ -225,7 +226,7 @@ class MLPipeline:
             return result
             
         except Exception as e:
-            logger.error(f"Error analyzing trade for {ticker}: {e}")
+            logger.error(f"Error analyzing trade for {ticker}: {e}", exc_info=True)
             return self._get_default_analysis(ticker, spread_type)
     
     def _calculate_enhanced_score(self, analysis: Dict) -> float:
@@ -293,7 +294,7 @@ class MLPipeline:
             return round(score, 1)
             
         except Exception as e:
-            logger.error(f"Error calculating enhanced score: {e}")
+            logger.error(f"Error calculating enhanced score: {e}", exc_info=True)
             return 50.0
     
     def _generate_recommendation(self, analysis: Dict) -> Dict:
@@ -348,7 +349,7 @@ class MLPipeline:
             return recommendation
             
         except Exception as e:
-            logger.error(f"Error generating recommendation: {e}")
+            logger.error(f"Error generating recommendation: {e}", exc_info=True)
             return {
                 'action': 'pass',
                 'confidence': 'low',
@@ -404,7 +405,7 @@ class MLPipeline:
                     enhanced_opportunities.append(enhanced_opp)
                     
                 except Exception as e:
-                    logger.error(f"Error analyzing opportunity {opp.get('ticker', '')}: {e}")
+                    logger.error(f"Error analyzing opportunity {opp.get('ticker', '')}: {e}", exc_info=True)
                     enhanced_opportunities.append(opp)
             
             # Sort by enhanced score
@@ -418,7 +419,7 @@ class MLPipeline:
             return enhanced_opportunities
             
         except Exception as e:
-            logger.error(f"Error in batch analysis: {e}")
+            logger.error(f"Error in batch analysis: {e}", exc_info=True)
             return opportunities
     
     def get_pipeline_status(self) -> Dict:
@@ -458,7 +459,7 @@ class MLPipeline:
             results['signal_model'] = 'success' if train_stats else 'failed'
             results['signal_model_stats'] = train_stats
         except Exception as e:
-            logger.error(f"Error retraining signal model: {e}")
+            logger.error(f"Error retraining signal model: {e}", exc_info=True)
             results['signal_model'] = 'failed'
         
         logger.info("✓ Model retraining complete")
