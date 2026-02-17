@@ -333,7 +333,7 @@ class PaperTrader:
 
         for trade in self.open_trades:
             ticker = trade["ticker"]
-            current_price = current_prices.get(ticker, trade.get("entry_price", 0))
+            current_price = float(current_prices.get(ticker, trade.get("entry_price", 0)))
 
             # Parse expiration
             exp_str = str(trade.get("expiration", ""))
