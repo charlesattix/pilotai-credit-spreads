@@ -5,6 +5,7 @@ Main entry point for the trading system.
 
 Usage:
     python main.py scan          # Scan for new opportunities
+    python main.py scheduler     # Run scans on market-hours schedule (14x/day)
     python main.py backtest      # Run backtest
     python main.py dashboard     # Display P&L dashboard
     python main.py alerts        # Generate alerts only
@@ -370,7 +371,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python main.py scan              # Scan for opportunities
+  python main.py scan              # Run one scan now
+  python main.py scheduler         # Run scans on market-hours schedule (14x/day)
   python main.py backtest          # Run backtest on SPY
   python main.py backtest --ticker QQQ --days 180
   python main.py dashboard         # Show P&L dashboard
@@ -380,7 +382,7 @@ Examples:
 
     parser.add_argument(
         'command',
-        choices=['scan', 'backtest', 'dashboard', 'alerts', 'paper'],
+        choices=['scan', 'scheduler', 'backtest', 'dashboard', 'alerts', 'paper'],
         help='Command to run'
     )
 
@@ -423,6 +425,23 @@ Examples:
         # Execute command
         if args.command == 'scan':
             system.scan_opportunities()
+
+        elif args.command == 'scheduler':
+            from shared.scheduler import ScanScheduler
+
+            scheduler = ScanScheduler(scan_fn=system.scan_opportunities)
+
+            # Let SIGTERM/SIGINT stop the scheduler cleanly
+            def _stop_scheduler(signum, frame):
+                sig_name = signal.Signals(signum).name
+                logger.info("Received %s — stopping scheduler", sig_name)
+                scheduler.stop()
+
+            signal.signal(signal.SIGTERM, _stop_scheduler)
+            signal.signal(signal.SIGINT, _stop_scheduler)
+
+            logger.info("Starting scan scheduler (14 scans/day, ET weekdays)")
+            scheduler.run_forever()
 
         elif args.command == 'backtest':
             system.run_backtest(ticker=args.ticker, lookback_days=args.days)
