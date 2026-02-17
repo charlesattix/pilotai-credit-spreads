@@ -5,6 +5,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import { promises as fs } from 'fs';
+import { PROJECT_ROOT, OUTPUT_DIR } from "@/lib/paths";
 
 const execFilePromise = promisify(execFile);
 
@@ -31,14 +32,12 @@ export async function POST() {
   backtestInProgress = true;
   backtestTimestamps.push(now);
   try {
-    const systemPath = path.join(process.cwd(), '..');
-
     await execFilePromise('python3', ['main.py', 'backtest'], {
-      cwd: systemPath,
+      cwd: PROJECT_ROOT,
       timeout: 300000,
     });
 
-    const backtestPath = path.join(systemPath, 'output/backtest_results.json');
+    const backtestPath = path.join(OUTPUT_DIR, 'backtest_results.json');
 
     try {
       const data = await fs.readFile(backtestPath, 'utf-8');

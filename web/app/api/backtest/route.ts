@@ -3,11 +3,12 @@ import { NextResponse } from 'next/server'
 import { apiError } from "@/lib/api-error"
 import { promises as fs } from 'fs'
 import path from 'path'
+import { OUTPUT_DIR } from "@/lib/paths"
 
 export async function GET() {
   try {
     // Try to read backtest results from a JSON file if it exists
-    const backtestPath = path.join(process.cwd(), '../output/backtest_results.json')
+    const backtestPath = path.join(OUTPUT_DIR, 'backtest_results.json')
     
     try {
       const data = await fs.readFile(backtestPath, 'utf-8')

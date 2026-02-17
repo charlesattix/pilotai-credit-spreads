@@ -2,8 +2,8 @@ import { logger } from "@/lib/logger";
 import { NextResponse } from "next/server";
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { join } from "path";
 import { apiError } from "@/lib/api-error";
+import { PROJECT_ROOT } from "@/lib/paths";
 
 const execFilePromise = promisify(execFile);
 
@@ -30,7 +30,7 @@ export async function POST() {
   scanInProgress = true;
   scanTimestamps.push(now);
   try {
-    const pythonDir = join(process.cwd(), "..");
+    const pythonDir = PROJECT_ROOT;
 
     await execFilePromise("python3", ["main.py", "scan"], {
       cwd: pythonDir,

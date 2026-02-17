@@ -75,7 +75,29 @@ export default function HomePage() {
 
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6">
         {/* Live System Positions — uses shared SWR data, no extra fetch */}
-        <LivePositions />
+        <LivePositions data={positions ? {
+          open_positions: positions.open_positions.map(p => ({
+            ticker: p.ticker,
+            type: p.type,
+            short_strike: p.short_strike,
+            long_strike: p.long_strike,
+            contracts: p.contracts || 1,
+            total_credit: (p.entry_credit || 0) * 100 * (p.contracts || 1),
+            total_max_loss: p.max_loss || 0,
+            unrealized_pnl: p.unrealized_pnl ?? 0,
+            days_remaining: p.days_remaining ?? 0,
+            days_held: 0,
+            max_profit: p.max_profit || 0,
+            pnl_pct: p.max_profit ? ((p.unrealized_pnl ?? 0) / p.max_profit) * 100 : 0,
+            expiration: p.expiration,
+          })),
+          total_unrealized_pnl: positions.total_unrealized_pnl,
+          total_credit: positions.total_credit,
+          open_count: positions.open_count,
+          current_balance: positions.current_balance,
+          total_pnl: positions.total_pnl,
+          total_max_loss: positions.total_max_loss,
+        } : null} />
 
         <div className="flex gap-6">
           {/* Main Content */}

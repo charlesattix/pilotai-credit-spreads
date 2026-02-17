@@ -3,6 +3,7 @@ import { readFile } from "fs/promises";
 import path from "path";
 import { logger } from "@/lib/logger";
 import { getAlerts } from "@/lib/database";
+import { DATA_DIR, OUTPUT_DIR } from "@/lib/paths";
 
 async function tryReadJsonFile(...paths: string[]): Promise<string | null> {
   for (const p of paths) {
@@ -25,11 +26,10 @@ export async function GET() {
     }
 
     // Fallback: read from JSON file during transition
-    const cwd = process.cwd();
     const content = await tryReadJsonFile(
-      path.join(cwd, "data", "alerts.json"),
-      path.join(cwd, "public", "data", "alerts.json"),
-      path.join(cwd, "..", "output", "alerts.json"),
+      path.join(DATA_DIR, "alerts.json"),
+      path.join(process.cwd(), "public", "data", "alerts.json"),
+      path.join(OUTPUT_DIR, "alerts.json"),
     );
     if (!content) return NextResponse.json({ alerts: [], opportunities: [], count: 0 });
 

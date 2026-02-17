@@ -2,9 +2,9 @@ import { logger } from "@/lib/logger"
 import { NextResponse } from 'next/server'
 import { apiError } from "@/lib/api-error"
 import { promises as fs } from 'fs'
-import path from 'path'
 import yaml from 'js-yaml'
 import { z } from 'zod'
+import { CONFIG_PATH } from "@/lib/paths"
 
 const SECRET_KEYS = ['api_key', 'api_secret', 'bot_token', 'chat_id'];
 
@@ -89,7 +89,7 @@ const ConfigSchema = z.object({
 
 export async function GET() {
   try {
-    const configPath = path.join(process.cwd(), '../config.yaml')
+    const configPath = CONFIG_PATH
     const data = await fs.readFile(configPath, 'utf-8')
     const config = yaml.load(data)
     return NextResponse.json(stripSecrets(config))
@@ -106,7 +106,7 @@ export async function POST(request: Request) {
     if (!parsed.success) {
       return apiError('Validation failed', 400, parsed.error.flatten())
     }
-    const configPath = path.join(process.cwd(), '../config.yaml')
+    const configPath = CONFIG_PATH
     const existing = yaml.load(await fs.readFile(configPath, 'utf-8')) as Record<string, unknown> || {}
     const merged = { ...existing, ...parsed.data }
     const yamlStr = yaml.dump(merged)

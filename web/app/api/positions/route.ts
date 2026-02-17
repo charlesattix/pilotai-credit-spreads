@@ -6,6 +6,7 @@ import { PaperTrade, PositionsSummary } from '@/lib/types';
 import { calcUnrealizedPnL } from '@/lib/pnl';
 import { calculatePortfolioStats } from '@/lib/paper-trades';
 import { getTrades, TradeRow } from '@/lib/database';
+import { DATA_DIR } from '@/lib/paths';
 
 const EMPTY_RESPONSE: PositionsSummary = {
   account_size: 100000, starting_balance: 100000, current_balance: 100000,
@@ -54,11 +55,9 @@ export async function GET() {
     }
 
     // Fallback: read from JSON file during transition
-    const cwd = process.cwd();
     const content = await tryRead(
-      path.join(cwd, 'data', 'paper_trades.json'),
-      path.join(cwd, 'public', 'data', 'paper_trades.json'),
-      path.join(cwd, '..', 'data', 'paper_trades.json'),
+      path.join(DATA_DIR, 'paper_trades.json'),
+      path.join(process.cwd(), 'public', 'data', 'paper_trades.json'),
     );
 
     if (!content) {

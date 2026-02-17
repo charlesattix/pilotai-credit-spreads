@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
 import { promises as fs } from 'fs'
-import path from 'path'
+import { CONFIG_PATH } from '@/lib/paths'
 
 export async function GET() {
   const checks: Record<string, string> = {}
   let healthy = true
   try {
-    await fs.access(path.join(process.cwd(), '..', 'config.yaml'), fs.constants.R_OK)
+    await fs.access(CONFIG_PATH, fs.constants.R_OK)
     checks.config = 'ok'
   } catch {
     checks.config = 'unavailable'

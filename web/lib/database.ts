@@ -6,8 +6,9 @@
 
 import Database from 'better-sqlite3'
 import path from 'path'
+import { DB_PATH as SHARED_DB_PATH } from '@/lib/paths'
 
-const DB_PATH = path.join(process.cwd(), '..', 'data', 'pilotai.db')
+const DB_PATH = SHARED_DB_PATH
 const DB_PATH_ALT = path.join(process.cwd(), 'data', 'pilotai.db')
 
 let _db: Database.Database | null = null

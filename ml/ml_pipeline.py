@@ -102,12 +102,19 @@ class MLPipeline:
             if not self.signal_model.trained:
                 logger.info("Loading signal model...")
                 if not self.signal_model.load():
-                    logger.info("No saved model found, training on synthetic data...")
+                    logger.warning(
+                        "No saved model found — training on SYNTHETIC data. "
+                        "Model predictions will be unreliable until trained on real trade outcomes. "
+                        "Use MLPipeline.train() with real data to improve accuracy."
+                    )
+                    self._trained_on_synthetic = True
                     features_df, labels = self.signal_model.generate_synthetic_training_data(
                         n_samples=2000, win_rate=0.65
                     )
                     self.signal_model.train(features_df, labels)
-            
+                else:
+                    self._trained_on_synthetic = False
+
             self.initialized = True
             logger.info("✓ ML pipeline ready")
             
@@ -189,9 +196,15 @@ class MLPipeline:
             result['event_risk'] = event_scan
             
             # 6. Position sizing
-            # Estimate expected return/loss for credit spread
-            expected_return = 0.30  # 30% return on risk (typical for credit spreads)
-            expected_loss = -1.0    # 100% loss (max loss = width - premium)
+            # Derive expected return/loss from actual spread parameters when available
+            # Credit spreads: return = credit/max_loss, loss = -1.0 (full max loss)
+            credit = iv_analysis.get('credit', 0) if isinstance(iv_analysis, dict) else 0
+            max_loss = iv_analysis.get('max_loss', 0) if isinstance(iv_analysis, dict) else 0
+            if credit > 0 and max_loss > 0:
+                expected_return = credit / max_loss  # actual return on risk
+            else:
+                expected_return = 0.30  # fallback: 30% return on risk
+            expected_loss = -1.0  # max loss = full risk amount
             
             position_sizing = self.position_sizer.calculate_position_size(
                 win_probability=ml_prediction['probability'],
@@ -218,6 +231,13 @@ class MLPipeline:
             # 8. Overall recommendation
             recommendation = self._generate_recommendation(result)
             result['recommendation'] = recommendation
+
+            # Flag if model was trained on synthetic data
+            if getattr(self, '_trained_on_synthetic', False):
+                result['synthetic_model_warning'] = (
+                    'ML model trained on synthetic data — predictions may be unreliable'
+                )
+                recommendation['synthetic_model'] = True
             
             logger.info(
                 f"{ticker} analysis complete: "

@@ -4,6 +4,7 @@ import { apiError } from "@/lib/api-error"
 import { promises as fs } from 'fs'
 import path from 'path'
 import { getTrades } from '@/lib/database'
+import { DATA_DIR } from "@/lib/paths"
 
 export async function GET() {
   try {
@@ -27,7 +28,7 @@ export async function GET() {
     }
 
     // Fallback: read from JSON file during transition
-    const tradesPath = path.join(process.cwd(), '../data/trades.json')
+    const tradesPath = path.join(DATA_DIR, 'trades.json')
     const data = await fs.readFile(tradesPath, 'utf-8')
     return NextResponse.json(JSON.parse(data))
   } catch (error) {
