@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 from datetime import datetime, timedelta
 
-from paper_trader import PaperTrader
+from paper_trader import PaperTrader, MAX_DRAWDOWN_PCT
 
 
 # ---------------------------------------------------------------------------
@@ -377,3 +377,382 @@ class TestEvaluatePosition:
         pnl, reason = pt._evaluate_position(trade, current_price=450, dte=25)
         # Price == short_strike: intrinsic = max(0, 450-450) = 0 (OTM)
         assert isinstance(pnl, float)
+
+
+# ---------------------------------------------------------------------------
+# Tests for EH-TRADE-01: Negative balance guard
+# ---------------------------------------------------------------------------
+
+class TestNegativeBalanceGuard:
+    """EH-TRADE-01: Refuse to open trades when current_balance <= 0."""
+
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_zero_balance_blocks_trade(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
+        """No new trades should open when current_balance is zero."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+        mock_paper_log.parent = tmp_path
+
+        pt = PaperTrader(_make_config(tmp_path))
+        pt._save_trades = MagicMock()
+        pt.trades['current_balance'] = 0
+
+        opp = _make_opportunity()
+        new_trades = pt.execute_signals([opp])
+        assert len(new_trades) == 0
+
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_negative_balance_blocks_trade(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
+        """No new trades should open when current_balance is negative."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+        mock_paper_log.parent = tmp_path
+
+        pt = PaperTrader(_make_config(tmp_path))
+        pt._save_trades = MagicMock()
+        pt.trades['current_balance'] = -5000
+
+        opp = _make_opportunity()
+        new_trades = pt.execute_signals([opp])
+        assert len(new_trades) == 0
+
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_positive_balance_allows_trade(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
+        """Positive balance should still allow trades."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+        mock_paper_log.parent = tmp_path
+
+        pt = PaperTrader(_make_config(tmp_path))
+        pt._save_trades = MagicMock()
+        assert pt.trades['current_balance'] == 100000
+
+        opp = _make_opportunity()
+        new_trades = pt.execute_signals([opp])
+        assert len(new_trades) == 1
+
+
+# ---------------------------------------------------------------------------
+# Tests for EH-TRADE-02: Open risk exposure in position sizing
+# ---------------------------------------------------------------------------
+
+class TestOpenRiskExposure:
+    """EH-TRADE-02: Available capital subtracts existing open positions' total_max_loss."""
+
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_open_risk_exhausts_capital(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
+        """When open risk >= current_balance, new trades should be refused."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+        mock_paper_log.parent = tmp_path
+
+        pt = PaperTrader(_make_config(tmp_path))
+        pt._save_trades = MagicMock()
+
+        # Manually inject an open trade with total_max_loss that consumes all capital
+        big_trade = {
+            'id': 99,
+            'status': 'open',
+            'ticker': 'AAPL',
+            'type': 'bull_put_spread',
+            'short_strike': 200,
+            'long_strike': 195,
+            'expiration': '2025-12-20',
+            'total_max_loss': 100000,  # equals entire balance
+            'contracts': 10,
+            'total_credit': 5000,
+        }
+        pt.trades['trades'].append(big_trade)
+        pt._open_trades.append(big_trade)
+
+        opp = _make_opportunity(ticker='SPY')
+        new_trades = pt.execute_signals([opp])
+        assert len(new_trades) == 0
+
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_partial_risk_allows_trade(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
+        """When open risk is only a fraction of capital, new trades should be allowed."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+        mock_paper_log.parent = tmp_path
+
+        pt = PaperTrader(_make_config(tmp_path))
+        pt._save_trades = MagicMock()
+
+        # Inject a small open trade that uses only a little capital
+        small_trade = {
+            'id': 99,
+            'status': 'open',
+            'ticker': 'AAPL',
+            'type': 'bull_put_spread',
+            'short_strike': 200,
+            'long_strike': 195,
+            'expiration': '2025-12-20',
+            'total_max_loss': 1000,  # only 1% of balance
+            'contracts': 1,
+            'total_credit': 500,
+        }
+        pt.trades['trades'].append(small_trade)
+        pt._open_trades.append(small_trade)
+
+        opp = _make_opportunity(ticker='SPY')
+        new_trades = pt.execute_signals([opp])
+        assert len(new_trades) == 1
+
+
+# ---------------------------------------------------------------------------
+# Tests for EH-TRADE-03: Max drawdown kill switch
+# ---------------------------------------------------------------------------
+
+class TestMaxDrawdownKillSwitch:
+    """EH-TRADE-03: Block all new trades when drawdown >= MAX_DRAWDOWN_PCT."""
+
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_drawdown_at_threshold_blocks_trade(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
+        """Exactly at 20% drawdown should block new trades."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+        mock_paper_log.parent = tmp_path
+
+        pt = PaperTrader(_make_config(tmp_path))
+        pt._save_trades = MagicMock()
+
+        # Set balance to exactly 20% drawdown: 100000 * 0.80 = 80000
+        pt.trades['current_balance'] = 80000
+        pt.trades['starting_balance'] = 100000
+
+        opp = _make_opportunity()
+        new_trades = pt.execute_signals([opp])
+        assert len(new_trades) == 0
+
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_drawdown_beyond_threshold_blocks_trade(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
+        """More than 20% drawdown should block new trades."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+        mock_paper_log.parent = tmp_path
+
+        pt = PaperTrader(_make_config(tmp_path))
+        pt._save_trades = MagicMock()
+
+        # 30% drawdown
+        pt.trades['current_balance'] = 70000
+        pt.trades['starting_balance'] = 100000
+
+        opp = _make_opportunity()
+        new_trades = pt.execute_signals([opp])
+        assert len(new_trades) == 0
+
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_drawdown_below_threshold_allows_trade(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
+        """Less than 20% drawdown should allow new trades."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+        mock_paper_log.parent = tmp_path
+
+        pt = PaperTrader(_make_config(tmp_path))
+        pt._save_trades = MagicMock()
+
+        # 10% drawdown, below threshold
+        pt.trades['current_balance'] = 90000
+        pt.trades['starting_balance'] = 100000
+
+        opp = _make_opportunity()
+        new_trades = pt.execute_signals([opp])
+        assert len(new_trades) == 1
+
+    def test_max_drawdown_constant_value(self):
+        """MAX_DRAWDOWN_PCT should be 0.20 (20%)."""
+        assert MAX_DRAWDOWN_PCT == 0.20
+
+
+# ---------------------------------------------------------------------------
+# Tests for EH-TRADE-04: Alpaca close failure prevents local state transition
+# ---------------------------------------------------------------------------
+
+class TestAlpacaCloseFailureSafety:
+    """EH-TRADE-04: If Alpaca close fails, trade must remain open locally."""
+
+    @patch('paper_trader.db_close_trade')
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_alpaca_close_failure_keeps_trade_open(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, mock_db_close, tmp_path):
+        """When Alpaca close_spread raises, local trade must stay open."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+        mock_paper_log.parent = tmp_path
+
+        pt = PaperTrader(_make_config(tmp_path))
+        pt._save_trades = MagicMock()
+
+        # Set up a mock Alpaca provider that fails on close
+        mock_alpaca = MagicMock()
+        mock_alpaca.close_spread.side_effect = Exception("Alpaca API timeout")
+        pt.alpaca = mock_alpaca
+
+        # Create a trade with an alpaca_order_id (simulating a trade opened via Alpaca)
+        trade = {
+            'id': 1,
+            'status': 'open',
+            'ticker': 'SPY',
+            'type': 'bull_put_spread',
+            'short_strike': 450,
+            'long_strike': 445,
+            'expiration': '2025-06-20',
+            'contracts': 2,
+            'total_credit': 300.0,
+            'total_max_loss': 700.0,
+            'alpaca_order_id': 'order-abc-123',
+        }
+        pt.trades['trades'].append(trade)
+        pt._open_trades.append(trade)
+        original_balance = pt.trades['current_balance']
+
+        # Attempt to close — Alpaca will fail
+        pt._close_trade(trade, pnl=150.0, reason='profit_target')
+
+        # Trade must remain open
+        assert trade['status'] == 'open'
+        assert trade.get('exit_date') is None
+        assert trade.get('exit_reason') is None
+        assert trade.get('pnl') is None
+        assert trade['alpaca_sync_error'] == "Alpaca API timeout"
+
+        # Balance must not change
+        assert pt.trades['current_balance'] == original_balance
+
+        # Trade must still be in open_trades list
+        assert trade in pt._open_trades
+        assert trade not in pt._closed_trades
+
+        # db_close_trade must NOT have been called
+        mock_db_close.assert_not_called()
+
+    @patch('paper_trader.db_close_trade')
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_alpaca_close_success_updates_trade(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, mock_db_close, tmp_path):
+        """When Alpaca close_spread succeeds, local trade should close normally."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+        mock_paper_log.parent = tmp_path
+
+        pt = PaperTrader(_make_config(tmp_path))
+        pt._save_trades = MagicMock()
+
+        # Set up a mock Alpaca provider that succeeds
+        mock_alpaca = MagicMock()
+        pt.alpaca = mock_alpaca
+
+        trade = {
+            'id': 2,
+            'status': 'open',
+            'ticker': 'QQQ',
+            'type': 'bull_put_spread',
+            'short_strike': 380,
+            'long_strike': 375,
+            'expiration': '2025-06-20',
+            'contracts': 1,
+            'total_credit': 150.0,
+            'total_max_loss': 350.0,
+            'alpaca_order_id': 'order-def-456',
+        }
+        pt.trades['trades'].append(trade)
+        pt._open_trades.append(trade)
+
+        pt._close_trade(trade, pnl=75.0, reason='profit_target')
+
+        # Trade should be closed
+        assert trade['status'] == 'closed'
+        assert trade['exit_reason'] == 'profit_target'
+        assert trade['pnl'] == 75.0
+
+        # db_close_trade should have been called
+        mock_db_close.assert_called_once()
+
+    @patch('paper_trader.db_close_trade')
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_no_alpaca_close_still_works(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, mock_db_close, tmp_path):
+        """When Alpaca is disabled, close should proceed normally (no Alpaca call)."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+        mock_paper_log.parent = tmp_path
+
+        pt = PaperTrader(_make_config(tmp_path))
+        pt._save_trades = MagicMock()
+        assert pt.alpaca is None  # Alpaca not configured
+
+        trade = {
+            'id': 3,
+            'status': 'open',
+            'ticker': 'IWM',
+            'type': 'bull_put_spread',
+            'short_strike': 200,
+            'long_strike': 195,
+            'expiration': '2025-06-20',
+            'contracts': 1,
+            'total_credit': 100.0,
+            'total_max_loss': 400.0,
+        }
+        pt.trades['trades'].append(trade)
+        pt._open_trades.append(trade)
+
+        pt._close_trade(trade, pnl=50.0, reason='profit_target')
+
+        # Should close normally without Alpaca
+        assert trade['status'] == 'closed'
+        assert trade['pnl'] == 50.0
+        mock_db_close.assert_called_once()

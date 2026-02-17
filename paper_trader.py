@@ -6,13 +6,12 @@ Monitors open positions and closes at profit target, stop loss, or expiration.
 
 import json
 import logging
-import os
-import tempfile
 import yaml
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from pathlib import Path
-from constants import MAX_CONTRACTS_PER_TRADE, MANAGEMENT_DTE_THRESHOLD
+from shared.constants import MAX_CONTRACTS_PER_TRADE, MANAGEMENT_DTE_THRESHOLD
+from shared.io_utils import atomic_json_write
 from shared.database import init_db, upsert_trade, get_trades, close_trade as db_close_trade
 
 logger = logging.getLogger(__name__)
@@ -20,6 +19,8 @@ logger = logging.getLogger(__name__)
 DATA_DIR = Path(__file__).parent / "data"
 TRADES_FILE = DATA_DIR / "trades.json"
 PAPER_LOG = DATA_DIR / "paper_trades.json"
+
+MAX_DRAWDOWN_PCT = 0.20  # 20% portfolio-level max drawdown kill switch
 
 
 class PaperTrader:
@@ -116,23 +117,11 @@ class PaperTrader:
             "stats": self.trades["stats"],
             "updated_at": datetime.now().isoformat(),
         }
-        self._atomic_json_write(TRADES_FILE, dashboard_data)
+        atomic_json_write(TRADES_FILE, dashboard_data)
 
-    @staticmethod
-    def _atomic_json_write(filepath: Path, data: dict):
-        """Write JSON atomically: write to temp file then rename."""
-        filepath.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp_path = tempfile.mkstemp(dir=filepath.parent, suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w") as f:
-                json.dump(data, f, indent=2, default=str)
-            os.replace(tmp_path, filepath)
-        except BaseException:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
+    # Keep a thin static wrapper so existing callers (e.g. tests) that
+    # reference PaperTrader._atomic_json_write still work.
+    _atomic_json_write = staticmethod(atomic_json_write)
 
     @property
     def open_trades(self) -> List[Dict]:
@@ -199,14 +188,47 @@ class PaperTrader:
 
     def _open_trade(self, opp: Dict) -> Optional[Dict]:
         """Open a paper trade from an opportunity."""
+        current_balance = self.trades["current_balance"]
+        starting_balance = self.trades["starting_balance"]
+
+        # EH-TRADE-01: Refuse to open trades when balance is non-positive
+        if current_balance <= 0:
+            logger.warning(
+                f"TRADE REFUSED: current balance is ${current_balance:,.2f}. "
+                "Cannot open new trades with zero or negative balance."
+            )
+            return None
+
+        # EH-TRADE-03: Portfolio-level max drawdown kill switch
+        drawdown_pct = (starting_balance - current_balance) / starting_balance if starting_balance > 0 else 0
+        if drawdown_pct >= MAX_DRAWDOWN_PCT:
+            logger.critical(
+                f"TRADE REFUSED — MAX DRAWDOWN KILL SWITCH ACTIVE: "
+                f"drawdown {drawdown_pct:.1%} >= {MAX_DRAWDOWN_PCT:.0%} threshold. "
+                f"Starting: ${starting_balance:,.2f}, Current: ${current_balance:,.2f}. "
+                f"All new trades are blocked until manual review."
+            )
+            return None
+
         credit = opp.get("credit", 0)
         max_loss = opp.get("max_loss", 0)
 
         if credit <= 0 or max_loss <= 0:
             return None
 
-        # Position sizing: max risk per trade
-        max_risk_dollars = self.trades["current_balance"] * self.max_risk_per_trade
+        # EH-TRADE-02: Account for existing open risk exposure in position sizing
+        open_risk = sum(t.get("total_max_loss", 0) for t in self.open_trades)
+        available_capital = current_balance - open_risk
+        if available_capital <= 0:
+            logger.warning(
+                f"TRADE REFUSED: insufficient available capital. "
+                f"Balance: ${current_balance:,.2f}, Open risk: ${open_risk:,.2f}, "
+                f"Available: ${available_capital:,.2f}"
+            )
+            return None
+
+        # Position sizing: max risk per trade (based on available capital, not total balance)
+        max_risk_dollars = available_capital * self.max_risk_per_trade
         max_contracts = max(1, int(max_risk_dollars / (max_loss * 100)))
         contracts = min(max_contracts, MAX_CONTRACTS_PER_TRADE)
 
@@ -379,7 +401,8 @@ class PaperTrader:
 
     def _close_trade(self, trade: Dict, pnl: float, reason: str):
         """Close a paper trade."""
-        # Close on Alpaca if we have an order
+        # EH-TRADE-04: If Alpaca is enabled, attempt close and abort local
+        # state transition on failure so local and broker state stay in sync.
         if self.alpaca and trade.get("alpaca_order_id"):
             try:
                 self.alpaca.close_spread(
@@ -392,8 +415,13 @@ class PaperTrader:
                 )
                 logger.info(f"Alpaca close order submitted for {trade['ticker']}")
             except Exception as e:
-                logger.error(f"Alpaca close failed: {e}", exc_info=True)
+                logger.error(
+                    f"Alpaca close failed for {trade['ticker']}: {e}. "
+                    "Local trade state will NOT be updated to closed.",
+                    exc_info=True,
+                )
                 trade["alpaca_sync_error"] = str(e)
+                return  # Do NOT proceed with local state transition
 
         trade["status"] = "closed"
         trade["exit_date"] = datetime.now().isoformat()
