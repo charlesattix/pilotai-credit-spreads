@@ -44,7 +44,7 @@ COPY backtest/ ./backtest/
 COPY tracker/ ./tracker/
 COPY alerts/ ./alerts/
 COPY shared/ ./shared/
-COPY config.yaml .
+COPY config.yaml.example ./config.yaml
 
 # Copy built Next.js app
 COPY --from=web-build /app/web/.next/standalone ./web/
