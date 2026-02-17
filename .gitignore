@@ -71,6 +71,11 @@ config.yaml
 config.local.yaml
 secrets.yaml
 
+# Test artifacts
+.coverage
+.hypothesis/
+.pytest_cache/
+
 # Temporary files
 *.tmp
 *.bak
