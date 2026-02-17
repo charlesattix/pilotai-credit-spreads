@@ -280,29 +280,38 @@ class PaperTrader:
                 "exit_pnl": None,
             }
 
-            # Submit to Alpaca if available
-            if self.alpaca:
-                try:
-                    alpaca_result = self.alpaca.submit_credit_spread(
-                        ticker=trade["ticker"],
-                        short_strike=trade["short_strike"],
-                        long_strike=trade["long_strike"],
-                        expiration=trade["expiration"],
-                        spread_type=trade["type"],
-                        contracts=trade["contracts"],
-                        limit_price=trade["credit_per_spread"],
-                    )
-                    trade["alpaca_order_id"] = alpaca_result.get("order_id")
-                    trade["alpaca_status"] = alpaca_result.get("status")
-                    if alpaca_result["status"] == "error":
-                        logger.warning(f"Alpaca order failed: {alpaca_result['message']}. Recording in DB only.")
-                    else:
-                        logger.info(f"Alpaca order submitted: {alpaca_result['order_id']}")
-                except Exception as e:
-                    logger.warning(f"Alpaca submission failed, recording in DB: {e}")
-                    trade["alpaca_order_id"] = None
-                    trade["alpaca_status"] = "fallback_db"
+            # Submit to Alpaca - ONLY create DB entries for real Alpaca trades
+            if not self.alpaca:
+                logger.info(
+                    f"SKIPPED (Alpaca not configured): {trade['type']} on {trade['ticker']} | "
+                    f"{trade['contracts']}x ${trade['short_strike']}/{trade['long_strike']} | "
+                    f"Would have been: Credit ${trade['total_credit']:.0f}, Max Loss ${trade['total_max_loss']:.0f}"
+                )
+                return None
 
+            try:
+                alpaca_result = self.alpaca.submit_credit_spread(
+                    ticker=trade["ticker"],
+                    short_strike=trade["short_strike"],
+                    long_strike=trade["long_strike"],
+                    expiration=trade["expiration"],
+                    spread_type=trade["type"],
+                    contracts=trade["contracts"],
+                    limit_price=trade["credit_per_spread"],
+                )
+                trade["alpaca_order_id"] = alpaca_result.get("order_id")
+                trade["alpaca_status"] = alpaca_result.get("status")
+                
+                if alpaca_result["status"] == "error":
+                    logger.warning(f"Alpaca order failed: {alpaca_result['message']}. NOT recording in DB.")
+                    return None
+                    
+                logger.info(f"Alpaca order submitted: {alpaca_result['order_id']}")
+            except Exception as e:
+                logger.warning(f"Alpaca submission failed: {e}. NOT recording in DB.")
+                return None
+
+            # Only add to tracking if Alpaca order succeeded
             self.trades["trades"].append(trade)
             self._open_trades.append(trade)
             self.trades["stats"]["total_trades"] += 1

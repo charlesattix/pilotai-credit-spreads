@@ -86,3 +86,4 @@ __pycache__/
 data/
 output/
 .env
+.env.local
