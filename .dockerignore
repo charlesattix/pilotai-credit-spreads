@@ -12,3 +12,17 @@ __pycache__
 *.egg-info
 .pytest_cache
 .coverage
+tests/
+*.md
+.github/
+.vscode/
+Makefile
+*.csv
+*.pkl
+*.joblib
+.hypothesis/
+*.db
+*.db-wal
+*.db-shm
+CODE_REVIEW*.md
+web/tests/

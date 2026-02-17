@@ -16,7 +16,7 @@ RUN npm run build
 FROM python:3.11-slim
 
 # Install Node.js 20 from official binary (no piped shell scripts)
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates xz-utils && \
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates tini xz-utils && \
     DPKG_ARCH=$(dpkg --print-architecture) && \
     NODE_ARCH=$(case "${DPKG_ARCH}" in amd64) echo "x64" ;; arm64) echo "arm64" ;; *) echo "${DPKG_ARCH}" ;; esac) && \
     curl -fsSL "https://nodejs.org/dist/v20.20.0/node-v20.20.0-linux-${NODE_ARCH}.tar.xz" \
@@ -29,6 +29,7 @@ WORKDIR /app
 # Set production environment
 ENV NODE_ENV=production
 ENV PORT=8080
+ENV HOSTNAME=0.0.0.0
 
 # Install Python dependencies
 COPY requirements.txt requirements-dev.txt ./
@@ -66,5 +67,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD curl -f http://localhost:8080/api/health || exit 1
 
-ENTRYPOINT ["./docker-entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "./docker-entrypoint.sh"]
 CMD ["web"]
