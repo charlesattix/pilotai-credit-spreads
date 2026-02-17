@@ -1,10 +1,18 @@
 #!/bin/sh
 set -e
 
-# Ensure data directory and SQLite database exist on the persistent volume.
-# This is a no-op if the DB already exists (CREATE TABLE IF NOT EXISTS).
-mkdir -p "${PILOTAI_DATA_DIR:-/app/data}" /app/output /app/logs
-python3 -c "from shared.database import init_db; init_db()" 2>&1 || echo "WARN: DB init failed, will retry on first access"
+# Ensure data directory exists and is writable
+# The volume is mounted by Railway, so we just need to ensure subdirectories exist
+DATA_DIR="${PILOTAI_DATA_DIR:-/app/data}"
+mkdir -p "$DATA_DIR" /app/output /app/logs 2>/dev/null || true
+
+# Try to initialize database - if it fails (volume not ready), that's OK,
+# the API will create it on first access
+if python3 -c "from shared.database import init_db; init_db()" 2>&1; then
+    echo "Database initialized successfully"
+else
+    echo "INFO: Database will be initialized on first API access"
+fi
 
 case "$1" in
   web)

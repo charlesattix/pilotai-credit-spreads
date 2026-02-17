@@ -61,13 +61,11 @@ COPY --from=web-build /app/web/public ./web/public
 COPY docker-entrypoint.sh .
 RUN chmod +x docker-entrypoint.sh
 
-# Create non-root user and data directories
+# Create data directories
 # NOTE: DB initialization happens at runtime (entrypoint) so it lands on
 # the persistent volume, not the ephemeral build layer.
-RUN useradd -r -s /bin/false appuser && \
-    mkdir -p /app/data /app/output /app/logs && \
-    chown -R appuser:appuser /app
-USER appuser
+# Running as root to ensure volume mount permissions work correctly
+RUN mkdir -p /app/data /app/output /app/logs
 
 EXPOSE 8080
 
