@@ -14,7 +14,6 @@ import { DB_PATH as SHARED_DB_PATH } from '@/lib/paths'
 // Dynamic import of better-sqlite3 to handle missing native binary gracefully
 let DatabaseConstructor: typeof import('better-sqlite3') | null = null
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   DatabaseConstructor = require('better-sqlite3')
 } catch (err) {
   console.error('[database] better-sqlite3 failed to load (native module missing?):', err)
