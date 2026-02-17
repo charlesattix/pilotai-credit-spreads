@@ -11,9 +11,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from shared.constants import DATA_DIR
+
 logger = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).parent.parent / "data" / "pilotai.db"
+DB_PATH = Path(DATA_DIR) / "pilotai.db"
 
 
 def get_db(path: Optional[str] = None) -> sqlite3.Connection:

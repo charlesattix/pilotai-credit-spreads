@@ -30,6 +30,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8080
 ENV HOSTNAME=0.0.0.0
+ENV PILOTAI_DATA_DIR=/app/data
 
 # Install Python dependencies
 COPY requirements.txt requirements-dev.txt ./
@@ -55,9 +56,10 @@ COPY --from=web-build /app/web/public ./web/public
 COPY docker-entrypoint.sh .
 RUN chmod +x docker-entrypoint.sh
 
-# Initialize SQLite database and create non-root user
-RUN python -c "from shared.database import init_db; init_db()" && \
-    useradd -r -s /bin/false appuser && \
+# Create non-root user and data directories
+# NOTE: DB initialization happens at runtime (entrypoint) so it lands on
+# the persistent volume, not the ephemeral build layer.
+RUN useradd -r -s /bin/false appuser && \
     mkdir -p /app/data /app/output /app/logs && \
     chown -R appuser:appuser /app
 USER appuser

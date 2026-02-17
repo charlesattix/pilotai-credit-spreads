@@ -42,6 +42,16 @@ def _make_opportunity(ticker='SPY', credit=1.50, max_loss=3.50,
     }
 
 
+def _mock_alpaca():
+    """Return a mock Alpaca provider so _open_trade doesn't skip trades."""
+    mock = MagicMock()
+    mock.submit_credit_spread.return_value = {
+        'order_id': 'mock-order-123',
+        'status': 'submitted',
+    }
+    return mock
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -76,8 +86,8 @@ class TestPaperTrader:
         mock_paper_log.parent = tmp_path
 
         pt = PaperTrader(_make_config(tmp_path))
-        # Patch _save_trades to avoid real file I/O
         pt._save_trades = MagicMock()
+        pt.alpaca = _mock_alpaca()
 
         opp = _make_opportunity()
         new_trades = pt.execute_signals([opp])
@@ -100,6 +110,7 @@ class TestPaperTrader:
 
         pt = PaperTrader(_make_config(tmp_path))
         pt._save_trades = MagicMock()
+        pt.alpaca = _mock_alpaca()
 
         opp = _make_opportunity()
         pt.execute_signals([opp])
@@ -122,6 +133,7 @@ class TestPaperTrader:
 
         pt = PaperTrader(_make_config(tmp_path, max_positions=2))
         pt._save_trades = MagicMock()
+        pt.alpaca = _mock_alpaca()
 
         opps = [
             _make_opportunity(ticker='SPY', short_strike=450),
@@ -146,6 +158,7 @@ class TestPaperTrader:
 
         pt = PaperTrader(_make_config(tmp_path))
         pt._save_trades = MagicMock()
+        pt.alpaca = _mock_alpaca()
 
         opp = _make_opportunity(dte=35)
         pt.execute_signals([opp])
@@ -436,6 +449,7 @@ class TestNegativeBalanceGuard:
 
         pt = PaperTrader(_make_config(tmp_path))
         pt._save_trades = MagicMock()
+        pt.alpaca = _mock_alpaca()
         assert pt.trades['current_balance'] == 100000
 
         opp = _make_opportunity()
@@ -499,6 +513,7 @@ class TestOpenRiskExposure:
 
         pt = PaperTrader(_make_config(tmp_path))
         pt._save_trades = MagicMock()
+        pt.alpaca = _mock_alpaca()
 
         # Inject a small open trade that uses only a little capital
         small_trade = {
@@ -588,6 +603,7 @@ class TestMaxDrawdownKillSwitch:
 
         pt = PaperTrader(_make_config(tmp_path))
         pt._save_trades = MagicMock()
+        pt.alpaca = _mock_alpaca()
 
         # 10% drawdown, below threshold
         pt.trades['current_balance'] = 90000

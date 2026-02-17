@@ -10,11 +10,13 @@ from datetime import datetime
 
 # ---------------------------------------------------------------------------
 # Standardized project paths (ARCH-PY-09)
+# Override DATA_DIR via PILOTAI_DATA_DIR env var for persistent volumes
+# (e.g. Railway volume mount at /app/data).
 # ---------------------------------------------------------------------------
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
-OUTPUT_DIR = os.path.join(PROJECT_ROOT, 'output')
-LOGS_DIR = os.path.join(PROJECT_ROOT, 'logs')
+DATA_DIR = os.environ.get('PILOTAI_DATA_DIR', os.path.join(PROJECT_ROOT, 'data'))
+OUTPUT_DIR = os.environ.get('PILOTAI_OUTPUT_DIR', os.path.join(PROJECT_ROOT, 'output'))
+LOGS_DIR = os.environ.get('PILOTAI_LOGS_DIR', os.path.join(PROJECT_ROOT, 'logs'))
 MODELS_DIR = os.path.join(PROJECT_ROOT, 'ml', 'models')
 CONFIG_PATH = os.path.join(PROJECT_ROOT, 'config.yaml')
 

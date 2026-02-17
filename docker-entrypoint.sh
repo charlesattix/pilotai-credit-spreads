@@ -1,6 +1,11 @@
 #!/bin/sh
 set -e
 
+# Ensure data directory and SQLite database exist on the persistent volume.
+# This is a no-op if the DB already exists (CREATE TABLE IF NOT EXISTS).
+mkdir -p "${PILOTAI_DATA_DIR:-/app/data}" /app/output /app/logs
+python3 -c "from shared.database import init_db; init_db()" 2>&1 || echo "WARN: DB init failed, will retry on first access"
+
 case "$1" in
   web)
     cd /app/web
