@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "result": {
+    "message_id": 12345,
+    "from": {
+      "id": 123456789,
+      "is_bot": true,
+      "first_name": "PilotAI_CreditSpreads",
+      "username": "pilotai_spreads_bot"
+    },
+    "chat": {
+      "id": 987654321,
+      "first_name": "Trader",
+      "last_name": "User",
+      "type": "private"
+    },
+    "date": 1737500400,
+    "text": "ALERT: Bull Put Spread on SPY\nShort: $580 / Long: $575\nCredit: $0.50\nPOP: 88%\nScore: 72.5"
+  }
+}

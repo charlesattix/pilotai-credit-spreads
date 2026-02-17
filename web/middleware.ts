@@ -1,11 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
-import crypto from 'crypto';
 
-function timingSafeCompare(a: string, b: string): boolean {
-  const bufA = crypto.createHash('sha256').update(a).digest();
-  const bufB = crypto.createHash('sha256').update(b).digest();
-  return crypto.timingSafeEqual(bufA, bufB);
+async function sha256(input: string): Promise<ArrayBuffer> {
+  return crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+}
+
+async function timingSafeCompare(a: string, b: string): Promise<boolean> {
+  const [bufA, bufB] = await Promise.all([sha256(a), sha256(b)]);
+  const viewA = new Uint8Array(bufA);
+  const viewB = new Uint8Array(bufB);
+  if (viewA.length !== viewB.length) return false;
+  let result = 0;
+  for (let i = 0; i < viewA.length; i++) {
+    result |= viewA[i] ^ viewB[i];
+  }
+  return result === 0;
 }
 
 function getJwtSecret(): Uint8Array {
@@ -39,9 +48,10 @@ export async function middleware(request: NextRequest) {
 
   // Strategy 1: Check Authorization: Bearer header (for Python backend / direct API calls)
   const bearerToken = request.headers.get('authorization')?.replace('Bearer ', '');
-  if (bearerToken && timingSafeCompare(bearerToken, expectedToken)) {
+  if (bearerToken && await timingSafeCompare(bearerToken, expectedToken)) {
     const response = NextResponse.next();
-    const userId = 'user_' + crypto.createHash('sha256').update(bearerToken).digest('hex').substring(0, 12);
+    const hashBuf = await sha256(bearerToken);
+    const userId = 'user_' + Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 12);
     response.headers.set('x-user-id', userId);
     return response;
   }
