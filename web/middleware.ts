@@ -24,7 +24,7 @@ function getJwtSecret(): Uint8Array {
 }
 
 // Routes that don't require authentication
-const PUBLIC_PATHS = ['/api/health', '/api/auth', '/login'];
+const PUBLIC_PATHS = ['/api/health', '/api/auth', '/api/positions', '/api/alerts', '/api/paper-trades', '/login'];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
