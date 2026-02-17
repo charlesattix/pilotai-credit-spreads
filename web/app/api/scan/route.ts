@@ -4,36 +4,26 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { apiError } from "@/lib/api-error";
 import { PROJECT_ROOT } from "@/lib/paths";
+import { checkRateLimit, acquireProcessLock, releaseProcessLock } from "@/lib/database";
 
 const execFilePromise = promisify(execFile);
 
 const SCAN_RATE_LIMIT = 5;
 const SCAN_RATE_WINDOW = 3600_000; // 1 hour in ms
-const scanTimestamps: number[] = [];
-
-let scanInProgress = false;
+const SCAN_LOCK_TIMEOUT = 150_000; // 2.5 min (scan timeout is 2 min)
 
 export async function POST() {
-  // Rate limit check
-  const now = Date.now();
-  while (scanTimestamps.length > 0 && scanTimestamps[0] <= now - SCAN_RATE_WINDOW) {
-    scanTimestamps.shift();
-  }
-  if (scanTimestamps.length >= SCAN_RATE_LIMIT) {
+  if (!checkRateLimit("scan", SCAN_RATE_LIMIT, SCAN_RATE_WINDOW)) {
     return apiError("Rate limit exceeded: max 5 scans per hour", 429);
   }
 
-  if (scanInProgress) {
+  if (!acquireProcessLock("scan", SCAN_LOCK_TIMEOUT)) {
     return apiError("A scan is already in progress", 409);
   }
 
-  scanInProgress = true;
-  scanTimestamps.push(now);
   try {
-    const pythonDir = PROJECT_ROOT;
-
     await execFilePromise("python3", ["main.py", "scan"], {
-      cwd: pythonDir,
+      cwd: PROJECT_ROOT,
       timeout: 120000,
     });
 
@@ -47,6 +37,6 @@ export async function POST() {
     });
     return apiError("Scan failed", 500);
   } finally {
-    scanInProgress = false;
+    releaseProcessLock("scan");
   }
 }

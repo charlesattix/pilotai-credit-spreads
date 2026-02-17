@@ -76,6 +76,18 @@ function getDb(): Database.Database {
       features JSON,
       created_at TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS rate_limits (
+      key TEXT NOT NULL,
+      ts INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_rate_limits_key_ts ON rate_limits(key, ts);
+
+    CREATE TABLE IF NOT EXISTS process_locks (
+      name TEXT PRIMARY KEY,
+      locked_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
   `)
 
   return _db
@@ -207,4 +219,56 @@ export function getRegimeSnapshot(): { regime: string; confidence: number; featu
     confidence: row.confidence,
     features: JSON.parse(row.features || '{}'),
   }
+}
+
+/**
+ * SQLite-based rate limiting. Returns true if the request is allowed.
+ * Cleans up expired entries on each call.
+ */
+export function checkRateLimit(key: string, limit: number, windowMs: number): boolean {
+  const db = getDb()
+  const now = Date.now()
+  const cutoff = now - windowMs
+
+  // Clean expired entries for this key
+  db.prepare('DELETE FROM rate_limits WHERE key = ? AND ts < ?').run(key, cutoff)
+
+  // Count recent entries
+  const row = db.prepare('SELECT COUNT(*) as cnt FROM rate_limits WHERE key = ? AND ts >= ?').get(key, cutoff) as { cnt: number }
+
+  if (row.cnt >= limit) return false
+
+  // Record this request
+  db.prepare('INSERT INTO rate_limits (key, ts) VALUES (?, ?)').run(key, now)
+  return true
+}
+
+/**
+ * SQLite-based process lock. Returns true if lock was acquired.
+ * Automatically expires stale locks after timeoutMs.
+ */
+export function acquireProcessLock(name: string, timeoutMs: number): boolean {
+  const db = getDb()
+  const now = Date.now()
+
+  // Clean expired locks
+  db.prepare('DELETE FROM process_locks WHERE expires_at < ?').run(now)
+
+  // Try to insert (fails if lock already held)
+  try {
+    db.prepare(
+      'INSERT INTO process_locks (name, locked_at, expires_at) VALUES (?, ?, ?)'
+    ).run(name, now, now + timeoutMs)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Release a process lock.
+ */
+export function releaseProcessLock(name: string): void {
+  const db = getDb()
+  db.prepare('DELETE FROM process_locks WHERE name = ?').run(name)
 }

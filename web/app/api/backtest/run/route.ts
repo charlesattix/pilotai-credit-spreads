@@ -6,31 +6,23 @@ import { promisify } from 'util';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { PROJECT_ROOT, OUTPUT_DIR } from "@/lib/paths";
+import { checkRateLimit, acquireProcessLock, releaseProcessLock } from "@/lib/database";
 
 const execFilePromise = promisify(execFile);
 
 const BACKTEST_RATE_LIMIT = 3;
 const BACKTEST_RATE_WINDOW = 3600_000; // 1 hour in ms
-const backtestTimestamps: number[] = [];
-
-let backtestInProgress = false;
+const BACKTEST_LOCK_TIMEOUT = 330_000; // 5.5 min (backtest timeout is 5 min)
 
 export async function POST() {
-  // Rate limit check
-  const now = Date.now();
-  while (backtestTimestamps.length > 0 && backtestTimestamps[0] <= now - BACKTEST_RATE_WINDOW) {
-    backtestTimestamps.shift();
-  }
-  if (backtestTimestamps.length >= BACKTEST_RATE_LIMIT) {
+  if (!checkRateLimit("backtest", BACKTEST_RATE_LIMIT, BACKTEST_RATE_WINDOW)) {
     return apiError("Rate limit exceeded: max 3 backtests per hour", 429);
   }
 
-  if (backtestInProgress) {
+  if (!acquireProcessLock("backtest", BACKTEST_LOCK_TIMEOUT)) {
     return apiError("A backtest is already running", 409);
   }
 
-  backtestInProgress = true;
-  backtestTimestamps.push(now);
   try {
     await execFilePromise('python3', ['main.py', 'backtest'], {
       cwd: PROJECT_ROOT,
@@ -60,6 +52,6 @@ export async function POST() {
     });
     return apiError("Backtest failed", 500);
   } finally {
-    backtestInProgress = false;
+    releaseProcessLock("backtest");
   }
 }
