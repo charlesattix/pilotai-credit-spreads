@@ -8,6 +8,101 @@ import { CONFIG_PATH } from "@/lib/paths"
 
 const SECRET_KEYS = ['api_key', 'api_secret', 'bot_token', 'chat_id'];
 
+/** Top-level config keys that may be modified via the API. */
+const ALLOWED_TOP_LEVEL_KEYS = new Set([
+  'tickers',
+  'strategy',
+  'risk',
+  'alerts',
+  'alpaca',
+  'data',
+  'logging',
+  'backtest',
+  'scanning',
+  'paper_trading',
+]);
+
+/** Keys that must never appear anywhere in incoming config objects. */
+const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+/**
+ * Recursively strip keys that could cause prototype pollution
+ * (`__proto__`, `constructor`, `prototype`).
+ */
+function stripDangerousKeys(obj: unknown): unknown {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(stripDangerousKeys);
+
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+    if (DANGEROUS_KEYS.has(key)) continue;
+    result[key] = stripDangerousKeys(value);
+  }
+  return result;
+}
+
+/**
+ * Recursively check that no string value contains path traversal sequences
+ * (`../` or `..\`).  Returns the first offending key path, or null if clean.
+ */
+function findPathTraversal(obj: unknown, path = ''): string | null {
+  if (typeof obj === 'string') {
+    if (obj.includes('../') || obj.includes('..\\')) {
+      return path || '(root)';
+    }
+    return null;
+  }
+  if (Array.isArray(obj)) {
+    for (let i = 0; i < obj.length; i++) {
+      const hit = findPathTraversal(obj[i], `${path}[${i}]`);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  if (obj !== null && typeof obj === 'object') {
+    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+      const hit = findPathTraversal(value, path ? `${path}.${key}` : key);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
+/**
+ * Deep-merge `source` into `target`.
+ * - If both sides are plain objects, recurse.
+ * - Otherwise the source value replaces the target value
+ *   (arrays and primitives are replaced, not concatenated).
+ */
+function deepMerge(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...target };
+  for (const key of Object.keys(source)) {
+    const tVal = target[key];
+    const sVal = source[key];
+
+    if (
+      isPlainObject(tVal) &&
+      isPlainObject(sVal)
+    ) {
+      result[key] = deepMerge(
+        tVal as Record<string, unknown>,
+        sVal as Record<string, unknown>,
+      );
+    } else {
+      result[key] = sVal;
+    }
+  }
+  return result;
+}
+
+function isPlainObject(val: unknown): val is Record<string, unknown> {
+  return val !== null && typeof val === 'object' && !Array.isArray(val);
+}
+
 function stripSecrets(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj !== 'object') return obj;
@@ -101,14 +196,47 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json()
-    const parsed = ConfigSchema.safeParse(body)
+    const rawBody = await request.json()
+
+    // SEC-INJ-04: Strip prototype-pollution keys before any processing
+    const sanitizedBody = stripDangerousKeys(rawBody)
+
+    // SEC-INJ-05: Reject any string values containing path traversal sequences
+    const traversalHit = findPathTraversal(sanitizedBody)
+    if (traversalHit) {
+      return apiError(
+        'Path traversal sequences are not allowed in config values',
+        400,
+        { field: traversalHit },
+      )
+    }
+
+    // SEC-DATA-14 / ARCH-INT-09/23: Reject unknown top-level keys
+    if (isPlainObject(sanitizedBody)) {
+      const disallowed = Object.keys(sanitizedBody).filter(
+        (k) => !ALLOWED_TOP_LEVEL_KEYS.has(k),
+      )
+      if (disallowed.length > 0) {
+        return apiError(
+          'Disallowed top-level config keys',
+          400,
+          { disallowed_keys: disallowed },
+        )
+      }
+    }
+
+    // Validate shape with Zod
+    const parsed = ConfigSchema.safeParse(sanitizedBody)
     if (!parsed.success) {
       return apiError('Validation failed', 400, parsed.error.flatten())
     }
+
     const configPath = CONFIG_PATH
     const existing = yaml.load(await fs.readFile(configPath, 'utf-8')) as Record<string, unknown> || {}
-    const merged = { ...existing, ...parsed.data }
+
+    // SEC-DATA-14: Use deep merge instead of shallow spread
+    const merged = deepMerge(existing, parsed.data as Record<string, unknown>)
+
     const yamlStr = yaml.dump(merged)
     await fs.writeFile(configPath, yamlStr, 'utf-8')
     return NextResponse.json({ success: true })
