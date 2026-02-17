@@ -99,6 +99,15 @@ class SignalModel:
                 X, y, test_size=0.2, random_state=42, stratify=y
             )
 
+            # Further split training data to create a calibration set,
+            # avoiding data leakage (calibrator must not see test data).
+            if calibrate:
+                X_train_inner, X_cal, y_train_inner, y_cal = train_test_split(
+                    X_train, y_train, test_size=0.2, random_state=42, stratify=y_train
+                )
+            else:
+                X_train_inner, y_train_inner = X_train, y_train
+
             # XGBoost parameters (tuned for credit spread prediction)
             params = {
                 'objective': 'binary:logistic',
@@ -115,31 +124,31 @@ class SignalModel:
                 'eval_metric': 'logloss',
             }
 
-            # Train model
+            # Train model on inner training set only
             self.model = xgb.XGBClassifier(**params)
 
             self.model.fit(
-                X_train, y_train,
+                X_train_inner, y_train_inner,
                 eval_set=[(X_test, y_test)],
                 verbose=False
             )
 
             # Predictions
-            y_pred_train = self.model.predict(X_train)
+            y_pred_train = self.model.predict(X_train_inner)
             y_pred_test = self.model.predict(X_test)
 
-            y_proba_train = self.model.predict_proba(X_train)[:, 1]
+            y_proba_train = self.model.predict_proba(X_train_inner)[:, 1]
             y_proba_test = self.model.predict_proba(X_test)[:, 1]
 
-            # Calibration
+            # Calibration on held-out calibration set (not test set)
             if calibrate:
-                logger.info("Calibrating probabilities...")
+                logger.info("Calibrating probabilities on held-out calibration set...")
                 self.calibrated_model = CalibratedClassifierCV(
                     self.model,
                     method='sigmoid',
                     cv='prefit'
                 )
-                self.calibrated_model.fit(X_test, y_test)
+                self.calibrated_model.fit(X_cal, y_cal)
 
                 y_proba_test_cal = self.calibrated_model.predict_proba(X_test)[:, 1]
             else:
@@ -148,17 +157,18 @@ class SignalModel:
 
             # Compute metrics
             stats = {
-                'train_accuracy': float(accuracy_score(y_train, y_pred_train)),
+                'train_accuracy': float(accuracy_score(y_train_inner, y_pred_train)),
                 'test_accuracy': float(accuracy_score(y_test, y_pred_test)),
-                'train_precision': float(precision_score(y_train, y_pred_train, zero_division=0)),
+                'train_precision': float(precision_score(y_train_inner, y_pred_train, zero_division=0)),
                 'test_precision': float(precision_score(y_test, y_pred_test, zero_division=0)),
-                'train_recall': float(recall_score(y_train, y_pred_train, zero_division=0)),
+                'train_recall': float(recall_score(y_train_inner, y_pred_train, zero_division=0)),
                 'test_recall': float(recall_score(y_test, y_pred_test, zero_division=0)),
-                'train_auc': float(roc_auc_score(y_train, y_proba_train)),
+                'train_auc': float(roc_auc_score(y_train_inner, y_proba_train)),
                 'test_auc': float(roc_auc_score(y_test, y_proba_test)),
                 'test_auc_calibrated': float(roc_auc_score(y_test, y_proba_test_cal)) if calibrate else None,
-                'n_train': len(X_train),
+                'n_train': len(X_train_inner),
                 'n_test': len(X_test),
+                'n_calibration': len(X_cal) if calibrate else 0,
                 'n_features': X.shape[1],
                 'positive_rate': float(y.mean()),
             }

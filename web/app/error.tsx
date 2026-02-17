@@ -1,9 +1,10 @@
 'use client'
 import React, { useEffect } from 'react'
+import { captureException } from '@/lib/error-tracking'
 
 export default function Error({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   useEffect(() => {
-    console.error(JSON.stringify({ level: 'error', msg: 'Error boundary triggered', error: error.message, digest: error.digest }))
+    captureException(error, { digest: error.digest })
   }, [error])
 
   return (
