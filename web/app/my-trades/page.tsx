@@ -7,35 +7,13 @@ import Link from 'next/link'
 import { getUserId, PAPER_TRADING_ENABLED } from '@/lib/user-id'
 import { apiFetch } from '@/lib/api'
 import { usePaperTrades } from '@/lib/hooks'
-import { PaperTrade } from '@/lib/types'
-
-interface Stats {
-  total_trades: number
-  open_trades: number
-  closed_trades: number
-  winners: number
-  losers: number
-  win_rate: number
-  total_realized_pnl: number
-  total_unrealized_pnl: number
-  total_pnl: number
-  balance: number
-  starting_balance: number
-}
-
-function formatCurrency(value: number): string {
-  const prefix = value >= 0 ? '+' : ''
-  return `${prefix}$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
-}
-
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
+import { PaperTrade, PortfolioStats } from '@/lib/types'
+import { formatCurrency, formatDate } from '@/lib/utils'
 
 export default function MyTradesPage() {
   const { data: tradesData, isLoading: loading, mutate } = usePaperTrades(getUserId())
   const trades: PaperTrade[] = tradesData?.trades || []
-  const stats: Stats | null = tradesData?.stats || null
+  const stats: PortfolioStats | null = tradesData?.stats || null
   const [tab, setTab] = useState<'open' | 'closed' | 'all'>('open')
 
   const closeTrade = async (tradeId: string, reason: string = 'manual') => {

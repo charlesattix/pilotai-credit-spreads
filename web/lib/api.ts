@@ -1,6 +1,6 @@
-import { Alert } from '@/lib/types'
+import { Alert, BacktestResult, Position } from '@/lib/types'
 
-export type { Alert }
+export type { Alert, BacktestResult, Position }
 
 export interface AlertsResponse {
   timestamp: string
@@ -25,36 +25,6 @@ export interface Trade {
   exit_price?: number
   dte_entry: number
   dte_exit?: number
-}
-
-export interface Position {
-  ticker: string
-  type: string
-  short_strike: number
-  long_strike: number
-  credit: number
-  entry_date: string
-  dte: number
-  current_price: number
-  unrealized_pnl: number
-  profit_target: number
-  stop_loss: number
-}
-
-export interface BacktestResult {
-  total_trades: number
-  winning_trades: number
-  losing_trades: number
-  win_rate: number
-  total_pnl: number
-  avg_win: number
-  avg_loss: number
-  profit_factor: number
-  sharpe_ratio: number
-  max_drawdown: number
-  max_drawdown_pct: number
-  equity_curve: Array<{ date: string; equity: number }>
-  trade_distribution: Array<{ range: string; count: number }>
 }
 
 export interface Config {

@@ -1,22 +1,8 @@
 'use client'
 
 import { TrendingUp, TrendingDown, Clock, DollarSign, Activity } from 'lucide-react'
-
-interface Position {
-  ticker: string
-  type: string
-  short_strike: number
-  long_strike: number
-  contracts: number
-  total_credit: number
-  total_max_loss: number
-  unrealized_pnl: number
-  days_remaining: number
-  days_held: number
-  max_profit: number
-  pnl_pct: number
-  expiration: string
-}
+import { formatCurrency } from '@/lib/utils'
+import { Position } from '@/lib/types'
 
 interface PositionsData {
   open_positions: Position[]
@@ -26,11 +12,6 @@ interface PositionsData {
   current_balance: number
   total_pnl: number
   total_max_loss: number
-}
-
-function formatCurrency(value: number): string {
-  const prefix = value >= 0 ? '+' : ''
-  return `${prefix}$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
 }
 
 interface LivePositionsProps {
@@ -99,7 +80,7 @@ export default function LivePositions({ data }: LivePositionsProps) {
                   {formatCurrency(pnl)}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  of ${pos.max_profit.toLocaleString()} max
+                  of ${(pos.max_profit ?? 0).toLocaleString()} max
                 </div>
               </div>
             </div>

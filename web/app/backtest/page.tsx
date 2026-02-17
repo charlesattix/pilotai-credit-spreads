@@ -7,28 +7,13 @@ import { toast } from 'sonner'
 import dynamic from 'next/dynamic'
 import { logger } from '@/lib/logger'
 import { apiFetch } from '@/lib/api'
+import { BacktestResult } from '@/lib/types'
 
 // Lazy load recharts to prevent SSR issues
-const LazyCharts = dynamic(() => import('@/components/backtest/charts'), { 
+const LazyCharts = dynamic(() => import('@/components/backtest/charts'), {
   ssr: false,
   loading: () => <div className="h-[300px] flex items-center justify-center text-muted-foreground">Loading charts...</div>
 })
-
-interface BacktestResult {
-  total_trades: number
-  winning_trades: number
-  losing_trades: number
-  win_rate: number
-  total_pnl: number
-  avg_win: number
-  avg_loss: number
-  profit_factor: number
-  sharpe_ratio: number
-  max_drawdown: number
-  max_drawdown_pct: number
-  equity_curve: Array<{ date: string; equity: number }>
-  trade_distribution: Array<{ range: string; count: number }>
-}
 
 export default function BacktestPage() {
   const [results, setResults] = useState<BacktestResult | null>(null)

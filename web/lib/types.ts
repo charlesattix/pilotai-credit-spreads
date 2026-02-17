@@ -59,6 +59,44 @@ export interface Alert {
   score: number
 }
 
+export interface BacktestResult {
+  total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
+  win_rate: number;
+  total_pnl: number;
+  avg_win: number;
+  avg_loss: number;
+  profit_factor: number;
+  sharpe_ratio: number;
+  max_drawdown: number;
+  max_drawdown_pct: number;
+  equity_curve: Array<{ date: string; equity: number }>;
+  trade_distribution: Array<{ range: string; count: number }>;
+}
+
+export interface Position {
+  ticker: string;
+  type: string;
+  short_strike: number;
+  long_strike: number;
+  unrealized_pnl: number;
+  credit?: number;
+  entry_date?: string;
+  dte?: number;
+  current_price?: number;
+  profit_target?: number;
+  stop_loss?: number;
+  contracts?: number;
+  total_credit?: number;
+  total_max_loss?: number;
+  days_remaining?: number;
+  days_held?: number;
+  max_profit?: number;
+  pnl_pct?: number;
+  expiration?: string;
+}
+
 export interface PortfolioStats {
   total_trades: number;
   open_trades: number;

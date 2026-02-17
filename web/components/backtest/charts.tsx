@@ -5,13 +5,7 @@ import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
-
-interface BacktestResult {
-  winning_trades: number
-  losing_trades: number
-  equity_curve: Array<{ date: string; equity: number }>
-  trade_distribution: Array<{ range: string; count: number }>
-}
+import { BacktestResult } from '@/lib/types'
 
 export default function BacktestCharts({ results }: { results: BacktestResult }) {
   if (!results) return null
