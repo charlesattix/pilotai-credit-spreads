@@ -27,6 +27,8 @@ try:
         sentry_sdk.init(dsn=sentry_dsn, traces_sample_rate=0.1)
 except ImportError:
     pass
+except Exception as e:
+    logging.getLogger(__name__).error(f"Sentry initialization failed: {e}", exc_info=True)
 
 # Add current directory to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -230,7 +232,7 @@ class CreditSpreadSystem:
                         )
                         # Blend ML score with rules-based score (60% ML, 40% rules)
                         rules_score = opp.get('score', 50)
-                        ml_score = ml_result.get('final_score', rules_score)
+                        ml_score = ml_result.get('enhanced_score', rules_score)
                         opp['rules_score'] = rules_score
                         opp['ml_score'] = ml_score
                         opp['score'] = 0.6 * ml_score + 0.4 * rules_score

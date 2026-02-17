@@ -240,7 +240,7 @@ class TestCalculateResults:
         assert results['max_drawdown'] < 0  # Drawdown is negative
 
     def test_profit_factor_zero_losers(self):
-        """All winners with zero losers should yield profit_factor=0 (edge case)."""
+        """All winners with zero losers should yield infinite profit factor."""
         self.bt.trades = [
             {'pnl': 200, 'return_pct': 10},
             {'pnl': 300, 'return_pct': 15},
@@ -251,8 +251,8 @@ class TestCalculateResults:
             (datetime(2025, 1, 3), 100500),
         ]
         results = self.bt._calculate_results()
-        # Code returns 0 when no losers (division protection)
-        assert results['profit_factor'] == 0
+        # No losers means infinite profit factor
+        assert results['profit_factor'] == float('inf')
 
     def test_all_losers(self):
         """All losing trades should produce 0% win rate."""

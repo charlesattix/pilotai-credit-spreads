@@ -20,6 +20,7 @@ from shared.indicators import calculate_iv_rank as _shared_iv_rank
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.polygon.io"
+MAX_PAGES = 50
 
 
 class PolygonProvider:
@@ -45,6 +46,17 @@ class PolygonProvider:
                 resp.raise_for_status()
             except requests.exceptions.RequestException as e:
                 raise ProviderError(f"Polygon API request failed ({path}): {e}") from e
+            return resp.json()
+        return self._circuit_breaker.call(_do_request)
+
+    def _get_next_page(self, next_url: str, timeout: int = 10) -> Dict:
+        """Fetch a pagination URL through the circuit breaker."""
+        def _do_request():
+            try:
+                resp = self.session.get(next_url, params={"apiKey": self.api_key}, timeout=timeout)
+                resp.raise_for_status()
+            except requests.exceptions.RequestException as e:
+                raise ProviderError(f"Polygon API pagination request failed: {e}") from e
             return resp.json()
         return self._circuit_breaker.call(_do_request)
 
@@ -80,10 +92,13 @@ class PolygonProvider:
                 seen.add(exp)
         # Paginate
         next_url = data.get("next_url")
+        page_count = 0
         while next_url:
-            resp = self.session.get(next_url, params={"apiKey": self.api_key}, timeout=10)
-            resp.raise_for_status()
-            page = resp.json()
+            page_count += 1
+            if page_count > MAX_PAGES:
+                logger.warning(f"get_expirations: reached MAX_PAGES limit ({MAX_PAGES}), stopping pagination")
+                break
+            page = self._get_next_page(next_url, timeout=10)
             for c in page.get("results", []):
                 exp = c.get("expiration_date", "")
                 if exp and exp not in seen:
@@ -110,10 +125,13 @@ class PolygonProvider:
         all_results.extend(data.get("results", []))
 
         next_url = data.get("next_url")
+        page_count = 0
         while next_url:
-            resp = self.session.get(next_url, params={"apiKey": self.api_key}, timeout=30)
-            resp.raise_for_status()
-            page = resp.json()
+            page_count += 1
+            if page_count > MAX_PAGES:
+                logger.warning(f"get_options_chain: reached MAX_PAGES limit ({MAX_PAGES}), stopping pagination")
+                break
+            page = self._get_next_page(next_url, timeout=30)
             all_results.extend(page.get("results", []))
             next_url = page.get("next_url")
 
@@ -175,10 +193,13 @@ class PolygonProvider:
         all_results.extend(data.get("results", []))
 
         next_url = data.get("next_url")
+        page_count = 0
         while next_url:
-            resp = self.session.get(next_url, params={"apiKey": self.api_key}, timeout=30)
-            resp.raise_for_status()
-            page = resp.json()
+            page_count += 1
+            if page_count > MAX_PAGES:
+                logger.warning(f"get_full_chain: reached MAX_PAGES limit ({MAX_PAGES}), stopping pagination")
+                break
+            page = self._get_next_page(next_url, timeout=30)
             all_results.extend(page.get("results", []))
             next_url = page.get("next_url")
 

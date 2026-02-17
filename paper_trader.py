@@ -6,6 +6,8 @@ Monitors open positions and closes at profit target, stop loss, or expiration.
 
 import json
 import logging
+import threading
+import uuid
 import yaml
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
@@ -21,6 +23,8 @@ TRADES_FILE = DATA_DIR / "trades.json"
 PAPER_LOG = DATA_DIR / "paper_trades.json"
 
 MAX_DRAWDOWN_PCT = 0.20  # 20% portfolio-level max drawdown kill switch
+EXTRINSIC_DECAY_RATE = 1.2  # Accelerating time-decay multiplier for OTM spreads
+BASE_DECAY_FACTOR = 0.3  # Fraction of extrinsic value remaining when ITM
 
 
 class PaperTrader:
@@ -34,6 +38,9 @@ class PaperTrader:
         self.max_positions = self.risk.get("max_positions", 5)
         self.profit_target_pct = self.risk.get("profit_target", 50) / 100
         self.stop_loss_mult = self.risk.get("stop_loss_multiplier", 2.5)
+
+        # Lock to protect self.trades mutations from concurrent threads
+        self._trades_lock = threading.Lock()
 
         # Initialize Alpaca provider if configured
         self.alpaca = None
@@ -101,8 +108,9 @@ class PaperTrader:
 
     def _save_trades(self):
         """Persist all trades to SQLite and export dashboard JSON."""
-        for trade in self.trades["trades"]:
-            upsert_trade(trade, source="scanner")
+        with self._trades_lock:
+            for trade in self.trades["trades"]:
+                upsert_trade(trade, source="scanner")
         self._export_for_dashboard()
 
     def _export_for_dashboard(self):
@@ -188,115 +196,119 @@ class PaperTrader:
 
     def _open_trade(self, opp: Dict) -> Optional[Dict]:
         """Open a paper trade from an opportunity."""
-        current_balance = self.trades["current_balance"]
-        starting_balance = self.trades["starting_balance"]
+        with self._trades_lock:
+            current_balance = self.trades["current_balance"]
+            starting_balance = self.trades["starting_balance"]
 
-        # EH-TRADE-01: Refuse to open trades when balance is non-positive
-        if current_balance <= 0:
-            logger.warning(
-                f"TRADE REFUSED: current balance is ${current_balance:,.2f}. "
-                "Cannot open new trades with zero or negative balance."
-            )
-            return None
-
-        # EH-TRADE-03: Portfolio-level max drawdown kill switch
-        drawdown_pct = (starting_balance - current_balance) / starting_balance if starting_balance > 0 else 0
-        if drawdown_pct >= MAX_DRAWDOWN_PCT:
-            logger.critical(
-                f"TRADE REFUSED — MAX DRAWDOWN KILL SWITCH ACTIVE: "
-                f"drawdown {drawdown_pct:.1%} >= {MAX_DRAWDOWN_PCT:.0%} threshold. "
-                f"Starting: ${starting_balance:,.2f}, Current: ${current_balance:,.2f}. "
-                f"All new trades are blocked until manual review."
-            )
-            return None
-
-        credit = opp.get("credit", 0)
-        max_loss = opp.get("max_loss", 0)
-
-        if credit <= 0 or max_loss <= 0:
-            return None
-
-        # EH-TRADE-02: Account for existing open risk exposure in position sizing
-        open_risk = sum(t.get("total_max_loss", 0) for t in self.open_trades)
-        available_capital = current_balance - open_risk
-        if available_capital <= 0:
-            logger.warning(
-                f"TRADE REFUSED: insufficient available capital. "
-                f"Balance: ${current_balance:,.2f}, Open risk: ${open_risk:,.2f}, "
-                f"Available: ${available_capital:,.2f}"
-            )
-            return None
-
-        # Position sizing: max risk per trade (based on available capital, not total balance)
-        max_risk_dollars = available_capital * self.max_risk_per_trade
-        max_contracts = max(1, int(max_risk_dollars / (max_loss * 100)))
-        contracts = min(max_contracts, MAX_CONTRACTS_PER_TRADE)
-
-        trade = {
-            "id": len(self.trades["trades"]) + 1,
-            "status": "open",
-            "ticker": opp["ticker"],
-            "type": opp["type"],
-            "short_strike": opp["short_strike"],
-            "long_strike": opp["long_strike"],
-            "expiration": str(opp.get("expiration", "")),
-            "dte_at_entry": opp.get("dte", 0),
-            "contracts": contracts,
-            "credit_per_spread": credit,
-            "credit": credit,
-            "total_credit": round(credit * contracts * 100, 2),
-            "max_loss_per_spread": max_loss,
-            "total_max_loss": round(max_loss * contracts * 100, 2),
-            "profit_target": round(credit * self.profit_target_pct * contracts * 100, 2),
-            "stop_loss_amount": round(credit * self.stop_loss_mult * contracts * 100, 2),
-            "entry_price": opp.get("current_price", 0),
-            "entry_date": datetime.now().isoformat(),
-            "entry_score": opp.get("score", 0),
-            "entry_pop": opp.get("pop", 0),
-            "entry_delta": opp.get("short_delta", 0),
-            "current_pnl": 0,
-            "exit_date": None,
-            "exit_reason": None,
-            "exit_pnl": None,
-        }
-
-        # Submit to Alpaca if available
-        if self.alpaca:
-            try:
-                alpaca_result = self.alpaca.submit_credit_spread(
-                    ticker=trade["ticker"],
-                    short_strike=trade["short_strike"],
-                    long_strike=trade["long_strike"],
-                    expiration=trade["expiration"],
-                    spread_type=trade["type"],
-                    contracts=trade["contracts"],
-                    limit_price=trade["credit_per_spread"],
+            # EH-TRADE-01: Refuse to open trades when balance is non-positive
+            if current_balance <= 0:
+                logger.warning(
+                    f"TRADE REFUSED: current balance is ${current_balance:,.2f}. "
+                    "Cannot open new trades with zero or negative balance."
                 )
-                trade["alpaca_order_id"] = alpaca_result.get("order_id")
-                trade["alpaca_status"] = alpaca_result.get("status")
-                if alpaca_result["status"] == "error":
-                    logger.warning(f"Alpaca order failed: {alpaca_result['message']}. Recording in DB only.")
-                else:
-                    logger.info(f"Alpaca order submitted: {alpaca_result['order_id']}")
-            except Exception as e:
-                logger.warning(f"Alpaca submission failed, recording in DB: {e}")
-                trade["alpaca_order_id"] = None
-                trade["alpaca_status"] = "fallback_db"
+                return None
 
-        self.trades["trades"].append(trade)
-        self._open_trades.append(trade)
-        self.trades["stats"]["total_trades"] += 1
+            # EH-TRADE-03: Portfolio-level max drawdown kill switch
+            drawdown_pct = (starting_balance - current_balance) / starting_balance if starting_balance > 0 else 0
+            if drawdown_pct >= MAX_DRAWDOWN_PCT:
+                logger.critical(
+                    f"TRADE REFUSED — MAX DRAWDOWN KILL SWITCH ACTIVE: "
+                    f"drawdown {drawdown_pct:.1%} >= {MAX_DRAWDOWN_PCT:.0%} threshold. "
+                    f"Starting: ${starting_balance:,.2f}, Current: ${current_balance:,.2f}. "
+                    f"All new trades are blocked until manual review."
+                )
+                return None
 
-        # Persist to SQLite immediately
-        upsert_trade(trade, source="scanner")
+            credit = opp.get("credit", 0)
+            max_loss = opp.get("max_loss", 0)
 
-        logger.info(
-            f"PAPER TRADE OPENED: {trade['type']} on {trade['ticker']} | "
-            f"{trade['contracts']}x ${trade['short_strike']}/{trade['long_strike']} | "
-            f"Credit: ${trade['total_credit']:.0f} | Max Loss: ${trade['total_max_loss']:.0f}"
-        )
+            if credit <= 0 or max_loss <= 0:
+                return None
 
-        return trade
+            # EH-TRADE-02: Account for existing open risk exposure in position sizing
+            open_risk = sum(t.get("total_max_loss", 0) for t in self.open_trades)
+            available_capital = current_balance - open_risk
+            if available_capital <= 0:
+                logger.warning(
+                    f"TRADE REFUSED: insufficient available capital. "
+                    f"Balance: ${current_balance:,.2f}, Open risk: ${open_risk:,.2f}, "
+                    f"Available: ${available_capital:,.2f}"
+                )
+                return None
+
+            # Position sizing: max risk per trade (based on available capital, not total balance)
+            max_risk_dollars = available_capital * self.max_risk_per_trade
+            max_contracts = max(1, int(max_risk_dollars / (max_loss * 100)))
+            contracts = min(max_contracts, MAX_CONTRACTS_PER_TRADE)
+
+            # EH-TRADE-07: UUID-based trade IDs to avoid collisions on restart
+            trade_id = f"PT-{uuid.uuid4().hex[:12]}"
+
+            trade = {
+                "id": trade_id,
+                "status": "open",
+                "ticker": opp["ticker"],
+                "type": opp["type"],
+                "short_strike": opp["short_strike"],
+                "long_strike": opp["long_strike"],
+                "expiration": str(opp.get("expiration", "")),
+                "dte_at_entry": opp.get("dte", 0),
+                "contracts": contracts,
+                "credit_per_spread": credit,
+                "credit": credit,
+                "total_credit": round(credit * contracts * 100, 2),
+                "max_loss_per_spread": max_loss,
+                "total_max_loss": round(max_loss * contracts * 100, 2),
+                "profit_target": round(credit * self.profit_target_pct * contracts * 100, 2),
+                "stop_loss_amount": round(credit * self.stop_loss_mult * contracts * 100, 2),
+                "entry_price": opp.get("current_price", 0),
+                "entry_date": datetime.now().isoformat(),
+                "entry_score": opp.get("score", 0),
+                "entry_pop": opp.get("pop", 0),
+                "entry_delta": opp.get("short_delta", 0),
+                "current_pnl": 0,
+                "exit_date": None,
+                "exit_reason": None,
+                "exit_pnl": None,
+            }
+
+            # Submit to Alpaca if available
+            if self.alpaca:
+                try:
+                    alpaca_result = self.alpaca.submit_credit_spread(
+                        ticker=trade["ticker"],
+                        short_strike=trade["short_strike"],
+                        long_strike=trade["long_strike"],
+                        expiration=trade["expiration"],
+                        spread_type=trade["type"],
+                        contracts=trade["contracts"],
+                        limit_price=trade["credit_per_spread"],
+                    )
+                    trade["alpaca_order_id"] = alpaca_result.get("order_id")
+                    trade["alpaca_status"] = alpaca_result.get("status")
+                    if alpaca_result["status"] == "error":
+                        logger.warning(f"Alpaca order failed: {alpaca_result['message']}. Recording in DB only.")
+                    else:
+                        logger.info(f"Alpaca order submitted: {alpaca_result['order_id']}")
+                except Exception as e:
+                    logger.warning(f"Alpaca submission failed, recording in DB: {e}")
+                    trade["alpaca_order_id"] = None
+                    trade["alpaca_status"] = "fallback_db"
+
+            self.trades["trades"].append(trade)
+            self._open_trades.append(trade)
+            self.trades["stats"]["total_trades"] += 1
+
+            # Persist to SQLite immediately
+            upsert_trade(trade, source="scanner")
+
+            logger.info(
+                f"PAPER TRADE OPENED: {trade['type']} on {trade['ticker']} | "
+                f"{trade['contracts']}x ${trade['short_strike']}/{trade['long_strike']} | "
+                f"Credit: ${trade['total_credit']:.0f} | Max Loss: ${trade['total_max_loss']:.0f}"
+            )
+
+            return trade
 
     def check_positions(self, current_prices: Dict[str, float]) -> List[Dict]:
         """
@@ -369,13 +381,13 @@ class PaperTrader:
 
         if intrinsic == 0:
             # OTM — time decay is our friend
-            decay_factor = max(0, 1 - time_passed_pct * 1.2)  # Accelerating decay
+            decay_factor = max(0, 1 - time_passed_pct * EXTRINSIC_DECAY_RATE)  # Accelerating decay
             current_value = credit * decay_factor
             pnl = round(credit - current_value, 2)
         else:
             # ITM — losing money
             current_spread_value = min(intrinsic * contracts * 100, trade.get("total_max_loss", 0))
-            remaining_extrinsic = credit * max(0, 1 - time_passed_pct) * 0.3
+            remaining_extrinsic = credit * max(0, 1 - time_passed_pct) * BASE_DECAY_FACTOR
             pnl = round(-(current_spread_value - remaining_extrinsic), 2)
 
         # Check exit conditions
@@ -423,45 +435,46 @@ class PaperTrader:
                 trade["alpaca_sync_error"] = str(e)
                 return  # Do NOT proceed with local state transition
 
-        trade["status"] = "closed"
-        trade["exit_date"] = datetime.now().isoformat()
-        trade["exit_reason"] = reason
-        trade["exit_pnl"] = pnl
-        trade["pnl"] = pnl
+        with self._trades_lock:
+            trade["status"] = "closed"
+            trade["exit_date"] = datetime.now().isoformat()
+            trade["exit_reason"] = reason
+            trade["exit_pnl"] = pnl
+            trade["pnl"] = pnl
 
-        # Move from open to closed cached lists
-        if trade in self._open_trades:
-            self._open_trades.remove(trade)
-        self._closed_trades.append(trade)
+            # Move from open to closed cached lists
+            if trade in self._open_trades:
+                self._open_trades.remove(trade)
+            self._closed_trades.append(trade)
 
-        # Update balance
-        self.trades["current_balance"] = round(self.trades["current_balance"] + pnl, 2)
+            # Update balance
+            self.trades["current_balance"] = round(self.trades["current_balance"] + pnl, 2)
 
-        # Update stats
-        stats = self.trades["stats"]
-        if pnl > 0:
-            stats["winners"] += 1
-        else:
-            stats["losers"] += 1
+            # Update stats
+            stats = self.trades["stats"]
+            if pnl > 0:
+                stats["winners"] += 1
+            else:
+                stats["losers"] += 1
 
-        stats["total_pnl"] = round(stats["total_pnl"] + pnl, 2)
+            stats["total_pnl"] = round(stats["total_pnl"] + pnl, 2)
 
-        total_closed = stats["winners"] + stats["losers"]
-        stats["win_rate"] = round(stats["winners"] / total_closed * 100, 1) if total_closed > 0 else 0
+            total_closed = stats["winners"] + stats["losers"]
+            stats["win_rate"] = round(stats["winners"] / total_closed * 100, 1) if total_closed > 0 else 0
 
-        stats["best_trade"] = max(stats["best_trade"], pnl)
-        stats["worst_trade"] = min(stats["worst_trade"], pnl)
+            stats["best_trade"] = max(stats["best_trade"], pnl)
+            stats["worst_trade"] = min(stats["worst_trade"], pnl)
 
-        winners = [t.get("exit_pnl") or t.get("pnl") or 0 for t in self.closed_trades if (t.get("exit_pnl") or t.get("pnl") or 0) > 0]
-        losers_pnl = [t.get("exit_pnl") or t.get("pnl") or 0 for t in self.closed_trades if (t.get("exit_pnl") or t.get("pnl") or 0) < 0]
-        stats["avg_winner"] = round(sum(winners) / len(winners), 2) if winners else 0
-        stats["avg_loser"] = round(sum(losers_pnl) / len(losers_pnl), 2) if losers_pnl else 0
+            winners = [t.get("exit_pnl") or t.get("pnl") or 0 for t in self.closed_trades if (t.get("exit_pnl") or t.get("pnl") or 0) > 0]
+            losers_pnl = [t.get("exit_pnl") or t.get("pnl") or 0 for t in self.closed_trades if (t.get("exit_pnl") or t.get("pnl") or 0) < 0]
+            stats["avg_winner"] = round(sum(winners) / len(winners), 2) if winners else 0
+            stats["avg_loser"] = round(sum(losers_pnl) / len(losers_pnl), 2) if losers_pnl else 0
 
-        # Track peak and drawdown
-        if self.trades["current_balance"] > stats["peak_balance"]:
-            stats["peak_balance"] = self.trades["current_balance"]
-        drawdown = stats["peak_balance"] - self.trades["current_balance"]
-        stats["max_drawdown"] = max(stats["max_drawdown"], drawdown)
+            # Track peak and drawdown
+            if self.trades["current_balance"] > stats["peak_balance"]:
+                stats["peak_balance"] = self.trades["current_balance"]
+            drawdown = stats["peak_balance"] - self.trades["current_balance"]
+            stats["max_drawdown"] = max(stats["max_drawdown"], drawdown)
 
         # Persist to SQLite
         db_close_trade(str(trade.get("id", "")), pnl, reason)

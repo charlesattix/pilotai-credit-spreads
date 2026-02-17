@@ -5,7 +5,7 @@ Tests credit spread strategies against historical data.
 
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -333,7 +333,7 @@ class Backtester:
             'credit': position['credit'],
             'contracts': position['contracts'],
             'pnl': pnl,
-            'return_pct': (pnl / (position['max_loss'] * position['contracts'] * 100)) * 100,
+            'return_pct': (pnl / (position['max_loss'] * position['contracts'] * 100)) * 100 if (position['max_loss'] * position['contracts']) != 0 else 0,
         }
         
         self.trades.append(trade)
@@ -380,6 +380,22 @@ class Backtester:
         else:
             sharpe = 0
         
+        # Profit factor: guard against zero denominators
+        winning_total = winners['pnl'].sum() if len(winners) > 0 else 0
+        losing_total = losers['pnl'].sum() if len(losers) > 0 else 0
+        if losing_total != 0:
+            profit_factor = round(abs(winning_total / losing_total), 2)
+        elif winning_total > 0:
+            profit_factor = float('inf')
+        else:
+            profit_factor = 0
+
+        # Return percentage: guard against zero starting capital
+        if self.starting_capital != 0:
+            return_pct = round(((self.capital - self.starting_capital) / self.starting_capital) * 100, 2)
+        else:
+            return_pct = 0
+
         results = {
             'total_trades': total_trades,
             'winning_trades': len(winners),
@@ -388,12 +404,12 @@ class Backtester:
             'total_pnl': round(total_pnl, 2),
             'avg_win': round(avg_win, 2),
             'avg_loss': round(avg_loss, 2),
-            'profit_factor': round(abs(winners['pnl'].sum() / losers['pnl'].sum()), 2) if len(losers) > 0 else 0,
+            'profit_factor': profit_factor,
             'max_drawdown': round(max_drawdown, 2),
             'sharpe_ratio': round(sharpe, 2),
             'starting_capital': self.starting_capital,
             'ending_capital': round(self.capital, 2),
-            'return_pct': round(((self.capital - self.starting_capital) / self.starting_capital) * 100, 2),
+            'return_pct': return_pct,
             'trades': trades_df.to_dict('records'),
             'equity_curve': equity_df.to_dict('records'),
         }
