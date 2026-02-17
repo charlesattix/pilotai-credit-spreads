@@ -5,8 +5,7 @@ Implements bull put spreads and bear call spreads with high probability setups.
 
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
-import numpy as np
+from typing import Dict, List
 import pandas as pd
 
 from shared.types import ScoredSpreadOpportunity, SpreadOpportunity
@@ -370,30 +369,3 @@ class CreditSpreadStrategy:
         
         return opportunities
     
-    def calculate_position_size(self, spread_data: Dict) -> int:
-        """
-        Calculate position size based on risk management rules.
-        
-        Args:
-            spread_data: Spread opportunity data
-            
-        Returns:
-            Number of contracts to trade
-        """
-        account_size = self.risk_params['account_size']
-        max_risk_pct = self.risk_params['max_risk_per_trade'] / 100
-        
-        # Max dollars at risk per trade
-        max_risk_dollars = account_size * max_risk_pct
-        
-        # Risk per spread
-        risk_per_spread = spread_data['max_loss'] * 100  # Convert to dollars
-        
-        # Calculate contracts
-        if risk_per_spread > 0:
-            contracts = int(max_risk_dollars / risk_per_spread)
-        else:
-            contracts = 0
-        
-        # Minimum 1 contract if opportunity exists
-        return max(1, contracts)

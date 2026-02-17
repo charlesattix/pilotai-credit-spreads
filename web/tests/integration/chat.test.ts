@@ -1,7 +1,12 @@
 /**
  * @vitest-environment node
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+
+vi.mock('@/lib/database', () => ({
+  checkRateLimit: () => true,
+}))
+
 import { POST } from '@/app/api/chat/route'
 
 function makeRequest(body: any): Request {

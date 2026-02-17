@@ -131,6 +131,15 @@ export async function POST(request: Request) {
       return apiError(`Maximum ${MAX_OPEN_POSITIONS} open positions allowed`, 400);
     }
 
+    // Check total portfolio risk cap (50% of starting balance)
+    const MAX_TOTAL_RISK = STARTING_BALANCE * 0.5;
+    const openTrades = existing.filter((t) => t.status === 'open').map(tradeRowToPaperTrade);
+    const currentTotalRisk = openTrades.reduce((sum, t) => sum + (t.max_loss || 0), 0);
+    const newTradeMaxLoss = (alert.spread_width - alert.credit) * 100 * contracts;
+    if (currentTotalRisk + newTradeMaxLoss > MAX_TOTAL_RISK) {
+      return apiError("Total portfolio risk limit exceeded", 400);
+    }
+
     // Check for duplicate
     const duplicate = existing.find((t) =>
       t.status === 'open' &&

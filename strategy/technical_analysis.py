@@ -5,7 +5,6 @@ Provides technical indicators and signals for credit spread strategy.
 
 import logging
 from typing import Dict
-import numpy as np
 import pandas as pd
 from shared.indicators import calculate_rsi
 try:

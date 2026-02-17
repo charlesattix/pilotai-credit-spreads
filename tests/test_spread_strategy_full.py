@@ -189,12 +189,6 @@ class TestCheckConditions:
         iv = {'iv_rank': 50, 'iv_percentile': 50}
         assert strategy._check_bearish_conditions(tech, iv) is True
 
-    def test_position_size_calculation(self):
-        """calculate_position_size should return at least 1 contract."""
-        strategy = CreditSpreadStrategy(_make_config())
-        spread = {'max_loss': 3.25}
-        size = strategy.calculate_position_size(spread)
-        assert size >= 1
 
 
 class TestEvaluateSpreadOpportunity:
