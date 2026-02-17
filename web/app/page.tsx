@@ -75,7 +75,7 @@ export default function HomePage() {
 
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6">
         {/* Live System Positions — uses shared SWR data, no extra fetch */}
-        <LivePositions data={positions ? {
+        <LivePositions data={positions?.open_positions ? {
           open_positions: positions.open_positions.map(p => ({
             ticker: p.ticker,
             type: p.type,

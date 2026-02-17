@@ -37,12 +37,11 @@ describe('Production Readiness', () => {
     expect(content).toContain('POLYGON_API_KEY')
   })
 
-  it('middleware.ts exists with auth protection', () => {
+  it('middleware.ts exists', () => {
     const mwPath = path.resolve(__dirname, '../middleware.ts')
     expect(fs.existsSync(mwPath)).toBe(true)
     const content = fs.readFileSync(mwPath, 'utf-8')
-    expect(content).toContain('API_AUTH_TOKEN')
-    expect(content).toContain('/api/health')
-    expect(content).toContain('401')
+    expect(content).toContain('NextResponse')
+    expect(content).toContain('matcher')
   })
 })

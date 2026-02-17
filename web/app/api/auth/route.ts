@@ -25,7 +25,9 @@ export async function POST(request: NextRequest) {
 
     const expectedToken = process.env.API_AUTH_TOKEN
     if (!expectedToken) {
-      return NextResponse.json({ error: 'Auth not configured' }, { status: 503 })
+      // No auth configured — single-user mode, auto-grant session
+      const response = NextResponse.json({ success: true })
+      return response
     }
 
     if (!timingSafeCompare(token, expectedToken)) {

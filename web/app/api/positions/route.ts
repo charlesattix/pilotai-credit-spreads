@@ -8,6 +8,8 @@ import { calculatePortfolioStats } from '@/lib/paper-trades';
 import { getTrades, TradeRow } from '@/lib/database';
 import { DATA_DIR } from '@/lib/paths';
 
+export const dynamic = 'force-dynamic'
+
 const EMPTY_RESPONSE: PositionsSummary = {
   account_size: 100000, starting_balance: 100000, current_balance: 100000,
   total_pnl: 0, total_realized_pnl: 0, total_unrealized_pnl: 0,

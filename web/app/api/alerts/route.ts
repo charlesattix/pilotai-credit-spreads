@@ -5,6 +5,8 @@ import { logger } from "@/lib/logger";
 import { getAlerts } from "@/lib/database";
 import { DATA_DIR, OUTPUT_DIR } from "@/lib/paths";
 
+export const dynamic = 'force-dynamic'
+
 async function tryReadJsonFile(...paths: string[]): Promise<string | null> {
   for (const p of paths) {
     try { return await readFile(p, "utf-8"); } catch {}
