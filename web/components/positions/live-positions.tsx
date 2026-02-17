@@ -31,8 +31,8 @@ export default function LivePositions({ data }: LivePositionsProps) {
         </div>
         <div className="flex items-center gap-2 sm:gap-4 text-xs sm:text-sm">
           <span className="text-muted-foreground">{data.open_count} open</span>
-          <span className={`font-bold ${data.total_unrealized_pnl >= 0 ? 'text-profit' : 'text-loss'}`}>
-            {formatCurrency(data.total_unrealized_pnl)} P&L
+          <span className={`font-bold ${(data.total_unrealized_pnl || 0) >= 0 ? 'text-profit' : 'text-loss'}`}>
+            {formatCurrency(data.total_unrealized_pnl || 0)} P&L
           </span>
         </div>
       </div>
@@ -93,11 +93,11 @@ export default function LivePositions({ data }: LivePositionsProps) {
         <div className="flex items-center gap-3 sm:gap-4 text-[10px] sm:text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
             <DollarSign className="w-3 h-3" />
-            Credit: ${data.total_credit.toLocaleString()}
+            Credit: ${(data.total_credit || 0).toLocaleString()}
           </span>
           <span className="flex items-center gap-1">
             <Activity className="w-3 h-3" />
-            Max Risk: ${data.total_max_loss?.toLocaleString() || '0'}
+            Max Risk: ${(data.total_max_loss || 0).toLocaleString()}
           </span>
         </div>
         <a
