@@ -46,12 +46,9 @@ from shared.provider_protocol import DataProvider  # noqa: F401 – ARCH-PY-06
 
 logger = logging.getLogger(__name__)
 
-# Weights for blending ML and rules-based scores (must sum to 1.0)
-ML_SCORE_WEIGHT = 0.6
-RULES_SCORE_WEIGHT = 0.4
-
-# Opportunities with event_risk above this threshold are skipped
-EVENT_RISK_THRESHOLD = 0.7
+# Defaults for ML/rules blending and event risk — overridable via config.yaml
+_DEFAULT_ML_SCORE_WEIGHT = 0.6
+_DEFAULT_EVENT_RISK_THRESHOLD = 0.7
 
 
 class CreditSpreadSystem:
@@ -116,6 +113,12 @@ class CreditSpreadSystem:
                 logger.info("ML pipeline initialized successfully")
             except Exception as e:
                 logger.warning(f"ML pipeline not available, using rules-based scoring: {e}")
+
+        # ML/rules blending weights (configurable via config.yaml strategy section)
+        strategy_cfg = self.config.get('strategy', {})
+        self.ml_score_weight = strategy_cfg.get('ml_score_weight', _DEFAULT_ML_SCORE_WEIGHT)
+        self.rules_score_weight = 1.0 - self.ml_score_weight
+        self.event_risk_threshold = strategy_cfg.get('event_risk_threshold', _DEFAULT_EVENT_RISK_THRESHOLD)
 
         logger.info("All components initialized successfully")
 
@@ -243,14 +246,14 @@ class CreditSpreadSystem:
                         ml_score = ml_result.get('enhanced_score', rules_score)
                         opp['rules_score'] = rules_score
                         opp['ml_score'] = ml_score
-                        opp['score'] = ML_SCORE_WEIGHT * ml_score + RULES_SCORE_WEIGHT * rules_score
+                        opp['score'] = self.ml_score_weight * ml_score + self.rules_score_weight * rules_score
                         opp['regime'] = ml_result.get('regime', {}).get('regime', 'unknown')
                         opp['regime_confidence'] = ml_result.get('regime', {}).get('confidence', 0)
                         opp['event_risk'] = ml_result.get('event_risk', {}).get('event_risk_score', 0)
                         opp['ml_position_size'] = ml_result.get('position_sizing', {})
 
                         # Skip if high event risk
-                        if opp['event_risk'] > EVENT_RISK_THRESHOLD:
+                        if opp['event_risk'] > self.event_risk_threshold:
                             logger.warning(f"Skipping {ticker} {opp['type']} due to high event risk: {opp['event_risk']:.2f}")
                             opp['score'] = 0  # Zero out to filter
 

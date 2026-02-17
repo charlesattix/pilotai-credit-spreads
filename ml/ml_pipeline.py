@@ -12,6 +12,8 @@ This module:
 6. Scans for event risk
 """
 
+import threading
+
 import pandas as pd
 from collections import Counter
 from typing import Dict, Optional
@@ -74,6 +76,7 @@ class MLPipeline:
         self.sentiment_scanner = SentimentScanner(data_cache=data_cache)
 
         self.initialized = False
+        self._fallback_lock = threading.Lock()
         self.fallback_counter: Counter = Counter()
 
         logger.info("✓ ML pipeline initialized")
@@ -248,8 +251,9 @@ class MLPipeline:
             return result
 
         except Exception as e:
-            self.fallback_counter['analyze_trade'] += 1
-            count = self.fallback_counter['analyze_trade']
+            with self._fallback_lock:
+                self.fallback_counter['analyze_trade'] += 1
+                count = self.fallback_counter['analyze_trade']
             logger.error(f"Error analyzing trade for {ticker} (fallback #{count}): {e}", exc_info=True)
             if count >= 10:
                 logger.critical(f"ML pipeline analyze_trade has fallen back {count} times — investigate")

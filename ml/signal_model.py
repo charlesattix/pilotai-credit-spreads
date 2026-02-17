@@ -10,6 +10,8 @@ Based on research:
 """
 
 import os
+import threading
+
 import numpy as np
 import pandas as pd
 from collections import Counter
@@ -57,6 +59,7 @@ class SignalModel:
         self.feature_names = None
         self.trained = False
         self.training_stats = {}
+        self._fallback_lock = threading.Lock()
         self.fallback_counter: Counter = Counter()
 
         logger.info(f"SignalModel initialized (model_dir={model_dir})")
@@ -239,8 +242,9 @@ class SignalModel:
             return result
 
         except Exception as e:
-            self.fallback_counter['predict'] += 1
-            count = self.fallback_counter['predict']
+            with self._fallback_lock:
+                self.fallback_counter['predict'] += 1
+                count = self.fallback_counter['predict']
             logger.error(f"Error making prediction (fallback #{count}): {e}", exc_info=True)
             if count >= 10:
                 logger.critical(f"SignalModel predict has fallen back {count} times — investigate")
@@ -270,8 +274,9 @@ class SignalModel:
             return probabilities
 
         except Exception as e:
-            self.fallback_counter['predict_batch'] += 1
-            count = self.fallback_counter['predict_batch']
+            with self._fallback_lock:
+                self.fallback_counter['predict_batch'] += 1
+                count = self.fallback_counter['predict_batch']
             logger.error(f"Error in batch prediction (fallback #{count}): {e}", exc_info=True)
             if count >= 10:
                 logger.critical(f"SignalModel predict_batch has fallen back {count} times — investigate")
@@ -466,6 +471,22 @@ class SignalModel:
             self.feature_names = model_data['feature_names']
             self.training_stats = model_data.get('training_stats', {})
             self.trained = True
+
+            # ARCH-ML-12: Warn if model is stale (older than 30 days)
+            model_timestamp = model_data.get('timestamp')
+            if model_timestamp:
+                try:
+                    trained_at = datetime.fromisoformat(model_timestamp)
+                    age_days = (datetime.now() - trained_at).days
+                    if age_days > 30:
+                        logger.warning(
+                            f"Model is {age_days} days old (trained {model_timestamp}). "
+                            "Consider retraining for current market conditions."
+                        )
+                    else:
+                        logger.info(f"Model age: {age_days} days")
+                except (ValueError, TypeError):
+                    logger.warning("Could not parse model timestamp for staleness check")
 
             logger.info(f"✓ Model loaded from {filepath}")
 
