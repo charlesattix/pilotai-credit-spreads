@@ -1,5 +1,4 @@
 """Tests for TechnicalAnalyzer class."""
-import pytest
 import pandas as pd
 import numpy as np
 from strategy.technical_analysis import TechnicalAnalyzer

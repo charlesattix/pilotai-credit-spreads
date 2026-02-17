@@ -1,8 +1,7 @@
 """Tests for DataCache."""
-import pytest
 import pandas as pd
 import numpy as np
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from shared.data_cache import DataCache
 
 

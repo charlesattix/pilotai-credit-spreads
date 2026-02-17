@@ -6,7 +6,6 @@ This script creates sample alerts to demonstrate the system's output.
 
 from datetime import datetime, timedelta
 from pathlib import Path
-import json
 import sys
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -81,7 +80,7 @@ def create_sample_opportunities():
             'score': 72.8,
         },
     ]
-    
+
     return opportunities
 
 
@@ -95,31 +94,31 @@ def main():
     print()
     print("Generating sample alerts to demonstrate system output...")
     print()
-    
+
     # Load config
     config = load_config('config.yaml')
-    
+
     # Create alert generator
     alert_gen = AlertGenerator(config)
-    
+
     # Generate sample opportunities
     opportunities = create_sample_opportunities()
-    
+
     # Generate alerts
     outputs = alert_gen.generate_alerts(opportunities)
-    
+
     print("Sample alerts generated!")
     print()
     print("Output files:")
     for output_type, path in outputs.items():
         print(f"  {output_type.upper()}: {path}")
-    
+
     print()
     print("=" * 80)
     print("SAMPLE ALERT PREVIEW")
     print("=" * 80)
     print()
-    
+
     # Display first alert as text
     opp = opportunities[0]
     print(f"Ticker: {opp['ticker']}")

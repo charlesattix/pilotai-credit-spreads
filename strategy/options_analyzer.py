@@ -4,8 +4,8 @@ Handles options chain data, Greeks calculation, and IV analysis.
 """
 
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, Optional
+from datetime import datetime
+from typing import Dict
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -19,7 +19,7 @@ class OptionsAnalyzer:
     """
     Analyze options chains and calculate metrics.
     """
-    
+
     def __init__(self, config: Dict, data_cache=None):
         """
         Initialize options analyzer.
@@ -32,11 +32,11 @@ class OptionsAnalyzer:
         self.data_cache = data_cache
         self.tradier = None
         self.polygon = None
-        
+
         # Initialize data provider
         data_config = config.get('data', {})
         provider = data_config.get('provider', '')
-        
+
         if provider == 'tradier':
             tradier_config = data_config.get('tradier', {})
             api_key = tradier_config.get('api_key', '')
@@ -52,9 +52,9 @@ class OptionsAnalyzer:
                 from strategy.polygon_provider import PolygonProvider
                 self.polygon = PolygonProvider(api_key)
                 logger.info("Using Polygon for real-time data")
-        
+
         logger.info("OptionsAnalyzer initialized")
-    
+
     def get_options_chain(self, ticker: str) -> pd.DataFrame:
         """
         Retrieve options chain for ticker.
@@ -104,11 +104,11 @@ class OptionsAnalyzer:
         try:
             stock = self.data_cache.get_ticker_obj(ticker) if self.data_cache else yf.Ticker(ticker)
             expirations = stock.options
-            
+
             if not expirations:
                 logger.warning(f"No options available for {ticker}")
                 return pd.DataFrame()
-            
+
             all_options = []
 
             min_dte = self.config.get('strategy', {}).get('min_dte', 30) - 5  # buffer
@@ -124,37 +124,37 @@ class OptionsAnalyzer:
 
                 # Get options chain for this expiration
                 opt_chain = stock.option_chain(exp_date_str)
-                
+
                 # Process calls
                 calls = opt_chain.calls.copy()
                 calls['type'] = 'call'
                 calls['expiration'] = exp_date
-                
+
                 # Process puts
                 puts = opt_chain.puts.copy()
                 puts['type'] = 'put'
                 puts['expiration'] = exp_date
-                
+
                 all_options.append(calls)
                 all_options.append(puts)
-            
+
             if not all_options:
                 return pd.DataFrame()
-            
+
             # Combine all options
             options_df = pd.concat(all_options, ignore_index=True)
-            
+
             # Clean and standardize
             options_df = self._clean_options_data(options_df)
-            
+
             logger.info(f"Retrieved {len(options_df)} options for {ticker}")
-            
+
             return options_df
-            
+
         except Exception as e:
             logger.error(f"Error retrieving options for {ticker}: {e}", exc_info=True)
             return pd.DataFrame()
-    
+
     def _clean_options_data(self, df: pd.DataFrame, current_price: float = None) -> pd.DataFrame:
         """
         Clean and standardize options data.
@@ -214,7 +214,7 @@ class OptionsAnalyzer:
         delta = np.where(is_call, call_delta, put_delta)
 
         return pd.Series(np.round(delta, 4), index=df.index)
-    
+
     def calculate_iv_rank(self, ticker: str, current_iv: float) -> Dict:
         """
         Calculate IV rank and IV percentile.
@@ -262,7 +262,7 @@ class OptionsAnalyzer:
         except Exception as e:
             logger.error(f"Error calculating IV rank for {ticker}: {e}", exc_info=True)
             return {'iv_rank': 0, 'iv_percentile': 0, 'current_iv': current_iv}
-    
+
     def get_current_iv(self, options_chain: pd.DataFrame) -> float:
         """
         Get current implied volatility from options chain.
@@ -271,17 +271,17 @@ class OptionsAnalyzer:
         """
         if options_chain.empty:
             return 0.0
-        
+
         # Get ATM options (closest to current price)
         if 'iv' not in options_chain.columns:
             return 0.0
-        
+
         # Average IV of near-dated ATM options
         iv_values = options_chain['iv'].dropna()
-        
+
         if len(iv_values) == 0:
             return 0.0
-        
+
         current_iv = iv_values.median() * 100  # Convert to percentage
-        
+
         return round(current_iv, 2)

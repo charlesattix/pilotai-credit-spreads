@@ -10,9 +10,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from datetime import datetime
+from typing import Dict, List
 from shared.exceptions import ProviderError
 from shared.circuit_breaker import CircuitBreaker
 
@@ -156,12 +155,12 @@ class TradierProvider:
         """
         expirations = self.get_expirations(ticker)
         now = datetime.now()
-        
+
         all_chains = []
         for exp_str in expirations:
             exp_date = datetime.strptime(exp_str, "%Y-%m-%d")
             dte = (exp_date - now).days
-            
+
             if min_dte <= dte <= max_dte:
                 chain = self.get_options_chain(ticker, exp_str)
                 if not chain.empty:

@@ -23,7 +23,7 @@ class TelegramBot:
     5. Install: pip install python-telegram-bot
     6. Set enabled: true in config.yaml
     """
-    
+
     def __init__(self, config: Dict):
         """
         Initialize Telegram bot.
@@ -34,12 +34,12 @@ class TelegramBot:
         self.config = config
         self.telegram_config = config['alerts']['telegram']
         self.enabled = self.telegram_config['enabled']
-        
+
         if self.enabled:
             self._init_bot()
         else:
             logger.info("Telegram alerts disabled in config")
-    
+
     def _init_bot(self):
         """
         Initialize the Telegram bot connection.
@@ -47,26 +47,26 @@ class TelegramBot:
         try:
             # Import only if enabled
             from telegram import Bot
-            
+
             bot_token = self.telegram_config['bot_token']
-            
+
             if bot_token == 'YOUR_BOT_TOKEN_HERE':
                 logger.warning("Telegram bot token not configured")
                 self.enabled = False
                 return
-            
+
             self.bot = Bot(token=bot_token)
             self.chat_id = self.telegram_config['chat_id']
-            
+
             logger.info("Telegram bot initialized")
-            
+
         except ImportError:
             logger.error("python-telegram-bot not installed. Run: pip install python-telegram-bot", exc_info=True)
             self.enabled = False
         except Exception as e:
             logger.error(f"Error initializing Telegram bot: {e}", exc_info=True)
             self.enabled = False
-    
+
     def send_alert(self, message: str) -> bool:
         """
         Send an alert message via Telegram.
@@ -80,7 +80,7 @@ class TelegramBot:
         if not self.enabled:
             logger.debug("Telegram alerts disabled, skipping")
             return False
-        
+
         try:
             self.bot.send_message(
                 chat_id=self.chat_id,
@@ -91,11 +91,11 @@ class TelegramBot:
             )
             logger.info("Telegram alert sent")
             return True
-            
+
         except Exception as e:
             logger.error(f"Error sending Telegram alert: {e}", exc_info=True)
             return False
-    
+
     def send_alerts(self, opportunities: List[Dict], formatter) -> int:
         """
         Send multiple alerts.
@@ -109,14 +109,14 @@ class TelegramBot:
         """
         if not self.enabled:
             return 0
-        
+
         sent_count = 0
-        
+
         for opp in opportunities:
             message = formatter.format_telegram_message(opp)
             if self.send_alert(message):
                 sent_count += 1
-        
+
         return sent_count
 
 

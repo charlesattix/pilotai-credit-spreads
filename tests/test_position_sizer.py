@@ -1,7 +1,5 @@
 """Tests for the Kelly-criterion position sizer."""
 import importlib
-import sys
-import pytest
 
 # Import PositionSizer directly from its module file to avoid
 # ml/__init__.py pulling in xgboost/SignalModel.

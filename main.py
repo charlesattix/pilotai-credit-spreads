@@ -41,7 +41,6 @@ from tracker import TradeTracker, PnLDashboard
 from paper_trader import PaperTrader
 from shared.data_cache import DataCache
 
-import yfinance as yf
 
 logger = logging.getLogger(__name__)
 

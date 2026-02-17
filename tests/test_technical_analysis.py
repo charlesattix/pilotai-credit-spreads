@@ -1,7 +1,5 @@
 """Tests for shared RSI calculation."""
-import numpy as np
 import pandas as pd
-import pytest
 
 from shared.indicators import calculate_rsi
 

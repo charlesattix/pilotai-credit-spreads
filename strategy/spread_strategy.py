@@ -4,7 +4,7 @@ Implements bull put spreads and bear call spreads with high probability setups.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List
 import pandas as pd
 
@@ -34,7 +34,7 @@ class CreditSpreadStrategy:
     Main strategy class for credit spreads.
     Handles both bull put spreads and bear call spreads.
     """
-    
+
     def __init__(self, config: Dict):
         """
         Initialize strategy with configuration.
@@ -45,9 +45,9 @@ class CreditSpreadStrategy:
         self.config = config
         self.strategy_params = config['strategy']
         self.risk_params = config['risk']
-        
+
         logger.info("CreditSpreadStrategy initialized")
-    
+
     def evaluate_spread_opportunity(
         self,
         ticker: str,
@@ -70,46 +70,46 @@ class CreditSpreadStrategy:
             List of scored spread opportunities
         """
         opportunities: List[ScoredSpreadOpportunity] = []
-        
+
         # Filter by DTE
         valid_expirations = self._filter_by_dte(option_chain)
-        
+
         for expiration in valid_expirations:
             exp_chain = option_chain[option_chain['expiration'] == expiration]
-            
+
             # Evaluate bull put spreads (bullish/neutral)
             if self._check_bullish_conditions(technical_signals, iv_data):
                 bull_puts = self._find_bull_put_spreads(
                     ticker, exp_chain, current_price, expiration
                 )
                 opportunities.extend(bull_puts)
-            
+
             # Evaluate bear call spreads (bearish/neutral)
             if self._check_bearish_conditions(technical_signals, iv_data):
                 bear_calls = self._find_bear_call_spreads(
                     ticker, exp_chain, current_price, expiration
                 )
                 opportunities.extend(bear_calls)
-        
+
         # Score and rank opportunities
         scored_opportunities = self._score_opportunities(
             opportunities, technical_signals, iv_data
         )
-        
+
         return scored_opportunities
-    
+
     def _filter_by_dte(self, option_chain: pd.DataFrame) -> List[datetime]:
         """Filter expirations by DTE range."""
         today = datetime.now()
         valid_expirations = []
-        
+
         for exp in option_chain['expiration'].unique():
             dte = (exp - today).days
             if self.strategy_params['min_dte'] <= dte <= self.strategy_params['max_dte']:
                 valid_expirations.append(exp)
-        
+
         return valid_expirations
-    
+
     def _check_bullish_conditions(
         self,
         technical_signals: Dict,
@@ -130,26 +130,26 @@ class CreditSpreadStrategy:
             iv_data.get('iv_rank', 0) >= self.strategy_params['min_iv_rank'] or
             iv_data.get('iv_percentile', 0) >= self.strategy_params['min_iv_percentile']
         )
-        
+
         if not iv_check:
             return False
-        
+
         # Technical conditions for bull put spreads
         tech_params = self.strategy_params['technical']
-        
+
         bullish = True
-        
+
         if tech_params['use_trend_filter']:
             # Price above moving averages or uptrend
             bullish = bullish and technical_signals.get('trend', '') in ['bullish', 'neutral']
-        
+
         if tech_params['use_rsi_filter']:
             # RSI not overbought
             rsi = technical_signals.get('rsi', 50)
             bullish = bullish and rsi < tech_params['rsi_overbought']
-        
+
         return bullish
-    
+
     def _check_bearish_conditions(
         self,
         technical_signals: Dict,
@@ -161,23 +161,23 @@ class CreditSpreadStrategy:
             iv_data.get('iv_rank', 0) >= self.strategy_params['min_iv_rank'] or
             iv_data.get('iv_percentile', 0) >= self.strategy_params['min_iv_percentile']
         )
-        
+
         if not iv_check:
             return False
-        
+
         tech_params = self.strategy_params['technical']
-        
+
         bearish = True
-        
+
         if tech_params['use_trend_filter']:
             bearish = bearish and technical_signals.get('trend', '') in ['bearish', 'neutral']
-        
+
         if tech_params['use_rsi_filter']:
             rsi = technical_signals.get('rsi', 50)
             bearish = bearish and rsi > tech_params['rsi_oversold']
-        
+
         return bearish
-    
+
     def _find_bull_put_spreads(
         self,
         ticker: str,
@@ -310,14 +310,14 @@ class CreditSpreadStrategy:
             spreads.append(spread)
 
         return spreads
-    
+
     def _calculate_pop(self, delta: float) -> float:
         """
         Calculate probability of profit (approximation).
         POP ≈ 1 - |delta|
         """
         return round((1 - abs(delta)) * 100, 2)
-    
+
     def _score_opportunities(
         self,
         opportunities: List[Dict],
@@ -381,9 +381,9 @@ class CreditSpreadStrategy:
             score += iv_score
 
             opp['score'] = round(score, 2)
-        
+
         # Sort by score (highest first)
         opportunities.sort(key=lambda x: x['score'], reverse=True)
-        
+
         return opportunities
-    
+

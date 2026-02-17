@@ -2,8 +2,6 @@
 import pytest
 import pandas as pd
 import numpy as np
-from unittest.mock import patch, MagicMock
-from pathlib import Path
 
 @pytest.fixture
 def sample_config():

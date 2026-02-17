@@ -9,11 +9,8 @@ Based on research:
 - MacLean et al. (2011): "The Kelly Capital Growth Investment Criterion"
 """
 
-import numpy as np
-import pandas as pd
 from collections import Counter
 from typing import Dict, List, Optional
-from datetime import datetime
 import logging
 
 from shared.types import PositionSizeResult
@@ -32,7 +29,7 @@ class PositionSizer:
     - Maximum drawdown constraints
     - Risk parity across positions
     """
-    
+
     def __init__(
         self,
         max_position_size: float = 0.10,
@@ -61,7 +58,7 @@ class PositionSizer:
             f"kelly_frac={kelly_fraction:.2f}, "
             f"max_risk={max_portfolio_risk:.2%}"
         )
-    
+
     def calculate_position_size(
         self,
         win_probability: float,
@@ -90,16 +87,16 @@ class PositionSizer:
             kelly_size = self._calculate_kelly(
                 win_probability, expected_return, abs(expected_loss)
             )
-            
+
             # 2. Apply Kelly fraction (for safety)
             fractional_kelly = kelly_size * self.kelly_fraction
-            
+
             # 3. Adjust by ML confidence
             confidence_adjusted = fractional_kelly * ml_confidence
-            
+
             # 4. Apply maximum position limit
             size_capped = min(confidence_adjusted, self.max_position_size)
-            
+
             # 5. Check portfolio-level constraints
             if current_positions:
                 size_final = self._apply_portfolio_constraints(
@@ -107,10 +104,10 @@ class PositionSizer:
                 )
             else:
                 size_final = size_capped
-            
+
             # 6. Ensure non-negative
             size_final = max(0.0, size_final)
-            
+
             result = {
                 'recommended_size': round(size_final, 4),
                 'kelly_size': round(kelly_size, 4),
@@ -126,7 +123,7 @@ class PositionSizer:
                 'kelly_fraction_used': self.kelly_fraction,
                 'ml_confidence': round(ml_confidence, 3),
             }
-            
+
             # Add reasoning
             if kelly_size <= 0:
                 result['applied_constraints'].append('Negative expected value - no position')
@@ -136,14 +133,14 @@ class PositionSizer:
                 result['applied_constraints'].append(f'Capped at max position size ({self.max_position_size:.2%})')
             if size_final < size_capped:
                 result['applied_constraints'].append('Reduced due to portfolio constraints')
-            
+
             logger.info(
                 f"Position size for {ticker}: {size_final:.2%} "
                 f"(Kelly={kelly_size:.2%}, Conf={ml_confidence:.2f})"
             )
-            
+
             return result
-            
+
         except Exception as e:
             self.fallback_counter['calculate_position_size'] += 1
             count = self.fallback_counter['calculate_position_size']
@@ -151,7 +148,7 @@ class PositionSizer:
             if count >= 10:
                 logger.critical(f"PositionSizer calculate_position_size has fallen back {count} times — investigate")
             return self._get_default_sizing()
-    
+
     def _calculate_kelly(
         self,
         win_prob: float,
@@ -177,21 +174,21 @@ class PositionSizer:
                 return 0.0
             if win_amount <= 0 or loss_amount <= 0:
                 return 0.0
-            
+
             # Calculate Kelly
             p = win_prob
             q = 1 - win_prob
             b = win_amount / loss_amount
-            
+
             kelly = (p * b - q) / b
-            
+
             # Kelly can be negative if expected value is negative
             return max(0.0, kelly)
-            
+
         except Exception as e:
             logger.error(f"Error in Kelly calculation: {e}", exc_info=True)
             return 0.0
-    
+
     def _apply_portfolio_constraints(
         self,
         proposed_size: float,
@@ -210,32 +207,32 @@ class PositionSizer:
             total_current_risk = sum(
                 pos.get('position_size', 0) for pos in current_positions
             )
-            
+
             # Check if adding this position would exceed max portfolio risk
             if total_current_risk + proposed_size > self.max_portfolio_risk:
                 available_risk = max(0.0, self.max_portfolio_risk - total_current_risk)
                 proposed_size = min(proposed_size, available_risk)
-            
+
             # Check correlation constraints (simplified)
             # In production, use actual return correlations
             correlated_tickers = self._get_correlated_tickers(ticker)
-            
+
             correlated_exposure = sum(
                 pos.get('position_size', 0)
                 for pos in current_positions
                 if pos.get('ticker', '') in correlated_tickers
             )
-            
+
             if correlated_exposure + proposed_size > self.max_correlated_exposure:
                 available_corr_risk = max(0.0, self.max_correlated_exposure - correlated_exposure)
                 proposed_size = min(proposed_size, available_corr_risk)
-            
+
             return proposed_size
-            
+
         except Exception as e:
             logger.error(f"Error applying portfolio constraints: {e}", exc_info=True)
             return proposed_size
-    
+
     def _get_correlated_tickers(self, ticker: str) -> List[str]:
         """
         Get list of tickers correlated with given ticker.
@@ -244,13 +241,13 @@ class PositionSizer:
         """
         # Major index ETFs (highly correlated)
         index_etfs = ['SPY', 'QQQ', 'IWM', 'DIA']
-        
+
         # Tech stocks (correlated)
         tech_stocks = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'QQQ']
-        
+
         # Financial stocks
         financials = ['JPM', 'BAC', 'GS', 'MS', 'C', 'WFC', 'XLF']
-        
+
         if ticker in index_etfs:
             return [t for t in index_etfs if t != ticker]
         elif ticker in tech_stocks:
@@ -260,7 +257,7 @@ class PositionSizer:
         else:
             # Assume correlation with major index
             return ['SPY']
-    
+
     def calculate_portfolio_risk(self, positions: List[Dict]) -> Dict:
         """
         Calculate total portfolio risk metrics.
@@ -280,19 +277,19 @@ class PositionSizer:
                     'concentration': 0.0,
                     'available_capacity': self.max_portfolio_risk,
                 }
-            
+
             position_sizes = [pos.get('position_size', 0) for pos in positions]
-            
+
             total_risk = sum(position_sizes)
             n_positions = len(positions)
             largest_position = max(position_sizes) if position_sizes else 0
-            
+
             # Concentration (HHI - Herfindahl-Hirschman Index)
             concentration = sum(s**2 for s in position_sizes) if total_risk > 0 else 0
-            
+
             # Available capacity
             available_capacity = max(0.0, self.max_portfolio_risk - total_risk)
-            
+
             metrics = {
                 'total_risk': round(total_risk, 4),
                 'n_positions': n_positions,
@@ -301,13 +298,13 @@ class PositionSizer:
                 'available_capacity': round(available_capacity, 4),
                 'risk_utilization': round(total_risk / self.max_portfolio_risk * 100, 1),
             }
-            
+
             return metrics
-            
+
         except Exception as e:
             logger.error(f"Error calculating portfolio risk: {e}", exc_info=True)
             return {}
-    
+
     def rebalance_positions(
         self,
         positions: List[Dict],
@@ -325,23 +322,23 @@ class PositionSizer:
         """
         try:
             recommendations = []
-            
+
             for pos in positions:
                 ticker = pos.get('ticker', '')
                 current_size = pos.get('position_size', 0)
-                
+
                 if ticker not in ml_predictions:
                     continue
-                
+
                 # Get updated probability
                 new_prob = ml_predictions[ticker]
-                
+
                 # Recalculate optimal size
                 win_prob = new_prob
                 expected_return = pos.get('expected_return', 0.30)
                 expected_loss = pos.get('expected_loss', -1.0)
                 ml_confidence = abs(new_prob - 0.5) * 2  # Simple confidence
-                
+
                 sizing = self.calculate_position_size(
                     win_probability=win_prob,
                     expected_return=expected_return,
@@ -365,15 +362,15 @@ class PositionSizer:
                         'change_pct': (recommended_size - current_size) / current_size * 100,
                         'reason': f"Probability updated to {new_prob:.2%}",
                     })
-            
+
             logger.info(f"Generated {len(recommendations)} rebalancing recommendations")
-            
+
             return recommendations
-            
+
         except Exception as e:
             logger.error(f"Error rebalancing positions: {e}", exc_info=True)
             return []
-    
+
     def calculate_optimal_leverage(
         self,
         position_sizes: List[float],
@@ -394,27 +391,27 @@ class PositionSizer:
         try:
             # Simplified: sum of individual Kelly ratios
             # In practice, would use covariance matrix
-            
+
             total_kelly = 0.0
-            
+
             for size, prob, ret in zip(position_sizes, win_probabilities, expected_returns):
                 kelly = self._calculate_kelly(prob, ret, 1.0)
                 total_kelly += kelly * size
-            
+
             # Leverage = actual exposure / Kelly exposure
             total_size = sum(position_sizes)
-            
+
             if total_kelly > 0:
                 optimal_leverage = total_size / (total_kelly * self.kelly_fraction)
             else:
                 optimal_leverage = 0.0
-            
+
             return round(optimal_leverage, 2)
-            
+
         except Exception as e:
             logger.error(f"Error calculating optimal leverage: {e}", exc_info=True)
             return 1.0
-    
+
     def _get_default_sizing(self) -> PositionSizeResult:
         """
         Return default sizing when calculation fails.
@@ -434,7 +431,7 @@ class PositionSizer:
     def get_fallback_stats(self) -> Dict[str, int]:
         """Return fallback counts for monitoring."""
         return dict(self.fallback_counter)
-    
+
     def get_size_recommendation_text(self, sizing_result: Dict, portfolio_value: float) -> str:
         """
         Get human-readable sizing recommendation.
@@ -448,16 +445,16 @@ class PositionSizer:
         """
         size_pct = sizing_result['recommended_size']
         size_dollars = size_pct * portfolio_value
-        
+
         # Convert to number of contracts (assuming ~$1000 per contract)
         contracts = int(size_dollars / 1000)
-        
+
         text = f"Recommended position size: {size_pct:.2%} (${size_dollars:,.0f}, ~{contracts} contracts)\n"
         text += f"Expected value: {sizing_result['expected_value']:.2%}\n"
-        
+
         if sizing_result['applied_constraints']:
             text += "Constraints applied:\n"
             for constraint in sizing_result['applied_constraints']:
                 text += f"  - {constraint}\n"
-        
+
         return text

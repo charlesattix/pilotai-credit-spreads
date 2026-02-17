@@ -4,7 +4,7 @@ import time
 import logging
 import yfinance as yf
 import pandas as pd
-from typing import List, Optional
+from typing import List
 from shared.exceptions import DataFetchError
 
 logger = logging.getLogger(__name__)

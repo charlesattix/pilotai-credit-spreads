@@ -2,11 +2,7 @@
 import pytest
 import pandas as pd
 import numpy as np
-from pathlib import Path
-from datetime import datetime
-from unittest.mock import patch, MagicMock
 import tempfile
-import shutil
 
 from ml.signal_model import SignalModel
 

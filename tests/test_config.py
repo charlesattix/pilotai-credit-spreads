@@ -2,8 +2,7 @@
 import os
 import pytest
 import yaml
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from utils import load_config, validate_config
 

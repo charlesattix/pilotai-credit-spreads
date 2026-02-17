@@ -1,9 +1,6 @@
 """Tests for the Backtester class."""
 import pytest
-import numpy as np
-import pandas as pd
-from datetime import datetime, timedelta
-from unittest.mock import patch, MagicMock
+from datetime import datetime
 
 from backtest.backtester import Backtester
 

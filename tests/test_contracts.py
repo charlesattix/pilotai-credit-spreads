@@ -7,10 +7,8 @@ These tests verify that:
 """
 
 import json
-import pytest
 import pandas as pd
 import numpy as np
-from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -154,7 +152,7 @@ class TestCrossFixtureConsistency:
 
     def test_yfinance_data_can_compute_indicators(self):
         """Frozen yfinance data should work with the indicator functions."""
-        from shared.indicators import calculate_rsi, calculate_iv_rank
+        from shared.indicators import calculate_rsi
 
         fixture = _load_fixture("yfinance_spy_history.json")
         df = _fixture_to_dataframe(fixture)

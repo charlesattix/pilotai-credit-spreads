@@ -1,10 +1,4 @@
 """Tests for AlertGenerator."""
-import pytest
-import json
-import tempfile
-import os
-from pathlib import Path
-from unittest.mock import patch, MagicMock
 from datetime import datetime, timedelta
 
 from alerts.alert_generator import AlertGenerator

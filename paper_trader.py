@@ -4,11 +4,9 @@ Automatically takes signals from the scanner and tracks simulated trades.
 Monitors open positions and closes at profit target, stop loss, or expiration.
 """
 
-import json
 import logging
 import threading
 import uuid
-import yaml
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from pathlib import Path

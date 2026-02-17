@@ -1,10 +1,6 @@
 """Tests for the PaperTrader (all file I/O and network calls are mocked)."""
 import json
-import os
-import pytest
-from pathlib import Path
 from unittest.mock import patch, MagicMock
-from datetime import datetime, timedelta
 
 from paper_trader import PaperTrader, MAX_DRAWDOWN_PCT
 

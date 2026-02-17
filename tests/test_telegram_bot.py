@@ -1,6 +1,5 @@
 """Tests for TelegramBot."""
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 from alerts.telegram_bot import TelegramBot
 
 

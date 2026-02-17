@@ -1,9 +1,6 @@
 """Tests for the TradeTracker class."""
-import json
 import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
-from datetime import datetime
+from unittest.mock import patch
 
 from tracker.trade_tracker import TradeTracker
 

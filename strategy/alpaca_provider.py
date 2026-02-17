@@ -10,7 +10,7 @@ import time
 import random
 import functools
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import (
@@ -22,7 +22,6 @@ from alpaca.trading.requests import (
 from alpaca.trading.enums import (
     OrderClass,
     OrderSide,
-    OrderType,
     TimeInForce,
     QueryOrderStatus,
     ContractType,
