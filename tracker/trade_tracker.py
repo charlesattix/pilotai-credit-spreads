@@ -4,13 +4,12 @@ Tracks open and closed positions, manages trade lifecycle.
 """
 
 import logging
-import os
-import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 import json
 import pandas as pd
+from shared.io_utils import atomic_json_write
 
 logger = logging.getLogger(__name__)
 
@@ -56,28 +55,17 @@ class TradeTracker:
                 return json.load(f)
         return []
     
-    @staticmethod
-    def _atomic_json_write(filepath: Path, data):
-        """Write JSON atomically: write to temp file then rename."""
-        fd, tmp_path = tempfile.mkstemp(dir=filepath.parent, suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w") as f:
-                json.dump(data, f, indent=2, default=str)
-            os.replace(tmp_path, filepath)
-        except BaseException:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
+    # Delegate to the shared utility; keep the class attribute so any code
+    # referencing TradeTracker._atomic_json_write still resolves.
+    _atomic_json_write = staticmethod(atomic_json_write)
 
     def _save_trades(self):
         """Save trades to disk."""
-        self._atomic_json_write(self.trades_file, self.trades)
+        atomic_json_write(self.trades_file, self.trades)
 
     def _save_positions(self):
         """Save positions to disk."""
-        self._atomic_json_write(self.positions_file, self.positions)
+        atomic_json_write(self.positions_file, self.positions)
     
     def add_position(self, position: Dict) -> str:
         """

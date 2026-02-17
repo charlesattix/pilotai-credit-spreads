@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from constants import BACKTEST_SHORT_STRIKE_OTM_FRACTION, BACKTEST_CREDIT_FRACTION
+from shared.constants import BACKTEST_SHORT_STRIKE_OTM_FRACTION, BACKTEST_CREDIT_FRACTION
 
 logger = logging.getLogger(__name__)
 

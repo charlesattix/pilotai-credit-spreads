@@ -1,6 +1,35 @@
-"""Shared constants used across the trading system."""
+"""Shared constants used across the trading system.
+
+This is the single canonical location for all named constants.  Do NOT
+create secondary ``constants.py`` files elsewhere in the tree.
+"""
 
 from datetime import datetime
+
+# ---------------------------------------------------------------------------
+# Position sizing
+# ---------------------------------------------------------------------------
+MAX_CONTRACTS_PER_TRADE = 10
+
+# ---------------------------------------------------------------------------
+# Position management
+# ---------------------------------------------------------------------------
+MANAGEMENT_DTE_THRESHOLD = 21
+
+# ---------------------------------------------------------------------------
+# Options pricing
+# ---------------------------------------------------------------------------
+DEFAULT_RISK_FREE_RATE = 0.045
+
+# ---------------------------------------------------------------------------
+# Backtesting defaults
+# ---------------------------------------------------------------------------
+BACKTEST_SHORT_STRIKE_OTM_FRACTION = 0.90
+BACKTEST_CREDIT_FRACTION = 0.35
+
+# ---------------------------------------------------------------------------
+# Economic calendar
+# ---------------------------------------------------------------------------
 
 # Known FOMC meeting dates 2025-2026
 FOMC_DATES = [

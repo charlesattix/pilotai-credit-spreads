@@ -1,14 +1,14 @@
-"""Named constants for magic numbers used throughout the trading system."""
+"""Backward-compatible re-export shim.
 
-# Position sizing
-MAX_CONTRACTS_PER_TRADE = 10
+All constants now live in ``shared.constants``.  This file exists only so
+that existing ``from constants import ...`` statements keep working while
+callers are migrated.
+"""
 
-# Position management
-MANAGEMENT_DTE_THRESHOLD = 21
-
-# Options pricing
-DEFAULT_RISK_FREE_RATE = 0.045
-
-# Backtesting defaults
-BACKTEST_SHORT_STRIKE_OTM_FRACTION = 0.90
-BACKTEST_CREDIT_FRACTION = 0.35
+from shared.constants import (  # noqa: F401
+    MAX_CONTRACTS_PER_TRADE,
+    MANAGEMENT_DTE_THRESHOLD,
+    DEFAULT_RISK_FREE_RATE,
+    BACKTEST_SHORT_STRIKE_OTM_FRACTION,
+    BACKTEST_CREDIT_FRACTION,
+)

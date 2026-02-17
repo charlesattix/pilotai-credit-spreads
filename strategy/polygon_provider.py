@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from shared.exceptions import ProviderError
 from shared.circuit_breaker import CircuitBreaker
+from shared.indicators import calculate_iv_rank as _shared_iv_rank
 
 logger = logging.getLogger(__name__)
 
@@ -255,7 +256,10 @@ class PolygonProvider:
         return df
 
     def calculate_iv_rank(self, ticker: str, current_iv: float) -> Dict:
-        """Calculate IV rank/percentile using historical volatility as proxy."""
+        """Calculate IV rank/percentile using historical volatility as proxy.
+
+        Delegates the core math to ``shared.indicators.calculate_iv_rank``.
+        """
         try:
             hist = self.get_historical(ticker, days=365)
             if hist.empty:
@@ -268,17 +272,14 @@ class PolygonProvider:
             if len(hv_values) == 0:
                 return {"iv_rank": 0, "iv_percentile": 0, "current_iv": current_iv}
 
-            iv_min = hv_values.min()
-            iv_max = hv_values.max()
-            iv_rank = ((current_iv - iv_min) / (iv_max - iv_min)) * 100 if iv_max > iv_min else 50
-            iv_percentile = (hv_values < current_iv).sum() / len(hv_values) * 100
+            shared_result = _shared_iv_rank(hv_values, current_iv)
 
             return {
-                "iv_rank": round(float(iv_rank), 2),
-                "iv_percentile": round(float(iv_percentile), 2),
+                "iv_rank": shared_result["iv_rank"],
+                "iv_percentile": shared_result["iv_percentile"],
                 "current_iv": round(current_iv, 2),
-                "iv_min_52w": round(float(iv_min), 2),
-                "iv_max_52w": round(float(iv_max), 2),
+                "iv_min_52w": shared_result["iv_min"],
+                "iv_max_52w": shared_result["iv_max"],
             }
         except Exception as e:
             logger.error(f"Error calculating IV rank for {ticker}: {e}", exc_info=True)

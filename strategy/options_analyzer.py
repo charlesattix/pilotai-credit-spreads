@@ -9,7 +9,7 @@ from typing import Dict, Optional
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from constants import DEFAULT_RISK_FREE_RATE
+from shared.constants import DEFAULT_RISK_FREE_RATE
 from shared.indicators import calculate_iv_rank as _shared_iv_rank
 
 logger = logging.getLogger(__name__)
