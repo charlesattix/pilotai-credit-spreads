@@ -17,7 +17,8 @@ FROM python:3.11-slim
 
 # Install Node.js 20 from official binary (no piped shell scripts)
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates xz-utils && \
-    NODE_ARCH=$(dpkg --print-architecture) && \
+    DPKG_ARCH=$(dpkg --print-architecture) && \
+    NODE_ARCH=$(case "${DPKG_ARCH}" in amd64) echo "x64" ;; arm64) echo "arm64" ;; *) echo "${DPKG_ARCH}" ;; esac) && \
     curl -fsSL "https://nodejs.org/dist/v20.20.0/node-v20.20.0-linux-${NODE_ARCH}.tar.xz" \
       | tar -xJ --strip-components=1 -C /usr/local && \
     apt-get purge -y xz-utils && apt-get autoremove -y && \
