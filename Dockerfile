@@ -1,8 +1,13 @@
 # Stage 1: Node.js dependencies
 FROM node:20-slim AS node-deps
 WORKDIR /app/web
+# Install build tools for native modules like better-sqlite3
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 COPY web/package.json web/package-lock.json* ./
-RUN npm ci --ignore-scripts
+# Remove --ignore-scripts so better-sqlite3 postinstall builds the native module
+RUN npm ci
 
 # Stage 2: Build Next.js
 FROM node:20-slim AS web-build
