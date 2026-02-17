@@ -307,6 +307,9 @@ class AlpacaProvider:
         short_sym = self.find_option_symbol(ticker, expiration, short_strike, opt_type)
         long_sym = self.find_option_symbol(ticker, expiration, long_strike, opt_type)
 
+        if not short_sym or not long_sym:
+            return {"status": "error", "message": "Could not resolve option symbols for close order"}
+
         # Reverse legs: buy back short, sell long
         legs = [
             OptionLegRequest(

@@ -45,6 +45,13 @@ import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
+# Weights for blending ML and rules-based scores (must sum to 1.0)
+ML_SCORE_WEIGHT = 0.6
+RULES_SCORE_WEIGHT = 0.4
+
+# Opportunities with event_risk above this threshold are skipped
+EVENT_RISK_THRESHOLD = 0.7
+
 
 class CreditSpreadSystem:
     """
@@ -235,14 +242,14 @@ class CreditSpreadSystem:
                         ml_score = ml_result.get('enhanced_score', rules_score)
                         opp['rules_score'] = rules_score
                         opp['ml_score'] = ml_score
-                        opp['score'] = 0.6 * ml_score + 0.4 * rules_score
+                        opp['score'] = ML_SCORE_WEIGHT * ml_score + RULES_SCORE_WEIGHT * rules_score
                         opp['regime'] = ml_result.get('regime', {}).get('regime', 'unknown')
                         opp['regime_confidence'] = ml_result.get('regime', {}).get('confidence', 0)
                         opp['event_risk'] = ml_result.get('event_risk', {}).get('event_risk_score', 0)
                         opp['ml_position_size'] = ml_result.get('position_size', {})
 
                         # Skip if high event risk
-                        if opp['event_risk'] > 0.7:
+                        if opp['event_risk'] > EVENT_RISK_THRESHOLD:
                             logger.warning(f"Skipping {ticker} {opp['type']} due to high event risk: {opp['event_risk']:.2f}")
                             opp['score'] = 0  # Zero out to filter
 

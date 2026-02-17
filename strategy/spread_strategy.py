@@ -12,6 +12,22 @@ from shared.types import ScoredSpreadOpportunity, SpreadOpportunity
 
 logger = logging.getLogger(__name__)
 
+# Scoring weights and thresholds for _score_opportunities
+SCORING_WEIGHTS = {
+    "credit_max": 25,           # Max points for credit component
+    "credit_scale": 0.5,        # Scalar: credit_pct * this value
+    "risk_reward_max": 25,      # Max points for risk/reward component
+    "risk_reward_scale": 8,     # Scalar: risk_reward * this value
+    "pop_max": 25,              # Max points for probability-of-profit component
+    "pop_baseline": 85,         # POP % that earns full points
+    "technical_max": 15,        # Max points for technical alignment component
+    "tech_strong_signal": 10,   # Points for strong directional alignment
+    "tech_neutral_signal": 5,   # Points for neutral alignment
+    "tech_support_resistance": 5,  # Bonus for near support/resistance
+    "iv_max": 10,               # Max points for IV component
+    "iv_divisor": 10,           # Divisor applied to iv_rank
+}
+
 
 class CreditSpreadStrategy:
     """
@@ -318,50 +334,52 @@ class CreditSpreadStrategy:
         - Technical alignment
         - IV rank/percentile
         """
+        w = SCORING_WEIGHTS
+
         for opp in opportunities:
             score = 0
-            
-            # Credit score (0-25 points)
+
+            # Credit score (0-credit_max points)
             # Higher credit as % of spread width is better
             credit_pct = (opp['credit'] / opp['spread_width']) * 100
-            score += min(credit_pct * 0.5, 25)
-            
-            # Risk/reward score (0-25 points)
+            score += min(credit_pct * w["credit_scale"], w["credit_max"])
+
+            # Risk/reward score (0-risk_reward_max points)
             # Better than 1:3 risk/reward gets full points
-            rr_score = min(opp['risk_reward'] * 8, 25)
+            rr_score = min(opp['risk_reward'] * w["risk_reward_scale"], w["risk_reward_max"])
             score += rr_score
-            
-            # POP score (0-25 points)
-            # POP > 85% gets full points
-            pop_score = min((opp['pop'] / 85) * 25, 25)
+
+            # POP score (0-pop_max points)
+            # POP > pop_baseline% gets full points
+            pop_score = min((opp['pop'] / w["pop_baseline"]) * w["pop_max"], w["pop_max"])
             score += pop_score
-            
-            # Technical alignment (0-15 points)
+
+            # Technical alignment (0-technical_max points)
             tech_score = 0
             if opp['type'] == 'bull_put_spread':
                 if technical_signals.get('trend') == 'bullish':
-                    tech_score += 10
+                    tech_score += w["tech_strong_signal"]
                 elif technical_signals.get('trend') == 'neutral':
-                    tech_score += 5
+                    tech_score += w["tech_neutral_signal"]
             else:  # bear_call_spread
                 if technical_signals.get('trend') == 'bearish':
-                    tech_score += 10
+                    tech_score += w["tech_strong_signal"]
                 elif technical_signals.get('trend') == 'neutral':
-                    tech_score += 5
-            
+                    tech_score += w["tech_neutral_signal"]
+
             # Support/resistance alignment
             if technical_signals.get('near_support') and opp['type'] == 'bull_put_spread':
-                tech_score += 5
+                tech_score += w["tech_support_resistance"]
             if technical_signals.get('near_resistance') and opp['type'] == 'bear_call_spread':
-                tech_score += 5
-            
-            score += min(tech_score, 15)
-            
-            # IV score (0-10 points)
+                tech_score += w["tech_support_resistance"]
+
+            score += min(tech_score, w["technical_max"])
+
+            # IV score (0-iv_max points)
             iv_rank = iv_data.get('iv_rank', 0)
-            iv_score = min(iv_rank / 10, 10)
+            iv_score = min(iv_rank / w["iv_divisor"], w["iv_max"])
             score += iv_score
-            
+
             opp['score'] = round(score, 2)
         
         # Sort by score (highest first)
