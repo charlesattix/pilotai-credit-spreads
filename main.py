@@ -142,7 +142,7 @@ class CreditSpreadSystem:
 
         if not all_opportunities:
             logger.info("No opportunities found")
-            return
+            return []
 
         # Sort by score
         all_opportunities.sort(key=lambda x: x.get('score', 0), reverse=True)
@@ -247,7 +247,7 @@ class CreditSpreadSystem:
                         opp['regime'] = ml_result.get('regime', {}).get('regime', 'unknown')
                         opp['regime_confidence'] = ml_result.get('regime', {}).get('confidence', 0)
                         opp['event_risk'] = ml_result.get('event_risk', {}).get('event_risk_score', 0)
-                        opp['ml_position_size'] = ml_result.get('position_size', {})
+                        opp['ml_position_size'] = ml_result.get('position_sizing', {})
 
                         # Skip if high event risk
                         if opp['event_risk'] > EVENT_RISK_THRESHOLD:

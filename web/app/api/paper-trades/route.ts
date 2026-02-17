@@ -168,7 +168,7 @@ export async function POST(request: Request) {
 
     const creditPerContract = alert.credit;
     const spreadWidth = alert.spread_width;
-    const tradeId = `PT-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+    const tradeId = `PT-${Date.now()}-${randomUUID().substring(0, 8)}`;
 
     const trade: PaperTrade = {
       id: tradeId,

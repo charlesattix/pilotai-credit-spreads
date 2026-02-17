@@ -155,7 +155,7 @@ export default function HomePage() {
             ) : (
               <div className="space-y-4">
                 {filteredAlerts.map((alert, idx) => (
-                  <AlertCard key={idx} alert={alert} isNew={idx < 2} />
+                  <AlertCard key={`${alert.ticker}-${alert.type}-${alert.short_strike}-${alert.long_strike}`} alert={alert} isNew={idx < 2} />
                 ))}
               </div>
             )}
