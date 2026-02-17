@@ -67,6 +67,7 @@ ml/models/*.joblib
 Thumbs.db
 
 # Config with sensitive data
+config.yaml
 config.local.yaml
 secrets.yaml
 
