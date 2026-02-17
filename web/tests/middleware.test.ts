@@ -47,28 +47,39 @@ describe('middleware', () => {
     return middleware(req)
   }
 
-  it('request without token returns 401', async () => {
-    const res = await runMiddleware('/api/positions')
+  it('protected route without token returns 401', async () => {
+    const res = await runMiddleware('/api/config')
     expect((res as any).status).toBe(401)
   })
 
-  it('request with wrong token returns 401', async () => {
-    const res = await runMiddleware('/api/positions', 'wrong-token')
+  it('protected route with wrong token returns 401', async () => {
+    const res = await runMiddleware('/api/config', 'wrong-token')
     expect((res as any).status).toBe(401)
   })
 
-  it('request with valid token passes through', async () => {
-    const res = await runMiddleware('/api/positions', VALID_TOKEN)
+  it('protected route with valid token passes through', async () => {
+    const res = await runMiddleware('/api/config', VALID_TOKEN)
     expect((res as any)._type).toBe('next')
   })
 
-  it('/api/health bypasses auth', async () => {
+  it('public paths bypass auth (/api/health)', async () => {
     const res = await runMiddleware('/api/health')
+    expect((res as any)._type).toBe('next')
+  })
+
+  it('public paths bypass auth (/api/positions)', async () => {
+    const res = await runMiddleware('/api/positions')
     expect((res as any)._type).toBe('next')
   })
 
   it('non-API routes bypass auth', async () => {
     const res = await runMiddleware('/dashboard')
+    expect((res as any)._type).toBe('next')
+  })
+
+  it('allows all API requests when API_AUTH_TOKEN is not set', async () => {
+    delete process.env.API_AUTH_TOKEN
+    const res = await runMiddleware('/api/config')
     expect((res as any)._type).toBe('next')
   })
 })

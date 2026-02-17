@@ -4,6 +4,7 @@ const path = require('path')
 const nextConfig = {
   output: 'standalone',
   reactStrictMode: true,
+  serverExternalPackages: ['better-sqlite3'],
   async headers() {
     return [
       {

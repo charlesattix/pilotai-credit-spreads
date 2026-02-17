@@ -2,95 +2,117 @@
  * Shared SQLite database module for the Node.js/Next.js side.
  * Opens the same pilotai.db file used by Python (with WAL mode for concurrent reads).
  * Scanner trades are read-only from Node; user trades can be read/written.
+ *
+ * IMPORTANT: better-sqlite3 is a native C++ addon. If it fails to load
+ * (e.g. missing binary in standalone build), all functions return safe defaults
+ * so API routes don't crash at import time.
  */
 
-import Database from 'better-sqlite3'
 import path from 'path'
 import { DB_PATH as SHARED_DB_PATH } from '@/lib/paths'
+
+// Dynamic import of better-sqlite3 to handle missing native binary gracefully
+let DatabaseConstructor: typeof import('better-sqlite3').default | null = null
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  DatabaseConstructor = require('better-sqlite3')
+} catch (err) {
+  console.error('[database] better-sqlite3 failed to load (native module missing?):', err)
+}
+
+type DatabaseInstance = import('better-sqlite3').Database
 
 const DB_PATH = SHARED_DB_PATH
 const DB_PATH_ALT = path.join(process.cwd(), 'data', 'pilotai.db')
 
-let _db: Database.Database | null = null
+let _db: DatabaseInstance | null = null
+let _dbFailed = false
 
-function getDb(): Database.Database {
+function getDb(): DatabaseInstance | null {
   if (_db) return _db
+  if (_dbFailed || !DatabaseConstructor) return null
 
-  // Try both paths (standalone build vs dev)
-  let dbPath = DB_PATH_ALT
   try {
-    const fs = require('fs')
-    if (fs.existsSync(DB_PATH)) {
-      dbPath = DB_PATH
+    // Try both paths (standalone build vs dev)
+    let dbPath = DB_PATH_ALT
+    try {
+      const fs = require('fs')
+      if (fs.existsSync(DB_PATH)) {
+        dbPath = DB_PATH
+      }
+    } catch {
+      // Use alt path
     }
-  } catch {
-    // Use alt path
+
+    // Ensure data directory exists
+    const dir = path.dirname(dbPath)
+    try {
+      const fs = require('fs')
+      fs.mkdirSync(dir, { recursive: true })
+    } catch {
+      // ignore
+    }
+
+    _db = new DatabaseConstructor(dbPath)
+    _db.pragma('journal_mode = WAL')
+    _db.pragma('foreign_keys = ON')
+
+    // Ensure tables exist
+    _db.exec(`
+      CREATE TABLE IF NOT EXISTS trades (
+        id TEXT PRIMARY KEY,
+        source TEXT NOT NULL,
+        ticker TEXT NOT NULL,
+        strategy_type TEXT,
+        status TEXT DEFAULT 'open',
+        short_strike REAL,
+        long_strike REAL,
+        expiration TEXT,
+        credit REAL,
+        contracts INTEGER DEFAULT 1,
+        entry_date TEXT,
+        exit_date TEXT,
+        exit_reason TEXT,
+        pnl REAL,
+        metadata JSON,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS alerts (
+        id TEXT PRIMARY KEY,
+        ticker TEXT NOT NULL,
+        data JSON NOT NULL,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS regime_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        regime TEXT,
+        confidence REAL,
+        features JSON,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS rate_limits (
+        key TEXT NOT NULL,
+        ts INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_rate_limits_key_ts ON rate_limits(key, ts);
+
+      CREATE TABLE IF NOT EXISTS process_locks (
+        name TEXT PRIMARY KEY,
+        locked_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL
+      );
+    `)
+
+    return _db
+  } catch (err) {
+    console.error('[database] Failed to open SQLite database:', err)
+    _dbFailed = true
+    return null
   }
-
-  // Ensure data directory exists
-  const dir = path.dirname(dbPath)
-  try {
-    const fs = require('fs')
-    fs.mkdirSync(dir, { recursive: true })
-  } catch {
-    // ignore
-  }
-
-  _db = new Database(dbPath)
-  _db.pragma('journal_mode = WAL')
-  _db.pragma('foreign_keys = ON')
-
-  // Ensure tables exist
-  _db.exec(`
-    CREATE TABLE IF NOT EXISTS trades (
-      id TEXT PRIMARY KEY,
-      source TEXT NOT NULL,
-      ticker TEXT NOT NULL,
-      strategy_type TEXT,
-      status TEXT DEFAULT 'open',
-      short_strike REAL,
-      long_strike REAL,
-      expiration TEXT,
-      credit REAL,
-      contracts INTEGER DEFAULT 1,
-      entry_date TEXT,
-      exit_date TEXT,
-      exit_reason TEXT,
-      pnl REAL,
-      metadata JSON,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS alerts (
-      id TEXT PRIMARY KEY,
-      ticker TEXT NOT NULL,
-      data JSON NOT NULL,
-      created_at TEXT DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS regime_snapshots (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      regime TEXT,
-      confidence REAL,
-      features JSON,
-      created_at TEXT DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS rate_limits (
-      key TEXT NOT NULL,
-      ts INTEGER NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_rate_limits_key_ts ON rate_limits(key, ts);
-
-    CREATE TABLE IF NOT EXISTS process_locks (
-      name TEXT PRIMARY KEY,
-      locked_at INTEGER NOT NULL,
-      expires_at INTEGER NOT NULL
-    );
-  `)
-
-  return _db
 }
 
 export interface TradeRow {
@@ -120,6 +142,8 @@ export interface TradeFilters {
 
 export function getTrades(filters: TradeFilters = {}): TradeRow[] {
   const db = getDb()
+  if (!db) return []
+
   let query = 'SELECT * FROM trades WHERE 1=1'
   const params: (string | number)[] = []
 
@@ -138,6 +162,7 @@ export function getTrades(filters: TradeFilters = {}): TradeRow[] {
 
 export function getUserTrades(userId: string): TradeRow[] {
   const db = getDb()
+  if (!db) return []
   return db.prepare(
     "SELECT * FROM trades WHERE source = 'user' AND metadata LIKE ? ORDER BY created_at DESC"
   ).all(`%"user_id":"${userId}"%`) as TradeRow[]
@@ -160,6 +185,7 @@ export function upsertUserTrade(trade: {
   metadata?: Record<string, unknown>
 }): void {
   const db = getDb()
+  if (!db) return
   const meta = JSON.stringify(trade.metadata || {})
   db.prepare(`
     INSERT INTO trades (id, source, ticker, strategy_type, status,
@@ -183,6 +209,7 @@ export function upsertUserTrade(trade: {
 
 export function closeUserTrade(tradeId: string, pnl: number, reason: string): TradeRow | null {
   const db = getDb()
+  if (!db) return null
   const status = pnl > 0 ? 'closed_profit' : pnl < 0 ? 'closed_loss' : reason === 'manual' ? 'closed_manual' : 'closed_expiry'
   db.prepare(`
     UPDATE trades SET status=?, exit_date=datetime('now'), exit_reason=?, pnl=?, updated_at=datetime('now')
@@ -194,6 +221,7 @@ export function closeUserTrade(tradeId: string, pnl: number, reason: string): Tr
 
 export function getAlerts(limit: number = 50): Record<string, unknown>[] {
   const db = getDb()
+  if (!db) return []
   const rows = db.prepare(
     'SELECT * FROM alerts ORDER BY created_at DESC LIMIT ?'
   ).all(limit) as { id: string; data: string; created_at: string }[]
@@ -209,6 +237,7 @@ export function getAlerts(limit: number = 50): Record<string, unknown>[] {
 
 export function getRegimeSnapshot(): { regime: string; confidence: number; features: Record<string, unknown> } | null {
   const db = getDb()
+  if (!db) return null
   const row = db.prepare(
     'SELECT * FROM regime_snapshots ORDER BY created_at DESC LIMIT 1'
   ).get() as { regime: string; confidence: number; features: string } | undefined
@@ -227,6 +256,7 @@ export function getRegimeSnapshot(): { regime: string; confidence: number; featu
  */
 export function checkRateLimit(key: string, limit: number, windowMs: number): boolean {
   const db = getDb()
+  if (!db) return true // Allow requests if DB unavailable
   const now = Date.now()
   const cutoff = now - windowMs
 
@@ -249,6 +279,7 @@ export function checkRateLimit(key: string, limit: number, windowMs: number): bo
  */
 export function acquireProcessLock(name: string, timeoutMs: number): boolean {
   const db = getDb()
+  if (!db) return true // Allow if DB unavailable
   const now = Date.now()
 
   // Clean expired locks
@@ -270,5 +301,6 @@ export function acquireProcessLock(name: string, timeoutMs: number): boolean {
  */
 export function releaseProcessLock(name: string): void {
   const db = getDb()
+  if (!db) return
   db.prepare('DELETE FROM process_locks WHERE name = ?').run(name)
 }

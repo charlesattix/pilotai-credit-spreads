@@ -43,7 +43,8 @@ export async function middleware(request: NextRequest) {
 
   const expectedToken = process.env.API_AUTH_TOKEN;
   if (!expectedToken) {
-    return NextResponse.json({ error: 'Auth not configured' }, { status: 503 });
+    // Auth not configured — allow all requests (single-user / development mode)
+    return NextResponse.next();
   }
 
   // Strategy 1: Check Authorization: Bearer header (for Python backend / direct API calls)
