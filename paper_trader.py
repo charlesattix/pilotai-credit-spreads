@@ -493,6 +493,35 @@ class PaperTrader:
             f"Balance: ${self.trades['current_balance']:,.2f}"
         )
 
+    def sync_alpaca_orders(self):
+        """Sync order statuses from Alpaca and update local DB."""
+        if not self.alpaca:
+            return
+
+        for trade in self.open_trades:
+            order_id = trade.get("alpaca_order_id")
+            if not order_id or trade.get("alpaca_status") == "filled":
+                continue  # Skip non-Alpaca or already-filled trades
+
+            try:
+                status = self.alpaca.get_order_status(order_id)
+                old_status = trade.get("alpaca_status")
+                new_status = status["status"]
+
+                if old_status != new_status:
+                    trade["alpaca_status"] = new_status
+                    trade["alpaca_filled_price"] = status.get("filled_avg_price")
+                    trade["alpaca_filled_at"] = status.get("filled_at")
+                    upsert_trade(trade, source="scanner")
+                    logger.info(f"Alpaca sync: {trade['ticker']} order {order_id} → {new_status}")
+
+                    # If order was rejected/cancelled, mark trade for review
+                    if new_status in ("cancelled", "expired", "rejected"):
+                        trade["alpaca_sync_error"] = f"Order {new_status}"
+
+            except Exception as e:
+                logger.warning(f"Alpaca sync failed for {trade['ticker']}: {e}")
+
     def get_summary(self) -> Dict:
         """Get paper trading summary."""
         stats = self.trades["stats"]

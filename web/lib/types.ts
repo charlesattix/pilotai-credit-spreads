@@ -29,6 +29,9 @@ export interface PaperTrade {
   pop?: number;
   score?: number;
   short_delta?: number;
+  alpaca_order_id?: string;
+  alpaca_status?: string;
+  alpaca_filled_price?: number;
 }
 
 export interface Portfolio {
@@ -95,6 +98,7 @@ export interface Position {
   max_profit?: number;
   pnl_pct?: number;
   expiration?: string;
+  alpaca_status?: string;
 }
 
 export interface PortfolioStats {

@@ -429,7 +429,11 @@ Examples:
         elif args.command == 'scheduler':
             from shared.scheduler import ScanScheduler
 
-            scheduler = ScanScheduler(scan_fn=system.scan_opportunities)
+            def scan_and_sync():
+                system.scan_opportunities()
+                system.paper_trader.sync_alpaca_orders()
+
+            scheduler = ScanScheduler(scan_fn=scan_and_sync)
 
             # Let SIGTERM/SIGINT stop the scheduler cleanly
             def _stop_scheduler(signum, frame):

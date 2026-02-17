@@ -54,6 +54,15 @@ export default function LivePositions({ data }: LivePositionsProps) {
                   <span className={`text-[10px] sm:text-xs font-medium px-1.5 py-0.5 rounded ${isBullish ? 'bg-profit-light text-profit' : 'bg-loss-light text-loss'}`}>
                     {typeLabel}
                   </span>
+                  {pos.alpaca_status && (
+                    <span className={`text-[10px] sm:text-xs font-medium px-1.5 py-0.5 rounded ${
+                      pos.alpaca_status === 'filled' ? 'bg-green-50 text-green-600' :
+                      pos.alpaca_status === 'submitted' ? 'bg-yellow-50 text-yellow-600' :
+                      'bg-gray-50 text-gray-500'
+                    }`}>
+                      Alpaca: {pos.alpaca_status}
+                    </span>
+                  )}
                 </div>
                 <span className="text-[10px] sm:text-xs text-muted-foreground">
                   ${pos.short_strike}/{pos.long_strike} × {pos.contracts}

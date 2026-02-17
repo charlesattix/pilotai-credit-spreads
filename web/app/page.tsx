@@ -90,6 +90,7 @@ export default function HomePage() {
             max_profit: p.max_profit || 0,
             pnl_pct: p.max_profit ? ((p.unrealized_pnl ?? 0) / p.max_profit) * 100 : 0,
             expiration: p.expiration,
+            alpaca_status: p.alpaca_status,
           })),
           total_unrealized_pnl: positions.total_unrealized_pnl ?? 0,
           total_credit: positions.total_credit ?? 0,

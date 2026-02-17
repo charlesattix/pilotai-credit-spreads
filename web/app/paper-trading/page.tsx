@@ -145,6 +145,15 @@ function PositionCard({ position: p, closed }: { position: PaperTrade; closed?: 
           }`}>
             {p.type.includes('bear') || p.type.includes('call') ? 'Bear Call' : 'Bull Put'}
           </span>
+          {p.alpaca_status && (
+            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+              p.alpaca_status === 'filled' ? 'bg-green-50 text-green-600' :
+              p.alpaca_status === 'submitted' ? 'bg-yellow-50 text-yellow-600' :
+              'bg-gray-50 text-gray-500'
+            }`}>
+              Alpaca: {p.alpaca_status}
+            </span>
+          )}
           {closed && p.status !== 'open' && (
             <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
               isWin ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'

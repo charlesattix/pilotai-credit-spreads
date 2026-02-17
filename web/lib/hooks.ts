@@ -16,8 +16,8 @@ export function useAlerts() {
 
 export function usePositions() {
   return useSWR<PositionsSummary>('/api/positions', fetcher<PositionsSummary>, {
-    refreshInterval: 300000,
-    dedupingInterval: 60000,
+    refreshInterval: 60000,
+    dedupingInterval: 15000,
     revalidateOnFocus: true,
   })
 }

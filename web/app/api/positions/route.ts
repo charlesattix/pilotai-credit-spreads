@@ -44,6 +44,9 @@ function tradeRowToPaperTrade(row: TradeRow): PaperTrade {
     pop: meta.entry_pop,
     score: meta.entry_score,
     short_delta: meta.entry_delta,
+    alpaca_order_id: meta.alpaca_order_id || null,
+    alpaca_status: meta.alpaca_status || null,
+    alpaca_filled_price: meta.alpaca_filled_price ? Number(meta.alpaca_filled_price) : null,
   };
 }
 
