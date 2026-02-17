@@ -12,7 +12,7 @@ import path from 'path'
 import { DB_PATH as SHARED_DB_PATH } from '@/lib/paths'
 
 // Dynamic import of better-sqlite3 to handle missing native binary gracefully
-let DatabaseConstructor: typeof import('better-sqlite3').default | null = null
+let DatabaseConstructor: typeof import('better-sqlite3') | null = null
 try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   DatabaseConstructor = require('better-sqlite3')
