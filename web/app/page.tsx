@@ -91,12 +91,12 @@ export default function HomePage() {
             pnl_pct: p.max_profit ? ((p.unrealized_pnl ?? 0) / p.max_profit) * 100 : 0,
             expiration: p.expiration,
           })),
-          total_unrealized_pnl: positions.total_unrealized_pnl,
-          total_credit: positions.total_credit,
-          open_count: positions.open_count,
-          current_balance: positions.current_balance,
-          total_pnl: positions.total_pnl,
-          total_max_loss: positions.total_max_loss,
+          total_unrealized_pnl: positions.total_unrealized_pnl ?? 0,
+          total_credit: positions.total_credit ?? 0,
+          open_count: positions.open_count ?? 0,
+          current_balance: positions.current_balance ?? 0,
+          total_pnl: positions.total_pnl ?? 0,
+          total_max_loss: positions.total_max_loss ?? 0,
         } : null} />
 
         <div className="flex gap-6">
