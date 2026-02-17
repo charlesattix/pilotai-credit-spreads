@@ -27,6 +27,7 @@ export async function POST() {
     await execFilePromise('python3', ['main.py', 'backtest'], {
       cwd: PROJECT_ROOT,
       timeout: 300000,
+      env: { ...process.env },
     });
 
     const backtestPath = path.join(OUTPUT_DIR, 'backtest_results.json');

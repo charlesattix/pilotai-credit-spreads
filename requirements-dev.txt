@@ -5,5 +5,10 @@ pytest==8.4.2
 pytest-cov==7.0.0
 hypothesis==6.141.1
 
+# Visualization (reports and dashboards — not needed in production)
+matplotlib==3.9.4
+seaborn==0.13.2
+plotly==5.24.1
+
 # Error tracking (optional, dev/staging only)
 sentry-sdk==2.19.2

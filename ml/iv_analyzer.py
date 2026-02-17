@@ -192,8 +192,9 @@ class IVAnalyzer:
             if 'expiration' not in options_chain.columns or 'iv' not in options_chain.columns:
                 return {'available': False}
             
-            # Calculate DTE for each option
+            # Calculate DTE for each option (copy to avoid mutating caller's DataFrame)
             now = datetime.now()
+            options_chain = options_chain.copy()
             options_chain['dte'] = (options_chain['expiration'] - now).dt.days
             
             # Filter ATM options

@@ -29,11 +29,6 @@ alpaca-py==0.21.1
 python-telegram-bot==21.10
 requests==2.32.5
 
-# Visualization (for reports)
-matplotlib==3.9.4
-seaborn==0.13.2
-plotly==5.24.1
-
 # Utilities
 python-dateutil==2.9.0.post0
 pytz==2025.2

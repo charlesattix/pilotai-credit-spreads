@@ -25,6 +25,7 @@ export async function POST() {
     await execFilePromise("python3", ["main.py", "scan"], {
       cwd: PROJECT_ROOT,
       timeout: 120000,
+      env: { ...process.env },
     });
 
     return NextResponse.json({ success: true, message: "Scan completed" });
