@@ -9,18 +9,25 @@ FROM node:20-slim AS web-build
 WORKDIR /app/web
 COPY --from=node-deps /app/web/node_modules ./node_modules
 COPY web/ .
+ENV NODE_ENV=production
 RUN npm run build
 
 # Stage 3: Runtime
 FROM python:3.11-slim
 
-# Install Node.js runtime
-RUN apt-get update && apt-get install -y --no-install-recommends curl && \
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y --no-install-recommends nodejs && \
+# Install Node.js 20 from official binary (no piped shell scripts)
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates xz-utils && \
+    NODE_ARCH=$(dpkg --print-architecture) && \
+    curl -fsSL "https://nodejs.org/dist/v20.18.2/node-v20.18.2-linux-${NODE_ARCH}.tar.xz" \
+      | tar -xJ --strip-components=1 -C /usr/local && \
+    apt-get purge -y xz-utils && apt-get autoremove -y && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+# Set production environment
+ENV NODE_ENV=production
+ENV PORT=8080
 
 # Install Python dependencies
 COPY requirements.txt requirements-dev.txt ./
@@ -42,15 +49,16 @@ COPY --from=web-build /app/web/.next/standalone ./web/
 COPY --from=web-build /app/web/.next/static ./web/.next/static
 COPY --from=web-build /app/web/public ./web/public
 
+# Copy entrypoint BEFORE switching to non-root user
+COPY docker-entrypoint.sh .
+RUN chmod +x docker-entrypoint.sh
+
 # Initialize SQLite database and create non-root user
 RUN python -c "from shared.database import init_db; init_db()" && \
     useradd -r -s /bin/false appuser && \
     mkdir -p /app/data /app/output /app/logs && \
     chown -R appuser:appuser /app
 USER appuser
-
-# Copy entrypoint
-COPY docker-entrypoint.sh .
 
 EXPOSE 8080
 
