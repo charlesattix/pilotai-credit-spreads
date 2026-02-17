@@ -13,13 +13,5 @@ class ProviderError(PilotAIError):
     """Raised when a provider API call (Tradier, Polygon, Alpaca) fails."""
 
 
-class StrategyError(PilotAIError):
-    """Raised on strategy execution errors."""
-
-
 class ModelError(PilotAIError):
     """Raised on ML model errors (training, prediction, loading)."""
-
-
-class ConfigError(PilotAIError):
-    """Raised on configuration errors."""

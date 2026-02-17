@@ -60,6 +60,76 @@ class PolygonProvider:
             return resp.json()
         return self._circuit_breaker.call(_do_request)
 
+    def _paginate(self, path: str, params: Optional[Dict] = None, timeout: int = 10, caller: str = "") -> List[Dict]:
+        """Fetch all pages of results from a paginated Polygon endpoint.
+
+        Args:
+            path: API path (e.g. "/v3/snapshot/options/SPY").
+            params: Query parameters for the initial request.
+            timeout: Per-request timeout in seconds.
+            caller: Label used in the max-pages warning log message.
+
+        Returns:
+            Aggregated list of result dicts across all pages.
+        """
+        data = self._get(path, params=params, timeout=timeout)
+        all_results = list(data.get("results", []))
+
+        next_url = data.get("next_url")
+        page_count = 0
+        while next_url:
+            page_count += 1
+            if page_count > MAX_PAGES:
+                logger.warning(f"{caller}: reached MAX_PAGES limit ({MAX_PAGES}), stopping pagination")
+                break
+            page = self._get_next_page(next_url, timeout=timeout)
+            all_results.extend(page.get("results", []))
+            next_url = page.get("next_url")
+
+        return all_results
+
+    @staticmethod
+    def _build_option_row(item: Dict, expiration_dt: datetime) -> Dict:
+        """Build a standardised option row dict from a single Polygon snapshot item.
+
+        Args:
+            item: One element from the Polygon ``/v3/snapshot/options`` results list.
+            expiration_dt: Pre-parsed expiration datetime for this item.
+
+        Returns:
+            A dict suitable for inclusion in a DataFrame row.
+        """
+        details = item.get("details", {})
+        greeks = item.get("greeks", {}) or {}
+        day = item.get("day", {}) or {}
+        last_quote = item.get("last_quote", {}) or {}
+        underlying = item.get("underlying_asset", {}) or {}
+
+        bid = last_quote.get("bid", 0) or 0
+        ask = last_quote.get("ask", 0) or 0
+        strike = details.get("strike_price", 0)
+        opt_type = "call" if details.get("contract_type", "").lower() == "call" else "put"
+
+        return {
+            "contract_symbol": details.get("ticker", ""),
+            "strike": strike,
+            "type": opt_type,
+            "bid": bid,
+            "ask": ask,
+            "last": day.get("close", 0) or 0,
+            "volume": day.get("volume", 0) or 0,
+            "open_interest": item.get("open_interest", 0) or 0,
+            "iv": greeks.get("iv", 0) or item.get("implied_volatility", 0) or 0,
+            "delta": greeks.get("delta", 0) or 0,
+            "raw_delta": greeks.get("delta", 0) or 0,
+            "gamma": greeks.get("gamma", 0) or 0,
+            "theta": greeks.get("theta", 0) or 0,
+            "vega": greeks.get("vega", 0) or 0,
+            "mid": (bid + ask) / 2 if (bid + ask) > 0 else 0,
+            "expiration": expiration_dt,
+            "itm": (strike < underlying.get("price", 0)) if opt_type == "call" else (strike > underlying.get("price", 0)),
+        }
+
     def get_quote(self, ticker: str) -> Dict:
         """Get real-time quote for a ticker via stock snapshot."""
         data = self._get(f"/v2/snapshot/locale/us/markets/stocks/tickers/{ticker}")
@@ -82,30 +152,16 @@ class PolygonProvider:
 
     def get_expirations(self, ticker: str) -> List[str]:
         """Get available option expiration dates."""
-        results = []
         params = {"underlying_ticker": ticker, "limit": 1000}
-        data = self._get("/v3/reference/options/contracts", params=params)
+        all_results = self._paginate(
+            "/v3/reference/options/contracts", params=params, timeout=10, caller="get_expirations"
+        )
         seen = set()
-        for c in data.get("results", []):
+        for c in all_results:
             exp = c.get("expiration_date", "")
-            if exp and exp not in seen:
+            if exp:
                 seen.add(exp)
-        # Paginate
-        next_url = data.get("next_url")
-        page_count = 0
-        while next_url:
-            page_count += 1
-            if page_count > MAX_PAGES:
-                logger.warning(f"get_expirations: reached MAX_PAGES limit ({MAX_PAGES}), stopping pagination")
-                break
-            page = self._get_next_page(next_url, timeout=10)
-            for c in page.get("results", []):
-                exp = c.get("expiration_date", "")
-                if exp and exp not in seen:
-                    seen.add(exp)
-            next_url = page.get("next_url")
-        results = sorted(seen)
-        return results
+        return sorted(seen)
 
     def get_options_chain(self, ticker: str, expiration: str) -> pd.DataFrame:
         """
@@ -118,59 +174,17 @@ class PolygonProvider:
         Returns:
             DataFrame matching TradierProvider interface.
         """
-        # Use options snapshot for Greeks
-        all_results = []
-        params = {"limit": 250}
-        data = self._get(f"/v3/snapshot/options/{ticker}", params=params, timeout=30)
-        all_results.extend(data.get("results", []))
+        all_results = self._paginate(
+            f"/v3/snapshot/options/{ticker}", params={"limit": 250}, timeout=30, caller="get_options_chain"
+        )
 
-        next_url = data.get("next_url")
-        page_count = 0
-        while next_url:
-            page_count += 1
-            if page_count > MAX_PAGES:
-                logger.warning(f"get_options_chain: reached MAX_PAGES limit ({MAX_PAGES}), stopping pagination")
-                break
-            page = self._get_next_page(next_url, timeout=30)
-            all_results.extend(page.get("results", []))
-            next_url = page.get("next_url")
-
+        exp_dt = datetime.strptime(expiration, "%Y-%m-%d")
         rows = []
         for item in all_results:
             details = item.get("details", {})
-            exp = details.get("expiration_date", "")
-            if exp != expiration:
+            if details.get("expiration_date", "") != expiration:
                 continue
-
-            greeks = item.get("greeks", {}) or {}
-            day = item.get("day", {}) or {}
-            last_quote = item.get("last_quote", {}) or {}
-            underlying = item.get("underlying_asset", {}) or {}
-
-            bid = last_quote.get("bid", 0) or 0
-            ask = last_quote.get("ask", 0) or 0
-            strike = details.get("strike_price", 0)
-            opt_type = "call" if details.get("contract_type", "").lower() == "call" else "put"
-
-            rows.append({
-                "contract_symbol": details.get("ticker", ""),
-                "strike": strike,
-                "type": opt_type,
-                "bid": bid,
-                "ask": ask,
-                "last": day.get("close", 0) or 0,
-                "volume": day.get("volume", 0) or 0,
-                "open_interest": item.get("open_interest", 0) or 0,
-                "iv": greeks.get("iv", 0) or item.get("implied_volatility", 0) or 0,
-                "delta": greeks.get("delta", 0) or 0,
-                "raw_delta": greeks.get("delta", 0) or 0,
-                "gamma": greeks.get("gamma", 0) or 0,
-                "theta": greeks.get("theta", 0) or 0,
-                "vega": greeks.get("vega", 0) or 0,
-                "mid": (bid + ask) / 2 if (bid + ask) > 0 else 0,
-                "expiration": datetime.strptime(expiration, "%Y-%m-%d"),
-                "itm": (strike < underlying.get("price", 0)) if opt_type == "call" else (strike > underlying.get("price", 0)),
-            })
+            rows.append(self._build_option_row(item, exp_dt))
 
         if not rows:
             return pd.DataFrame()
@@ -187,21 +201,9 @@ class PolygonProvider:
         """
         now = datetime.now()
 
-        all_results = []
-        params = {"limit": 250}
-        data = self._get(f"/v3/snapshot/options/{ticker}", params=params, timeout=30)
-        all_results.extend(data.get("results", []))
-
-        next_url = data.get("next_url")
-        page_count = 0
-        while next_url:
-            page_count += 1
-            if page_count > MAX_PAGES:
-                logger.warning(f"get_full_chain: reached MAX_PAGES limit ({MAX_PAGES}), stopping pagination")
-                break
-            page = self._get_next_page(next_url, timeout=30)
-            all_results.extend(page.get("results", []))
-            next_url = page.get("next_url")
+        all_results = self._paginate(
+            f"/v3/snapshot/options/{ticker}", params={"limit": 250}, timeout=30, caller="get_full_chain"
+        )
 
         rows = []
         for item in all_results:
@@ -217,36 +219,9 @@ class PolygonProvider:
             if not (min_dte <= dte <= max_dte):
                 continue
 
-            greeks = item.get("greeks", {}) or {}
-            day = item.get("day", {}) or {}
-            last_quote = item.get("last_quote", {}) or {}
-            underlying = item.get("underlying_asset", {}) or {}
-
-            bid = last_quote.get("bid", 0) or 0
-            ask = last_quote.get("ask", 0) or 0
-            strike = details.get("strike_price", 0)
-            opt_type = "call" if details.get("contract_type", "").lower() == "call" else "put"
-
-            rows.append({
-                "contract_symbol": details.get("ticker", ""),
-                "strike": strike,
-                "type": opt_type,
-                "bid": bid,
-                "ask": ask,
-                "last": day.get("close", 0) or 0,
-                "volume": day.get("volume", 0) or 0,
-                "open_interest": item.get("open_interest", 0) or 0,
-                "iv": greeks.get("iv", 0) or item.get("implied_volatility", 0) or 0,
-                "delta": greeks.get("delta", 0) or 0,
-                "raw_delta": greeks.get("delta", 0) or 0,
-                "gamma": greeks.get("gamma", 0) or 0,
-                "theta": greeks.get("theta", 0) or 0,
-                "vega": greeks.get("vega", 0) or 0,
-                "mid": (bid + ask) / 2 if (bid + ask) > 0 else 0,
-                "expiration": exp_date,
-                "dte": dte,
-                "itm": (strike < underlying.get("price", 0)) if opt_type == "call" else (strike > underlying.get("price", 0)),
-            })
+            row = self._build_option_row(item, exp_date)
+            row["dte"] = dte
+            rows.append(row)
 
         if not rows:
             logger.warning(f"No options found for {ticker} in {min_dte}-{max_dte} DTE range")
