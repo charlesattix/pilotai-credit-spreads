@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, List
 import csv
 from shared.database import init_db, insert_alert
+from shared.constants import OUTPUT_DIR as _OUTPUT_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,8 @@ class AlertGenerator:
         self.config = config
         self.alert_config = config['alerts']
 
-        # Ensure output directory exists
-        self.output_dir = Path('output')
+        # Ensure output directory exists — use centralized OUTPUT_DIR from shared.constants
+        self.output_dir = Path(_OUTPUT_DIR)
         self.output_dir.mkdir(exist_ok=True)
 
         init_db()

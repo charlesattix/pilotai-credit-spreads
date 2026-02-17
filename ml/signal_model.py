@@ -9,6 +9,7 @@ Based on research:
 - Niculescu-Mizil & Caruana (2005): Predicting good probabilities with supervised learning
 """
 
+import os
 import numpy as np
 import pandas as pd
 from collections import Counter
@@ -418,10 +419,10 @@ class SignalModel:
     def load(self, filename: Optional[str] = None) -> bool:
         """
         Load trained model from disk.
-        
+
         Args:
             filename: Model file name (if None, loads most recent)
-            
+
         Returns:
             True if successful
         """
@@ -441,6 +442,23 @@ class SignalModel:
                 logger.warning(f"Model file not found: {filepath}")
                 return False
 
+            # SEC-DATA-03: Validate that the resolved model path is within
+            # the expected model directory to prevent path traversal attacks.
+            # joblib.load can execute arbitrary code during deserialization,
+            # so we must ensure the file originates from a trusted location.
+            resolved_path = os.path.realpath(filepath)
+            expected_dir = os.path.realpath(self.model_dir)
+            if not resolved_path.startswith(expected_dir + os.sep) and resolved_path != expected_dir:
+                logger.error(
+                    f"SECURITY: Model path '{resolved_path}' is outside expected "
+                    f"directory '{expected_dir}'. Refusing to load — possible path traversal."
+                )
+                return False
+
+            logger.warning(
+                f"Loading serialized model from disk: {filepath}. "
+                "joblib.load can execute arbitrary code — only load models from trusted sources."
+            )
             model_data = joblib.load(filepath)
 
             self.model = model_data['model']

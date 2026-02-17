@@ -40,6 +40,7 @@ from backtest import Backtester, PerformanceMetrics
 from tracker import TradeTracker, PnLDashboard
 from paper_trader import PaperTrader
 from shared.data_cache import DataCache
+from shared.provider_protocol import DataProvider  # noqa: F401 – ARCH-PY-06
 
 
 logger = logging.getLogger(__name__)

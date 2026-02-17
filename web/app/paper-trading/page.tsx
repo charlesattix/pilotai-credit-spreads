@@ -1,8 +1,7 @@
 'use client'
 
-import { RefreshCw, TrendingUp, TrendingDown, DollarSign, Target, BarChart3, Clock } from 'lucide-react'
+import { RefreshCw, TrendingUp, DollarSign, Target, BarChart3 } from 'lucide-react'
 import { usePositions } from '@/lib/hooks'
-import Link from 'next/link'
 import { PaperTrade, PositionsSummary } from '@/lib/types'
 
 function formatMoney(n: number) {
@@ -19,45 +18,36 @@ function daysUntil(dateStr: string) {
 export default function PaperTradingPage() {
   const { data, isLoading, mutate } = usePositions()
 
-  if (isLoading) return (
+  if (isLoading || !data) return (
     <div className="min-h-screen bg-[#FAF9FB] flex items-center justify-center">
       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#9B6DFF]" />
     </div>
   )
 
-  if (!data) return (
-    <div className="min-h-screen bg-[#FAF9FB] flex items-center justify-center text-gray-500">
-      Failed to load data
-    </div>
-  )
-
-  const portfolioData = data
+  const portfolioData = {
+    current_balance: data.current_balance ?? 0,
+    total_pnl: data.total_pnl ?? 0,
+    total_credit: data.total_credit ?? 0,
+    total_max_loss: data.total_max_loss ?? 0,
+    open_count: data.open_count ?? 0,
+    closed_count: data.closed_count ?? 0,
+    win_rate: data.win_rate ?? 0,
+    open_positions: data.open_positions ?? [],
+    closed_trades: data.closed_trades ?? [],
+  }
 
   return (
     <div className="min-h-screen bg-[#FAF9FB]">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-100 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm"
-              style={{ background: 'linear-gradient(135deg, #9B6DFF, #E84FAD, #F59E42)' }}>P</div>
-            <div>
-              <h1 className="text-lg font-bold text-gray-900">Paper Trading</h1>
-              <p className="text-xs text-gray-500">Alerts by PilotAI</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <Link href="/" className="text-sm text-gray-500 hover:text-gray-700 transition">← Alerts</Link>
-            <button onClick={() => mutate()}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition"
-              style={{ background: 'linear-gradient(135deg, #9B6DFF, #E84FAD)' }}>
-              <RefreshCw className="w-3.5 h-3.5" /> Refresh
-            </button>
-          </div>
-        </div>
-      </header>
-
       <main className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+        {/* Page title + refresh (header is provided by root layout Navbar) */}
+        <div className="flex items-center justify-between">
+          <h1 className="text-lg font-bold text-gray-900">Paper Trading</h1>
+          <button onClick={() => mutate()}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition"
+            style={{ background: 'linear-gradient(135deg, #9B6DFF, #E84FAD)' }}>
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          </button>
+        </div>
         {/* Stats Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard icon={<DollarSign className="w-5 h-5" />} label="Balance"

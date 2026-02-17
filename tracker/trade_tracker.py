@@ -10,6 +10,7 @@ from typing import Dict, List, Optional
 import json
 import pandas as pd
 from shared.io_utils import atomic_json_write
+from shared.constants import DATA_DIR as _DATA_DIR, OUTPUT_DIR as _OUTPUT_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +29,9 @@ class TradeTracker:
         """
         self.config = config
 
-        # Storage paths
-        self.data_dir = Path('data')
-        self.data_dir.mkdir(exist_ok=True)
+        # Storage paths — use centralized DATA_DIR from shared.constants
+        self.data_dir = Path(_DATA_DIR)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
 
         self.trades_file = self.data_dir / 'tracker_trades.json'
         self.positions_file = self.data_dir / 'positions.json'
@@ -42,17 +43,37 @@ class TradeTracker:
         logger.info("TradeTracker initialized")
 
     def _load_trades(self) -> List[Dict]:
-        """Load historical trades."""
+        """Load historical trades.
+
+        Returns an empty list when the file is missing or corrupted so the
+        tracker can always start cleanly (EH-PY-08).
+        """
         if self.trades_file.exists():
-            with open(self.trades_file, 'r') as f:
-                return json.load(f)
+            try:
+                with open(self.trades_file, 'r') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(
+                    f"Could not read trades file {self.trades_file}: {e}. "
+                    "Starting with empty trade list."
+                )
         return []
 
     def _load_positions(self) -> List[Dict]:
-        """Load open positions."""
+        """Load open positions.
+
+        Returns an empty list when the file is missing or corrupted so the
+        tracker can always start cleanly (EH-PY-08).
+        """
         if self.positions_file.exists():
-            with open(self.positions_file, 'r') as f:
-                return json.load(f)
+            try:
+                with open(self.positions_file, 'r') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(
+                    f"Could not read positions file {self.positions_file}: {e}. "
+                    "Starting with empty positions list."
+                )
         return []
 
     # Delegate to the shared utility; keep the class attribute so any code
@@ -243,7 +264,7 @@ class TradeTracker:
 
         trades_df = pd.DataFrame(self.trades)
 
-        output_path = Path('output') / filename
+        output_path = Path(_OUTPUT_DIR) / filename
         output_path.parent.mkdir(exist_ok=True)
 
         trades_df.to_csv(output_path, index=False)

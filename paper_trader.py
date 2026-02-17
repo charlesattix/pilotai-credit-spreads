@@ -10,13 +10,13 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from pathlib import Path
-from shared.constants import MAX_CONTRACTS_PER_TRADE, MANAGEMENT_DTE_THRESHOLD
+from shared.constants import MAX_CONTRACTS_PER_TRADE, MANAGEMENT_DTE_THRESHOLD, DATA_DIR as _DATA_DIR
 from shared.io_utils import atomic_json_write
 from shared.database import init_db, upsert_trade, get_trades, close_trade as db_close_trade
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR = Path(_DATA_DIR)
 TRADES_FILE = DATA_DIR / "trades.json"
 PAPER_LOG = DATA_DIR / "paper_trades.json"
 
@@ -56,7 +56,7 @@ class PaperTrader:
                 logger.warning(f"Alpaca init failed, falling back to DB: {e}")
                 self.alpaca = None
 
-        DATA_DIR.mkdir(exist_ok=True)
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
         init_db()
 
         # Load trades from SQLite
@@ -67,11 +67,21 @@ class PaperTrader:
                      f"Alpaca: {'ON' if self.alpaca else 'OFF'}")
 
     def _load_trades(self) -> Dict:
-        """Load trades from SQLite database."""
-        db_trades = get_trades(source="scanner")
-        trades_list = []
-        for t in db_trades:
-            trades_list.append(t)
+        """Load trades from SQLite database.
+
+        If the database is missing, empty, or corrupted, returns a default
+        empty structure so that the PaperTrader can still start cleanly
+        (EH-PY-08).
+        """
+        try:
+            db_trades = get_trades(source="scanner")
+            trades_list = list(db_trades)
+        except Exception as e:
+            logger.warning(
+                f"Could not load trades from database: {e}. "
+                "Starting with empty trade list."
+            )
+            trades_list = []
 
         # Compute stats from trade data
         closed = [t for t in trades_list if t.get("status", "") != "open"]

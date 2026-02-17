@@ -4,7 +4,18 @@ This is the single canonical location for all named constants.  Do NOT
 create secondary ``constants.py`` files elsewhere in the tree.
 """
 
+import os
 from datetime import datetime
+
+# ---------------------------------------------------------------------------
+# Standardized project paths (ARCH-PY-09)
+# ---------------------------------------------------------------------------
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
+OUTPUT_DIR = os.path.join(PROJECT_ROOT, 'output')
+LOGS_DIR = os.path.join(PROJECT_ROOT, 'logs')
+MODELS_DIR = os.path.join(PROJECT_ROOT, 'ml', 'models')
+CONFIG_PATH = os.path.join(PROJECT_ROOT, 'config.yaml')
 
 # ---------------------------------------------------------------------------
 # Position sizing

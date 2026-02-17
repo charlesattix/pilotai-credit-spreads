@@ -53,6 +53,21 @@ export async function POST(request: Request) {
       return apiError("Messages required", 400);
     }
 
+    // SEC-INJ-01: Sanitize user messages to prevent prompt injection
+    const MAX_MESSAGE_LENGTH = 2000;
+    const sanitizedMessages = messages
+      .map((msg: { role?: string; content?: string }) => ({
+        role: 'user' as const,  // Force all messages to 'user' role — never allow system/assistant injection
+        content: typeof msg.content === 'string'
+          ? msg.content.trim().slice(0, MAX_MESSAGE_LENGTH)
+          : '',
+      }))
+      .filter((msg: { role: string; content: string }) => msg.content.length > 0);
+
+    if (sanitizedMessages.length === 0) {
+      return apiError("Messages required", 400);
+    }
+
     // Build context with current alerts if available
     let contextPrompt = SYSTEM_PROMPT;
     if (alerts && alerts.length > 0) {
@@ -82,7 +97,7 @@ export async function POST(request: Request) {
             model: 'gpt-4o-mini',
             messages: [
               { role: 'system', content: contextPrompt },
-              ...messages.slice(-10),
+              ...sanitizedMessages.slice(-10),
             ],
             max_tokens: 500,
             temperature: 0.7,
@@ -104,7 +119,7 @@ export async function POST(request: Request) {
     }
 
     // Fallback: smart local responses based on keywords
-    const lastMessage = messages[messages.length - 1]?.content?.toLowerCase() || '';
+    const lastMessage = sanitizedMessages[sanitizedMessages.length - 1]?.content?.toLowerCase() || '';
     const reply = generateLocalResponse(lastMessage, alerts);
     return NextResponse.json({ reply, fallback: true });
 

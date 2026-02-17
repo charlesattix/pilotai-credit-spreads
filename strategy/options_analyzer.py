@@ -5,12 +5,13 @@ Handles options chain data, Greeks calculation, and IV analysis.
 
 import logging
 from datetime import datetime
-from typing import Dict
+from typing import Dict, Optional
 import numpy as np
 import pandas as pd
 import yfinance as yf
 from shared.constants import DEFAULT_RISK_FREE_RATE
 from shared.indicators import calculate_iv_rank as _shared_iv_rank
+from shared.provider_protocol import DataProvider
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +31,8 @@ class OptionsAnalyzer:
         """
         self.config = config
         self.data_cache = data_cache
-        self.tradier = None
-        self.polygon = None
+        self.tradier: Optional[DataProvider] = None
+        self.polygon: Optional[DataProvider] = None
 
         # Initialize data provider
         data_config = config.get('data', {})
@@ -75,11 +76,11 @@ class OptionsAnalyzer:
 
         return self._get_chain_yfinance(ticker)
 
-    def _get_chain_from_provider(self, provider, provider_name: str, ticker: str) -> pd.DataFrame:
+    def _get_chain_from_provider(self, provider: DataProvider, provider_name: str, ticker: str) -> pd.DataFrame:
         """Get options chain from a provider (Tradier or Polygon) with yfinance fallback.
 
         Args:
-            provider: Provider instance with a ``get_full_chain`` method.
+            provider: Provider instance satisfying the :class:`DataProvider` protocol.
             provider_name: Human-readable name used in log messages.
             ticker: Stock ticker symbol.
 
