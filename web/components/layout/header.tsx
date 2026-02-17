@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { formatDateTime } from '@/lib/utils'
 import { Clock } from 'lucide-react'
+import { apiFetch } from '@/lib/api'
 
 export function Header() {
   const [lastUpdate, setLastUpdate] = useState<string>('')
@@ -11,13 +12,12 @@ export function Header() {
     // Fetch last scan time from alerts
     const fetchLastUpdate = async () => {
       try {
-        const res = await fetch('/api/alerts')
-        const data = await res.json()
+        const data = await apiFetch<{ timestamp?: string }>('/api/alerts')
         if (data.timestamp) {
           setLastUpdate(formatDateTime(data.timestamp))
         }
-      } catch (error) {
-        console.error('Failed to fetch last update:', error)
+      } catch {
+        // Silently fail — header update is non-critical
       }
     }
 

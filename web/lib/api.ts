@@ -1,26 +1,10 @@
-export interface Alert {
-  ticker: string
-  type: string
-  expiration: string
-  dte: number
-  short_strike: number
-  long_strike: number
-  short_delta: number
-  credit: number
-  max_loss: number
-  max_profit: number
-  profit_target: number
-  stop_loss: number
-  spread_width: number
-  current_price: number
-  distance_to_short: number
-  pop: number
-  risk_reward: number
-  score: number
-}
+import { Alert } from '@/lib/types'
+
+export type { Alert }
 
 export interface AlertsResponse {
   timestamp: string
+  alerts: Alert[]
   opportunities: Alert[]
   count: number
 }
@@ -138,22 +122,16 @@ export interface Config {
 }
 
 // Retry wrapper for API calls — retries on 500/503 with 1s delay, max 2 retries
-async function apiFetch<T>(url: string, options?: RequestInit, retries = 2): Promise<T> {
-  const authToken = typeof window !== 'undefined'
-    ? process.env.NEXT_PUBLIC_API_AUTH_TOKEN
-    : undefined
-  const authHeaders: Record<string, string> = {}
-  if (authToken) {
-    authHeaders['Authorization'] = `Bearer ${authToken}`
-  }
-
+// Authentication is handled via HttpOnly session cookies (set by /api/auth)
+export async function apiFetch<T>(url: string, options?: RequestInit, retries = 2): Promise<T> {
   let lastError: Error | null = null
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const res = await fetch(url, {
         cache: 'no-store',
+        credentials: 'same-origin',
         ...options,
-        headers: { ...authHeaders, ...options?.headers },
+        headers: { ...options?.headers },
       })
       if (res.ok) return res.json()
       if ((res.status === 500 || res.status === 503) && attempt < retries) {

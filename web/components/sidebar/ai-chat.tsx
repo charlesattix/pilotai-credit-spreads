@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { Sparkles, Send, Loader2, MessageSquare, X, ChevronDown } from 'lucide-react'
+import { apiFetch } from '@/lib/api'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -52,14 +53,13 @@ export function AIChat({ forceExpanded }: { forceExpanded?: boolean } = {}) {
     setLoading(true)
 
     try {
-      const res = await fetch('/api/chat', {
+      const data = await apiFetch<{ reply?: string }>('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: newMessages.map(m => ({ role: m.role, content: m.content })),
         }),
       })
-      const data = await res.json()
       
       const assistantMessage: Message = {
         role: 'assistant',

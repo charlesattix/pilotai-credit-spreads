@@ -23,8 +23,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && \
 WORKDIR /app
 
 # Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements-dev.txt ./
+RUN pip install --no-cache-dir -r requirements.txt && \
+    if [ "$BUILD_ENV" = "dev" ]; then pip install --no-cache-dir -r requirements-dev.txt; fi
 
 # Copy Python backend
 COPY *.py ./
@@ -41,8 +42,9 @@ COPY --from=web-build /app/web/.next/standalone ./web/
 COPY --from=web-build /app/web/.next/static ./web/.next/static
 COPY --from=web-build /app/web/public ./web/public
 
-# Create non-root user
-RUN useradd -r -s /bin/false appuser && \
+# Initialize SQLite database and create non-root user
+RUN python -c "from shared.database import init_db; init_db()" && \
+    useradd -r -s /bin/false appuser && \
     mkdir -p /app/data /app/output /app/logs && \
     chown -R appuser:appuser /app
 USER appuser

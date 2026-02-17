@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Config } from '@/lib/api'
+import { Config, apiFetch } from '@/lib/api'
 import { Save } from 'lucide-react'
 import { toast } from 'sonner'
 import { logger } from '@/lib/logger'
@@ -14,8 +14,7 @@ export default function SettingsPage() {
   useEffect(() => {
     const fetchConfig = async () => {
       try {
-        const res = await fetch('/api/config')
-        const data = await res.json()
+        const data = await apiFetch<Config>('/api/config')
         setConfig(data)
       } catch (error) {
         logger.error('Failed to fetch config', { error: String(error) })
@@ -33,17 +32,12 @@ export default function SettingsPage() {
     
     setSaving(true)
     try {
-      const res = await fetch('/api/config', {
+      await apiFetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
       })
-
-      if (res.ok) {
-        toast.success('Configuration saved successfully!')
-      } else {
-        toast.error('Failed to save configuration')
-      }
+      toast.success('Configuration saved successfully!')
     } catch (error) {
       logger.error('Failed to save config', { error: String(error) })
       toast.error('Failed to save configuration')

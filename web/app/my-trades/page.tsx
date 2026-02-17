@@ -5,6 +5,7 @@ import { TrendingUp, TrendingDown, DollarSign, Target, Clock, XCircle, BarChart3
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { getUserId, PAPER_TRADING_ENABLED } from '@/lib/user-id'
+import { apiFetch } from '@/lib/api'
 import { usePaperTrades } from '@/lib/hooks'
 import { PaperTrade } from '@/lib/types'
 
@@ -39,17 +40,14 @@ export default function MyTradesPage() {
 
   const closeTrade = async (tradeId: string, reason: string = 'manual') => {
     try {
-      const res = await fetch(`/api/paper-trades?id=${tradeId}&reason=${reason}&userId=${getUserId()}`, { method: 'DELETE' })
-      const data = await res.json()
-      
-      if (res.ok) {
-        const pnl = data.trade?.realized_pnl || 0
-        toast.success(`Trade closed: ${pnl >= 0 ? 'Profit' : 'Loss'} ${formatCurrency(pnl)} — moved to Closed tab`)
-        mutate()
-        setTab('closed')
-      } else {
-        toast.error(data.error || 'Failed to close trade')
-      }
+      const data = await apiFetch<{ success: boolean; trade?: PaperTrade; error?: string }>(
+        `/api/paper-trades?id=${tradeId}&reason=${reason}&userId=${getUserId()}`,
+        { method: 'DELETE' }
+      )
+      const pnl = data.trade?.realized_pnl || 0
+      toast.success(`Trade closed: ${pnl >= 0 ? 'Profit' : 'Loss'} ${formatCurrency(pnl)} — moved to Closed tab`)
+      mutate()
+      setTab('closed')
     } catch {
       toast.error('Failed to close trade')
     }

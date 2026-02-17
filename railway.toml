@@ -7,3 +7,7 @@ healthcheckPath = "/api/health"
 healthcheckTimeout = 10
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
+
+[[volumes]]
+mount = "/app/data"
+name = "pilotai-data"

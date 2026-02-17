@@ -38,47 +38,25 @@ export interface Portfolio {
   user_id: string;
 }
 
-export interface TradeLeg {
-  action: 'Sell' | 'Buy';
-  qty: number;
-  ticker: string;
-  expiry: string;
-  strike: number;
-  type: 'Put' | 'Call';
-  price: number;
-}
-
 export interface Alert {
-  id: number;
-  type: 'Bullish' | 'Bearish' | 'Neutral';
-  ticker: string;
-  company: string;
-  price: number;
-  strategy: string;
-  strategyDesc: string;
-  legs: TradeLeg[];
-  netPremium?: string;
-  maxProfit: string;
-  maxProfitCond: string;
-  maxLoss: string;
-  maxLossCond: string;
-  breakeven: string;
-  probProfit: number;
-  reasoning: string[];
-  time: string;
-  aiConfidence: string;
-  isNew?: boolean;
-  // Fields used when opening a paper trade from an alert
-  current_price?: number;
-  credit?: number;
-  spread_width?: number;
-  short_strike?: number;
-  long_strike?: number;
-  expiration?: string;
-  dte?: number;
-  pop?: number;
-  score?: number;
-  short_delta?: number;
+  ticker: string
+  type: string
+  expiration: string
+  dte: number
+  short_strike: number
+  long_strike: number
+  short_delta: number
+  credit: number
+  max_loss: number
+  max_profit: number
+  profit_target: number
+  stop_loss: number
+  spread_width: number
+  current_price: number
+  distance_to_short: number
+  pop: number
+  risk_reward: number
+  score: number
 }
 
 export interface PortfolioStats {

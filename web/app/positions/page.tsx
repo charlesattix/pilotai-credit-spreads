@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Trade } from '@/lib/api'
+import { Trade, apiFetch } from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { logger } from '@/lib/logger'
 
@@ -13,8 +13,7 @@ export default function PositionsPage() {
   useEffect(() => {
     const fetchTrades = async () => {
       try {
-        const res = await fetch('/api/trades')
-        const data = await res.json()
+        const data = await apiFetch<Trade[]>('/api/trades')
         setTrades(data || [])
       } catch (error) {
         logger.error('Failed to fetch trades', { error: String(error) })

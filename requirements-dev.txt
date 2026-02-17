@@ -1,0 +1,9 @@
+# Development and testing dependencies
+# Install with: pip install -r requirements-dev.txt
+
+pytest==8.4.2
+pytest-cov==7.0.0
+hypothesis==6.141.1
+
+# Error tracking (optional, dev/staging only)
+sentry-sdk==2.19.2

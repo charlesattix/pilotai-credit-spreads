@@ -5,14 +5,14 @@ import { usePositions } from '@/lib/hooks'
 export function Heatmap() {
   const { data } = usePositions()
 
-  const closedTrades: Array<{ exit_date: string | null; exit_pnl: number | null }> = data?.closed_trades || []
+  const closedTrades = data?.closed_trades || []
 
   // Build a map of date -> win/loss from real closed trades
   const tradeMap: Record<string, string> = {}
   closedTrades.forEach(t => {
     if (t.exit_date) {
       const dateKey = t.exit_date.split('T')[0]
-      tradeMap[dateKey] = (t.exit_pnl || 0) > 0 ? 'win' : 'loss'
+      tradeMap[dateKey] = (t.realized_pnl || 0) > 0 ? 'win' : 'loss'
     }
   })
 

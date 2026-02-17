@@ -3,49 +3,7 @@
 import { RefreshCw, TrendingUp, TrendingDown, DollarSign, Target, BarChart3, Clock } from 'lucide-react'
 import { usePositions } from '@/lib/hooks'
 import Link from 'next/link'
-
-interface Position {
-  id: number
-  status: string
-  ticker: string
-  type: string
-  short_strike: number
-  long_strike: number
-  expiration: string
-  dte_at_entry: number
-  contracts: number
-  credit_per_spread: number
-  total_credit: number
-  max_loss_per_spread: number
-  total_max_loss: number
-  profit_target: number
-  stop_loss_amount: number
-  entry_price: number
-  entry_date: string
-  entry_score: number
-  entry_pop: number
-  entry_delta: number
-  current_pnl: number
-  unrealized_pnl?: number
-  exit_date: string | null
-  exit_reason: string | null
-  exit_pnl: number | null
-}
-
-interface PortfolioData {
-  account_size: number
-  starting_balance: number
-  current_balance: number
-  total_pnl: number
-  total_trades: number
-  open_count: number
-  closed_count: number
-  win_rate: number
-  total_credit: number
-  total_max_loss: number
-  open_positions: Position[]
-  closed_trades: Position[]
-}
+import { PaperTrade, PositionsSummary } from '@/lib/types'
 
 function formatMoney(n: number) {
   const sign = n >= 0 ? '+' : ''
@@ -73,7 +31,7 @@ export default function PaperTradingPage() {
     </div>
   )
 
-  const portfolioData = data as PortfolioData
+  const portfolioData = data
 
   return (
     <div className="min-h-screen bg-[#FAF9FB]">
@@ -176,10 +134,11 @@ function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label:
   )
 }
 
-function PositionCard({ position: p, closed }: { position: Position; closed?: boolean }) {
+function PositionCard({ position: p, closed }: { position: PaperTrade; closed?: boolean }) {
   const dte = daysUntil(p.expiration)
-  const pnl = closed ? (p.exit_pnl || 0) : (p.unrealized_pnl ?? p.current_pnl ?? 0)
+  const pnl = closed ? (p.realized_pnl || 0) : (p.unrealized_pnl ?? 0)
   const isWin = pnl >= 0
+  const totalCredit = (p.entry_credit || 0) * 100 * (p.contracts || 1)
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 p-4 hover:shadow-sm transition">
@@ -187,15 +146,15 @@ function PositionCard({ position: p, closed }: { position: Position; closed?: bo
         <div className="flex items-center gap-3">
           <span className="text-lg font-bold text-gray-900">{p.ticker}</span>
           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-            p.type.includes('bear') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'
+            p.type.includes('bear') || p.type.includes('call') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'
           }`}>
-            {p.type.includes('bear') ? 'Bear Call' : 'Bull Put'}
+            {p.type.includes('bear') || p.type.includes('call') ? 'Bear Call' : 'Bull Put'}
           </span>
-          {closed && (
+          {closed && p.status !== 'open' && (
             <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
               isWin ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'
             }`}>
-              {p.exit_reason}
+              {p.status.replace('closed_', '')}
             </span>
           )}
         </div>
@@ -215,23 +174,23 @@ function PositionCard({ position: p, closed }: { position: Position; closed?: bo
         </div>
         <div>
           <span className="text-gray-400 text-xs">Credit</span>
-          <p className="font-medium text-gray-700">${p.total_credit.toLocaleString()}</p>
+          <p className="font-medium text-gray-700">${totalCredit.toLocaleString()}</p>
         </div>
         <div>
           <span className="text-gray-400 text-xs">{closed ? 'Closed' : 'DTE'}</span>
           <p className="font-medium text-gray-700">
-            {closed ? new Date(p.exit_date!).toLocaleDateString() : `${dte}d`}
+            {closed && p.exit_date ? new Date(p.exit_date).toLocaleDateString() : `${dte}d`}
           </p>
         </div>
       </div>
 
       {!closed && (
         <div className="flex items-center gap-4 mt-3 pt-3 border-t border-gray-50 text-xs text-gray-400">
-          <span>PoP: {(p.entry_pop).toFixed(0)}%</span>
-          <span>Delta: {p.entry_delta.toFixed(3)}</span>
-          <span>Score: {p.entry_score.toFixed(1)}</span>
-          <span>Target: ${p.profit_target.toLocaleString()}</span>
-          <span>Stop: ${p.stop_loss_amount.toLocaleString()}</span>
+          <span>PoP: {(p.pop || 0).toFixed(0)}%</span>
+          <span>Delta: {(p.short_delta || 0).toFixed(3)}</span>
+          <span>Score: {(p.score || 0).toFixed(1)}</span>
+          <span>Target: ${(p.profit_target || 0).toLocaleString()}</span>
+          <span>Stop: ${(p.stop_loss || 0).toLocaleString()}</span>
         </div>
       )}
     </div>

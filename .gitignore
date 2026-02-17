@@ -49,6 +49,17 @@ output/
 !data/.gitkeep
 !output/.gitkeep
 
+# ML model artifacts
+*.pkl
+*.joblib
+ml/models/*.pkl
+ml/models/*.joblib
+
+# SQLite databases
+*.db
+*.db-wal
+*.db-shm
+
 # OS
 .DS_Store
 Thumbs.db

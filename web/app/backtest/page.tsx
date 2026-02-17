@@ -6,6 +6,7 @@ import { PlayCircle, TrendingUp, TrendingDown, BarChart3 } from 'lucide-react'
 import { toast } from 'sonner'
 import dynamic from 'next/dynamic'
 import { logger } from '@/lib/logger'
+import { apiFetch } from '@/lib/api'
 
 // Lazy load recharts to prevent SSR issues
 const LazyCharts = dynamic(() => import('@/components/backtest/charts'), { 
@@ -36,8 +37,7 @@ export default function BacktestPage() {
   useEffect(() => {
     const fetchResults = async () => {
       try {
-        const res = await fetch('/api/backtest')
-        const data = await res.json()
+        const data = await apiFetch<BacktestResult>('/api/backtest')
         setResults(data)
       } catch (error) {
         logger.error('Failed to fetch backtest results', { error: String(error) })

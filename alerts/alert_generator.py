@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 import csv
+from shared.database import init_db, insert_alert
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,8 @@ class AlertGenerator:
         # Ensure output directory exists
         self.output_dir = Path('output')
         self.output_dir.mkdir(exist_ok=True)
-        
+
+        init_db()
         logger.info("AlertGenerator initialized")
     
     def generate_alerts(self, opportunities: List[Dict]) -> Dict:
@@ -64,7 +66,14 @@ class AlertGenerator:
             'count': len(top_opportunities),
         }
         
-        # Generate outputs
+        # Persist to SQLite
+        for opp in top_opportunities:
+            try:
+                insert_alert(opp)
+            except Exception as e:
+                logger.warning(f"Failed to insert alert to DB: {e}")
+
+        # Generate file outputs (fallback)
         outputs = {}
         
         if self.alert_config['output_json']:

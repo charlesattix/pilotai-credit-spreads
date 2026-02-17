@@ -9,9 +9,11 @@ vi.mock('next/server', () => ({
   NextRequest: class {
     nextUrl: { pathname: string }
     headers: Map<string, string>
+    cookies: { get: (name: string) => undefined }
     constructor(url: string, opts?: any) {
       this.nextUrl = { pathname: new URL(url).pathname }
       this.headers = new Map(Object.entries(opts?.headers || {}))
+      this.cookies = { get: (_name: string) => undefined }
     }
   },
   NextResponse: {

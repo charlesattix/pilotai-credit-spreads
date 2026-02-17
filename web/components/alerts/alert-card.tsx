@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { ChevronDown, ChevronUp, Sparkles, TrendingUp, Loader2 } from 'lucide-react'
-import { Alert } from '@/lib/api'
+import { Alert } from '@/lib/types'
+import { apiFetch } from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { toast } from 'sonner'
 import { getUserId, PAPER_TRADING_ENABLED } from '@/lib/user-id'
@@ -36,14 +37,13 @@ export function AlertCard({ alert, isNew = false, onPaperTrade }: AlertCardProps
     
     setTrading(true)
     try {
-      const res = await fetch('/api/paper-trades', {
+      const data = await apiFetch<{ success: boolean; trade?: unknown; error?: string }>('/api/paper-trades', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ alert, contracts: 1, userId: getUserId() }),
       })
-      const data = await res.json()
-      
-      if (res.ok) {
+
+      if (data.success) {
         setTraded(true)
         toast.success(`Paper trade opened: ${alert.ticker} ${typeLabel} spread`, {
           description: `Credit: ${formatCurrency(alert.credit * 100)} • Track it on My Trades →`,
@@ -51,7 +51,7 @@ export function AlertCard({ alert, isNew = false, onPaperTrade }: AlertCardProps
         })
         onPaperTrade?.(alert)
       } else {
-        toast.error(data.error || 'Failed to open trade')
+        toast.error('Failed to open trade')
       }
     } catch {
       toast.error('Failed to open paper trade')

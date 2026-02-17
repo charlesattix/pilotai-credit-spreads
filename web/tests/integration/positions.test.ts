@@ -14,6 +14,11 @@ vi.mock('fs', async () => {
   }
 })
 
+vi.mock('@/lib/database', () => ({
+  getTrades: vi.fn().mockReturnValue([]),
+  TradeRow: {},
+}))
+
 import { GET } from '@/app/api/positions/route'
 
 describe('GET /api/positions (integration)', () => {

@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from pathlib import Path
 from constants import MAX_CONTRACTS_PER_TRADE, MANAGEMENT_DTE_THRESHOLD
+from shared.database import init_db, upsert_trade, get_trades, close_trade as db_close_trade
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +47,13 @@ class PaperTrader:
                 )
                 logger.info("Alpaca paper trading ENABLED")
             except Exception as e:
-                logger.warning(f"Alpaca init failed, falling back to JSON: {e}")
+                logger.warning(f"Alpaca init failed, falling back to DB: {e}")
                 self.alpaca = None
 
         DATA_DIR.mkdir(exist_ok=True)
+        init_db()
+
+        # Load trades from SQLite
         self.trades = self._load_trades()
         self._rebuild_cached_lists()
         logger.info(f"PaperTrader initialized | Balance: ${self.account_size:,.0f} | "
@@ -57,37 +61,67 @@ class PaperTrader:
                      f"Alpaca: {'ON' if self.alpaca else 'OFF'}")
 
     def _load_trades(self) -> Dict:
-        if PAPER_LOG.exists():
-            with open(PAPER_LOG) as f:
-                return json.load(f)
+        """Load trades from SQLite database."""
+        db_trades = get_trades(source="scanner")
+        trades_list = []
+        for t in db_trades:
+            trades_list.append(t)
+
+        # Compute stats from trade data
+        closed = [t for t in trades_list if t.get("status", "") != "open"]
+        winners = [t for t in closed if (t.get("pnl") or 0) > 0]
+        losers = [t for t in closed if (t.get("pnl") or 0) <= 0]
+        total_pnl = sum(t.get("pnl") or 0 for t in closed)
+
         return {
             "account_size": self.account_size,
             "starting_balance": self.account_size,
-            "current_balance": self.account_size,
-            "trades": [],
+            "current_balance": self.account_size + total_pnl,
+            "trades": trades_list,
             "stats": {
-                "total_trades": 0,
-                "winners": 0,
-                "losers": 0,
-                "total_pnl": 0,
-                "win_rate": 0,
-                "best_trade": 0,
-                "worst_trade": 0,
-                "avg_winner": 0,
-                "avg_loser": 0,
+                "total_trades": len(trades_list),
+                "winners": len(winners),
+                "losers": len(losers),
+                "total_pnl": round(total_pnl, 2),
+                "win_rate": round(len(winners) / len(closed) * 100, 1) if closed else 0,
+                "best_trade": max((t.get("pnl") or 0 for t in closed), default=0),
+                "worst_trade": min((t.get("pnl") or 0 for t in closed), default=0),
+                "avg_winner": round(sum(t.get("pnl") or 0 for t in winners) / len(winners), 2) if winners else 0,
+                "avg_loser": round(sum(t.get("pnl") or 0 for t in losers) / len(losers), 2) if losers else 0,
                 "max_drawdown": 0,
-                "peak_balance": self.account_size,
+                "peak_balance": self.account_size + total_pnl,
             },
         }
 
     def _rebuild_cached_lists(self):
         """Build the cached open/closed lists from the trades list."""
-        self._open_trades = [t for t in self.trades["trades"] if t["status"] == "open"]
-        self._closed_trades = [t for t in self.trades["trades"] if t["status"] == "closed"]
+        self._open_trades = [t for t in self.trades["trades"] if t.get("status") == "open"]
+        self._closed_trades = [t for t in self.trades["trades"] if t.get("status") != "open"]
+
+    def _save_trades(self):
+        """Persist all trades to SQLite and export dashboard JSON."""
+        for trade in self.trades["trades"]:
+            upsert_trade(trade, source="scanner")
+        self._export_for_dashboard()
+
+    def _export_for_dashboard(self):
+        """Write trades in format the web dashboard expects (deprecated — use SQLite)."""
+        dashboard_data = {
+            "balance": self.trades["current_balance"],
+            "starting_balance": self.trades["starting_balance"],
+            "total_pnl": self.trades["stats"]["total_pnl"],
+            "win_rate": self.trades["stats"]["win_rate"],
+            "open_positions": [t for t in self.trades["trades"] if t.get("status") == "open"],
+            "closed_positions": [t for t in self.trades["trades"] if t.get("status") != "open"],
+            "stats": self.trades["stats"],
+            "updated_at": datetime.now().isoformat(),
+        }
+        self._atomic_json_write(TRADES_FILE, dashboard_data)
 
     @staticmethod
     def _atomic_json_write(filepath: Path, data: dict):
         """Write JSON atomically: write to temp file then rename."""
+        filepath.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp_path = tempfile.mkstemp(dir=filepath.parent, suffix=".tmp")
         try:
             with os.fdopen(fd, "w") as f:
@@ -100,25 +134,6 @@ class PaperTrader:
                 pass
             raise
 
-    def _save_trades(self):
-        self._atomic_json_write(PAPER_LOG, self.trades)
-        # Also write to trades.json for the web dashboard
-        self._export_for_dashboard()
-
-    def _export_for_dashboard(self):
-        """Write trades in format the web dashboard expects."""
-        dashboard_data = {
-            "balance": self.trades["current_balance"],
-            "starting_balance": self.trades["starting_balance"],
-            "total_pnl": self.trades["stats"]["total_pnl"],
-            "win_rate": self.trades["stats"]["win_rate"],
-            "open_positions": [t for t in self.trades["trades"] if t["status"] == "open"],
-            "closed_positions": [t for t in self.trades["trades"] if t["status"] == "closed"],
-            "stats": self.trades["stats"],
-            "updated_at": datetime.now().isoformat(),
-        }
-        self._atomic_json_write(TRADES_FILE, dashboard_data)
-
     @property
     def open_trades(self) -> List[Dict]:
         return self._open_trades
@@ -130,10 +145,10 @@ class PaperTrader:
     def execute_signals(self, opportunities: List[Dict]) -> List[Dict]:
         """
         Take scanner output and open paper trades for the best signals.
-        
+
         Args:
             opportunities: List of opportunity dicts from the scanner
-            
+
         Returns:
             List of newly opened trades
         """
@@ -160,7 +175,7 @@ class PaperTrader:
             o for o in sorted_opps
             if (o["ticker"], o.get("short_strike"), o.get("expiration")) not in open_keys
         ]
-        
+
         # Also limit max 3 positions per ticker to avoid concentration
         ticker_counts = {}
         for t in self.open_trades:
@@ -186,7 +201,7 @@ class PaperTrader:
         """Open a paper trade from an opportunity."""
         credit = opp.get("credit", 0)
         max_loss = opp.get("max_loss", 0)
-        
+
         if credit <= 0 or max_loss <= 0:
             return None
 
@@ -206,6 +221,7 @@ class PaperTrader:
             "dte_at_entry": opp.get("dte", 0),
             "contracts": contracts,
             "credit_per_spread": credit,
+            "credit": credit,
             "total_credit": round(credit * contracts * 100, 2),
             "max_loss_per_spread": max_loss,
             "total_max_loss": round(max_loss * contracts * 100, 2),
@@ -237,17 +253,20 @@ class PaperTrader:
                 trade["alpaca_order_id"] = alpaca_result.get("order_id")
                 trade["alpaca_status"] = alpaca_result.get("status")
                 if alpaca_result["status"] == "error":
-                    logger.warning(f"Alpaca order failed: {alpaca_result['message']}. Recording in JSON only.")
+                    logger.warning(f"Alpaca order failed: {alpaca_result['message']}. Recording in DB only.")
                 else:
                     logger.info(f"Alpaca order submitted: {alpaca_result['order_id']}")
             except Exception as e:
-                logger.warning(f"Alpaca submission failed, recording in JSON: {e}")
+                logger.warning(f"Alpaca submission failed, recording in DB: {e}")
                 trade["alpaca_order_id"] = None
-                trade["alpaca_status"] = "fallback_json"
+                trade["alpaca_status"] = "fallback_db"
 
         self.trades["trades"].append(trade)
         self._open_trades.append(trade)
         self.trades["stats"]["total_trades"] += 1
+
+        # Persist to SQLite immediately
+        upsert_trade(trade, source="scanner")
 
         logger.info(
             f"PAPER TRADE OPENED: {trade['type']} on {trade['ticker']} | "
@@ -260,10 +279,10 @@ class PaperTrader:
     def check_positions(self, current_prices: Dict[str, float]) -> List[Dict]:
         """
         Check open positions against current prices and close if needed.
-        
+
         Args:
             current_prices: Dict of {ticker: current_price}
-            
+
         Returns:
             List of closed trades
         """
@@ -272,21 +291,22 @@ class PaperTrader:
 
         for trade in self.open_trades:
             ticker = trade["ticker"]
-            current_price = current_prices.get(ticker, trade["entry_price"])
+            current_price = current_prices.get(ticker, trade.get("entry_price", 0))
 
             # Parse expiration
-            exp_str = trade["expiration"].split(" ")[0] if " " in trade["expiration"] else trade["expiration"]
+            exp_str = str(trade.get("expiration", ""))
+            exp_str = exp_str.split(" ")[0] if " " in exp_str else exp_str
             try:
                 exp_date = datetime.strptime(exp_str, "%Y-%m-%d")
             except ValueError:
                 try:
-                    exp_date = datetime.fromisoformat(trade["expiration"])
+                    exp_date = datetime.fromisoformat(exp_str)
                 except ValueError:
-                    logger.error(f"Could not parse expiration '{trade['expiration']}' for trade {trade.get('id')}, defaulting to +30d", exc_info=True)
+                    logger.error(f"Could not parse expiration '{trade.get('expiration')}' for trade {trade.get('id')}, defaulting to +30d", exc_info=True)
                     exp_date = now + timedelta(days=30)
 
             dte = (exp_date - now).days
-            
+
             # Simulate current spread value based on price movement and time decay
             pnl, close_reason = self._evaluate_position(trade, current_price, dte)
             trade["current_pnl"] = pnl
@@ -305,23 +325,19 @@ class PaperTrader:
         Evaluate a position and determine if it should be closed.
         Returns (pnl, close_reason) — close_reason is None if still open.
         """
-        credit = trade["total_credit"]
-        contracts = trade["contracts"]
-        short_strike = trade["short_strike"]
-        long_strike = trade["long_strike"]
-        spread_type = trade["type"]
+        credit = trade.get("total_credit", 0)
+        contracts = trade.get("contracts", 1)
+        short_strike = trade.get("short_strike", 0)
+        long_strike = trade.get("long_strike", 0)
+        spread_type = trade.get("type", "")
 
         # Determine if in danger
         if "call" in spread_type.lower():
             # Bear call spread: bad if price goes above short strike
             intrinsic = max(0, current_price - short_strike)
-            distance_pct = (short_strike - current_price) / current_price if current_price > 0 else 0
         else:
             # Bull put spread: bad if price goes below short strike
             intrinsic = max(0, short_strike - current_price)
-            distance_pct = (current_price - short_strike) / current_price if current_price > 0 else 0
-
-        spread_width = abs(long_strike - short_strike)
 
         # Simplified P&L model:
         # If OTM and time has passed, spread value decays toward 0 (we profit)
@@ -331,13 +347,12 @@ class PaperTrader:
 
         if intrinsic == 0:
             # OTM — time decay is our friend
-            # Estimate current spread value as fraction of original credit
             decay_factor = max(0, 1 - time_passed_pct * 1.2)  # Accelerating decay
             current_value = credit * decay_factor
             pnl = round(credit - current_value, 2)
         else:
             # ITM — losing money
-            current_spread_value = min(intrinsic * contracts * 100, trade["total_max_loss"])
+            current_spread_value = min(intrinsic * contracts * 100, trade.get("total_max_loss", 0))
             remaining_extrinsic = credit * max(0, 1 - time_passed_pct) * 0.3
             pnl = round(-(current_spread_value - remaining_extrinsic), 2)
 
@@ -345,11 +360,11 @@ class PaperTrader:
         close_reason = None
 
         # 1. Profit target hit (50% of credit)
-        if pnl >= trade["profit_target"]:
+        if pnl >= trade.get("profit_target", float('inf')):
             close_reason = "profit_target"
 
         # 2. Stop loss hit
-        elif pnl <= -trade["stop_loss_amount"]:
+        elif pnl <= -trade.get("stop_loss_amount", float('inf')):
             close_reason = "stop_loss"
 
         # 3. Expiration (or close at 1 DTE)
@@ -384,6 +399,7 @@ class PaperTrader:
         trade["exit_date"] = datetime.now().isoformat()
         trade["exit_reason"] = reason
         trade["exit_pnl"] = pnl
+        trade["pnl"] = pnl
 
         # Move from open to closed cached lists
         if trade in self._open_trades:
@@ -408,10 +424,10 @@ class PaperTrader:
         stats["best_trade"] = max(stats["best_trade"], pnl)
         stats["worst_trade"] = min(stats["worst_trade"], pnl)
 
-        winners = [t["exit_pnl"] for t in self.closed_trades if (t.get("exit_pnl") or 0) > 0]
-        losers = [t["exit_pnl"] for t in self.closed_trades if (t.get("exit_pnl") or 0) < 0]
+        winners = [t.get("exit_pnl") or t.get("pnl") or 0 for t in self.closed_trades if (t.get("exit_pnl") or t.get("pnl") or 0) > 0]
+        losers_pnl = [t.get("exit_pnl") or t.get("pnl") or 0 for t in self.closed_trades if (t.get("exit_pnl") or t.get("pnl") or 0) < 0]
         stats["avg_winner"] = round(sum(winners) / len(winners), 2) if winners else 0
-        stats["avg_loser"] = round(sum(losers) / len(losers), 2) if losers else 0
+        stats["avg_loser"] = round(sum(losers_pnl) / len(losers_pnl), 2) if losers_pnl else 0
 
         # Track peak and drawdown
         if self.trades["current_balance"] > stats["peak_balance"]:
@@ -419,8 +435,11 @@ class PaperTrader:
         drawdown = stats["peak_balance"] - self.trades["current_balance"]
         stats["max_drawdown"] = max(stats["max_drawdown"], drawdown)
 
+        # Persist to SQLite
+        db_close_trade(str(trade.get("id", "")), pnl, reason)
+
         logger.info(
-            f"PAPER TRADE CLOSED: {trade['ticker']} {trade['type']} | "
+            f"PAPER TRADE CLOSED: {trade['ticker']} {trade.get('type', '')} | "
             f"P&L: ${pnl:+.2f} | Reason: {reason} | "
             f"Balance: ${self.trades['current_balance']:,.2f}"
         )
@@ -453,7 +472,7 @@ class PaperTrader:
         reset = "\033[0m"
 
         print("\n" + "=" * 60)
-        print("  📊 PAPER TRADING SUMMARY")
+        print("  PAPER TRADING SUMMARY")
         print("=" * 60)
         print(f"  Balance:        ${s['balance']:>12,.2f}")
         print(f"  Total P&L:      {pnl_color}${s['total_pnl']:>+12,.2f}{reset}")
@@ -469,8 +488,8 @@ class PaperTrader:
         if s["open_trades"]:
             print("\n  OPEN POSITIONS:")
             for t in s["open_trades"]:
-                print(f"    {t['ticker']} {t['type']} "
-                      f"${t['short_strike']}/{t['long_strike']} "
-                      f"x{t['contracts']} | Credit: ${t['total_credit']:.0f} | "
-                      f"P&L: ${t['current_pnl']:+.2f}")
+                print(f"    {t['ticker']} {t.get('type', '')} "
+                      f"${t.get('short_strike', 0)}/{t.get('long_strike', 0)} "
+                      f"x{t.get('contracts', 1)} | Credit: ${t.get('total_credit', 0):.0f} | "
+                      f"P&L: ${t.get('current_pnl', 0):+.2f}")
         print()

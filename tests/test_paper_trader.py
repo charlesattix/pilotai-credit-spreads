@@ -52,9 +52,12 @@ def _make_opportunity(ticker='SPY', credit=1.50, max_loss=3.50,
 
 class TestPaperTrader:
 
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
     @patch('paper_trader.PAPER_LOG')
     @patch('paper_trader.DATA_DIR')
-    def test_load_empty_trades(self, mock_data_dir, mock_paper_log, tmp_path):
+    def test_load_empty_trades(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
         """A fresh PaperTrader with no existing file should have zero trades."""
         mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
         mock_data_dir.mkdir = MagicMock()
@@ -64,9 +67,12 @@ class TestPaperTrader:
         assert len(pt.trades['trades']) == 0
         assert pt.trades['current_balance'] == 100000
 
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
     @patch('paper_trader.PAPER_LOG')
     @patch('paper_trader.DATA_DIR')
-    def test_open_trade(self, mock_data_dir, mock_paper_log, tmp_path):
+    def test_open_trade(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
         """execute_signals should open a trade for a valid opportunity."""
         mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
         mock_data_dir.mkdir = MagicMock()
@@ -84,9 +90,12 @@ class TestPaperTrader:
         assert new_trades[0]['ticker'] == 'SPY'
         assert new_trades[0]['status'] == 'open'
 
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
     @patch('paper_trader.PAPER_LOG')
     @patch('paper_trader.DATA_DIR')
-    def test_duplicate_prevention(self, mock_data_dir, mock_paper_log, tmp_path):
+    def test_duplicate_prevention(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
         """The same ticker+strike+expiration should not be opened twice."""
         mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
         mock_data_dir.mkdir = MagicMock()
@@ -103,9 +112,12 @@ class TestPaperTrader:
         new_trades = pt.execute_signals([opp])
         assert len(new_trades) == 0
 
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
     @patch('paper_trader.PAPER_LOG')
     @patch('paper_trader.DATA_DIR')
-    def test_position_limit(self, mock_data_dir, mock_paper_log, tmp_path):
+    def test_position_limit(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
         """Should not open more trades than max_positions."""
         mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
         mock_data_dir.mkdir = MagicMock()
@@ -123,9 +135,13 @@ class TestPaperTrader:
         new_trades = pt.execute_signals(opps)
         assert len(new_trades) == 2  # limited by max_positions
 
+    @patch('paper_trader.db_close_trade')
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
     @patch('paper_trader.PAPER_LOG')
     @patch('paper_trader.DATA_DIR')
-    def test_close_at_profit_target(self, mock_data_dir, mock_paper_log, tmp_path):
+    def test_close_at_profit_target(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, mock_db_close, tmp_path):
         """Position should close when P&L hits the profit target."""
         mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
         mock_data_dir.mkdir = MagicMock()
@@ -220,9 +236,12 @@ def _make_trade(
 class TestEvaluatePosition:
     """Tests for PaperTrader._evaluate_position."""
 
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
     @patch('paper_trader.PAPER_LOG')
     @patch('paper_trader.DATA_DIR')
-    def _get_trader(self, mock_data_dir, mock_paper_log, tmp_path):
+    def _get_trader(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
         mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
         mock_data_dir.mkdir = MagicMock()
         mock_paper_log.exists.return_value = False
