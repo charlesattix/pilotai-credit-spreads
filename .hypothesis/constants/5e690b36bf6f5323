@@ -1,0 +1,4 @@
+# file: /Users/charlesbot/projects/pilotai-credit-spreads/strategy/options_analyzer.py
+# hypothesis_version: 6.141.1
+
+[0.0, 0.2, 0.5, 365.0, 100, 252, 365, '%Y-%m-%d', '1y', 'Close', 'Polygon', 'Tradier', 'YOUR_TRADIER_API_KEY', 'api_key', 'ask', 'bid', 'call', 'contractSymbol', 'contract_symbol', 'current_iv', 'data', 'delta', 'expiration', 'impliedVolatility', 'inTheMoney', 'itm', 'iv', 'iv_max', 'iv_max_52w', 'iv_min', 'iv_min_52w', 'iv_percentile', 'iv_rank', 'last', 'lastPrice', 'lastTradeDate', 'last_trade_date', 'max_dte', 'mid', 'min_dte', 'polygon', 'provider', 'put', 'sandbox', 'strategy', 'strike', 'tradier', 'type']

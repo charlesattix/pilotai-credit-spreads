@@ -1,0 +1,4 @@
+# file: /Users/charlesbot/projects/pilotai-credit-spreads/strategy/technical_analysis.py
+# hypothesis_version: 6.141.1
+
+[0.01, 0.02, 'Close', 'High', 'Low', 'MA_fast', 'MA_slow', 'bearish', 'bullish', 'current_price', 'fast_ma', 'ma_fast', 'ma_slow', 'near_resistance', 'near_support', 'nearest_resistance', 'nearest_support', 'neutral', 'price_above_ma_fast', 'price_above_ma_slow', 'resistance_levels', 'rsi', 'rsi_overbought', 'rsi_oversold', 'rsi_period', 'slow_ma', 'strategy', 'support_levels', 'technical', 'ticker', 'trend', 'use_rsi_filter', 'use_trend_filter']

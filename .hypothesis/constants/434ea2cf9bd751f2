@@ -1,0 +1,4 @@
+# file: /Users/charlesbot/projects/pilotai-credit-spreads/ml/regime_detector.py
+# hypothesis_version: 6.141.1
+
+[0.0, 0.5, 1.0, 100, 252, '1y', '3mo', '6mo', 'Close', 'SPY', 'TLT', 'Volume', '^VIX', '__float__', 'columns', 'confidence', 'crisis', 'diag', 'fallback', 'features', 'high_vol_trending', 'hmm_state', 'low_vol_trending', 'mean_reverting', 'realized_vol_10d', 'realized_vol_20d', 'realized_vol_5d', 'regime', 'regime_id', 'rsi', 'spy', 'spy_sma_20', 'spy_sma_50', 'spy_tlt_corr', 'squeeze', 'timestamp', 'tlt', 'trend_strength', 'vix', 'vix_level', 'vix_term_structure', 'volume_ratio']

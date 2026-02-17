@@ -1,0 +1,4 @@
+# file: /Users/charlesbot/projects/pilotai-credit-spreads/strategy/tradier_provider.py
+# hypothesis_version: 6.141.1
+
+[0.25, 0.5, 429, 500, 502, 503, 504, '%Y-%m-%d', 'Accept', 'Authorization', 'application/json', 'ask', 'bid', 'call', 'contract_symbol', 'date', 'delta', 'dte', 'expiration', 'expirations', 'false', 'gamma', 'greeks', 'https://', 'includeAllRoots', 'itm', 'iv', 'last', 'mid', 'mid_iv', 'open_interest', 'option', 'option_type', 'options', 'put', 'quote', 'quotes', 'raw_delta', 'strike', 'strikes', 'symbol', 'symbols', 'theta', 'true', 'type', 'vega', 'volume']

@@ -1,0 +1,4 @@
+# file: /Users/charlesbot/projects/pilotai-credit-spreads/shared/constants.py
+# hypothesis_version: 6.141.1
+
+[0.045, 0.35, 0.9, 2025, 2026]

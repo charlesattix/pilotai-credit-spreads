@@ -1,0 +1,4 @@
+# file: /Users/charlesbot/projects/pilotai-credit-spreads/alerts/alert_generator.py
+# hypothesis_version: 6.141.1
+
+['-', '=', 'MARKET CONTEXT:', 'PROBABILITIES:', 'RISK/REWARD:', 'TRADE SETUP:', 'alerts', 'bull_put_spread', 'count', 'credit', 'csv', 'csv_file', 'current_price', 'distance_to_short', 'dte', 'expiration', 'json', 'json_file', 'long_strike', 'max_loss', 'max_profit', 'opportunities', 'output', 'output_csv', 'output_json', 'output_text', 'pop', 'profit_target', 'risk_reward', 'score', 'short_delta', 'short_strike', 'stop_loss', 'text', 'text_file', 'ticker', 'timestamp', 'type', 'w', '📋 <b>TRADE:</b>', '🔴', '🔵']

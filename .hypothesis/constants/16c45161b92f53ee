@@ -1,0 +1,4 @@
+# file: /Users/charlesbot/projects/pilotai-credit-spreads/shared/indicators.py
+# hypothesis_version: 6.141.1
+
+[-1000000.0, 0.0, 50.0, 1000000.0, 100, 'iv_max', 'iv_min', 'iv_percentile', 'iv_rank']

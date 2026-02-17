@@ -1,0 +1,4 @@
+# file: /Users/charlesbot/projects/pilotai-credit-spreads/strategy/spread_strategy.py
+# hypothesis_version: 6.141.1
+
+[0.5, 100, 'ask', 'bear_call', 'bear_call_spread', 'bearish', 'bid', 'bull_put', 'bull_put_spread', 'bullish', 'call', 'credit', 'current_price', 'delta', 'distance_to_short', 'dte', 'expiration', 'iv_percentile', 'iv_rank', 'long_strike', 'max_delta', 'max_dte', 'max_loss', 'max_profit', 'min_credit_pct', 'min_delta', 'min_dte', 'min_iv_percentile', 'min_iv_rank', 'near_resistance', 'near_support', 'neutral', 'pop', 'profit_target', 'put', 'risk', 'risk_reward', 'rsi', 'rsi_overbought', 'rsi_oversold', 'score', 'short_delta', 'short_strike', 'spread_width', 'stop_loss', 'stop_loss_multiplier', 'strategy', 'strike', 'technical', 'ticker', 'trend', 'type', 'use_rsi_filter', 'use_trend_filter']

@@ -5,7 +5,7 @@ import { randomUUID } from "crypto";
 import { z } from "zod";
 import { PaperTrade } from "@/lib/types";
 import { calcUnrealizedPnL } from "@/lib/pnl";
-import { calculatePortfolioStats } from "@/lib/paper-trades";
+import { calculatePortfolioStats, shouldAutoClose } from "@/lib/paper-trades";
 import { getUserTrades, upsertUserTrade, closeUserTrade, TradeRow } from "@/lib/database";
 
 const AlertSchema = z.object({
@@ -80,7 +80,21 @@ export async function GET(request: Request) {
     const trades: PaperTrade[] = dbTrades.map(tradeRowToPaperTrade).map((trade) => {
       if (trade.status === 'open') {
         const { unrealized_pnl, days_remaining } = calcUnrealizedPnL(trade);
-        return { ...trade, unrealized_pnl, days_remaining };
+        const enriched = { ...trade, unrealized_pnl, days_remaining };
+
+        // Auto-close trades that hit profit target, stop loss, or expiration
+        const autoClose = shouldAutoClose(enriched);
+        if (autoClose.close) {
+          const closed = closeUserTrade(trade.id, unrealized_pnl, autoClose.reason);
+          if (closed) {
+            return {
+              ...tradeRowToPaperTrade(closed),
+              realized_pnl: unrealized_pnl,
+            };
+          }
+        }
+
+        return enriched;
       }
       return trade;
     });

@@ -1,0 +1,4 @@
+# file: /Users/charlesbot/projects/pilotai-credit-spreads/tracker/trade_tracker.py
+# hypothesis_version: 6.141.1
+
+[100, '.tmp', 'No trades to export', 'avg_loss', 'avg_pnl', 'avg_win', 'best_trade', 'contracts', 'credit', 'data', 'entry_date', 'exit_date', 'exit_price', 'exit_reason', 'expiration', 'long_strike', 'losing_trades', 'max_loss', 'open', 'open_positions', 'output', 'pnl', 'position_id', 'positions.json', 'r', 'return_pct', 'short_strike', 'status', 'ticker', 'total_pnl', 'total_trades', 'tracker_trades.json', 'trades_export.csv', 'type', 'w', 'win_rate', 'winning_trades', 'worst_trade']

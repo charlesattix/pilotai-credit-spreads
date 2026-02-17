@@ -1,0 +1,4 @@
+# file: /Users/charlesbot/projects/pilotai-credit-spreads/ml/sentiment_scanner.py
+# hypothesis_version: 6.141.1
+
+[0.0, 0.15, 0.2, 0.25, 0.35, 0.4, 0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 0.95, 1.0, 86400, ', ', 'Earnings Date', 'Upcoming Events:\n', 'avoid', 'caution', 'cpi', 'days_until', 'description', 'earnings', 'earnings_date', 'error', 'event_date', 'event_risk_score', 'event_type', 'events', 'fomc', 'highest_risk_event', 'impact', 'proceed', 'proceed_reduced', 'recommendation', 'risk_score', 'scan_date', 'scan_window_days', 'ticker']

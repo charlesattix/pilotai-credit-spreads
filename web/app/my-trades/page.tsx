@@ -72,7 +72,7 @@ export default function MyTradesPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6">
           <StatCard
             label="Balance"
-            value={`$${stats.balance.toLocaleString()}`}
+            value={`$${(stats.balance || 0).toLocaleString()}`}
             icon={<DollarSign className="w-4 h-4" />}
             color="text-foreground"
           />

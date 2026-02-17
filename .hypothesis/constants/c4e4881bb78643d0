@@ -1,0 +1,4 @@
+# file: /Users/charlesbot/projects/pilotai-credit-spreads/tracker/pnl_dashboard.py
+# hypothesis_version: 6.141.1
+
+[100, '  ❌ Below target', '-', '=', 'No open positions', 'OPEN POSITIONS', 'OVERALL STATISTICS', 'TOP TRADES', 'exit_date', 'expiration', 'open_positions', 'open_positions_count', 'pnl', 'statistics', 'timestamp', 'win_rate']

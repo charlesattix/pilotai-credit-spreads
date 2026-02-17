@@ -1,0 +1,4 @@
+# file: /Users/charlesbot/projects/pilotai-credit-spreads/backtest/performance_metrics.py
+# hypothesis_version: 6.141.1
+
+['%Y%m%d_%H%M%S', '-', '=', 'BACKTEST SUMMARY', 'RETURNS', 'RISK METRICS', 'SUMMARY', 'TARGET ANALYSIS', 'TRADE STATISTICS', 'backtest', 'report_dir', 'total_pnl', 'w', 'win_rate']

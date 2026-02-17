@@ -1,0 +1,4 @@
+# file: /Users/charlesbot/projects/pilotai-credit-spreads/shared/io_utils.py
+# hypothesis_version: 6.141.1
+
+['.tmp', 'w']

@@ -1,0 +1,4 @@
+# file: /Users/charlesbot/projects/pilotai-credit-spreads/alerts/telegram_bot.py
+# hypothesis_version: 6.141.1
+
+['HTML', 'Telegram alert sent', 'YOUR_BOT_TOKEN_HERE', '__main__', 'alerts', 'bot_token', 'chat_id', 'enabled', 'telegram']

@@ -1,0 +1,4 @@
+# file: /Users/charlesbot/projects/pilotai-credit-spreads/backtest/backtester.py
+# hypothesis_version: 6.141.1
+
+[0.3, 0.5, 0.7, 0.95, 1.0, 1.05, 100, 252, 'Close', 'avg_loss', 'avg_win', 'backtest', 'backtest_end', 'bull_put_spread', 'commission', 'contracts', 'credit', 'cummax', 'current_value', 'date', 'drawdown', 'ending_capital', 'entry_date', 'equity', 'equity_curve', 'exit_date', 'exit_reason', 'expiration', 'expiration_loss', 'expiration_profit', 'inf', 'long_strike', 'losing_trades', 'max_drawdown', 'max_loss', 'max_positions', 'max_risk_per_trade', 'open', 'pnl', 'profit_factor', 'profit_target', 'records', 'return_pct', 'returns', 'risk', 'sharpe_ratio', 'short_strike', 'slippage', 'spread_width', 'starting_capital', 'status', 'stop_loss', 'stop_loss_multiplier', 'strategy', 'ticker', 'total_pnl', 'total_trades', 'trades', 'type', 'win_rate', 'winning_trades']

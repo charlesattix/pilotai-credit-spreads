@@ -61,12 +61,12 @@ export default function PaperTradingPage() {
         {/* Stats Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard icon={<DollarSign className="w-5 h-5" />} label="Balance"
-            value={`$${portfolioData.current_balance.toLocaleString()}`} color="#9B6DFF" />
+            value={`$${(portfolioData.current_balance || 0).toLocaleString()}`} color="#9B6DFF" />
           <StatCard icon={<TrendingUp className="w-5 h-5" />} label="Total P&L"
             value={formatMoney(portfolioData.total_pnl)}
             color={portfolioData.total_pnl >= 0 ? '#22c55e' : '#ef4444'} />
           <StatCard icon={<Target className="w-5 h-5" />} label="Credit Collected"
-            value={`$${portfolioData.total_credit.toLocaleString()}`} color="#E84FAD" />
+            value={`$${(portfolioData.total_credit || 0).toLocaleString()}`} color="#E84FAD" />
           <StatCard icon={<BarChart3 className="w-5 h-5" />} label="Win Rate"
             value={portfolioData.closed_count > 0 ? `${portfolioData.win_rate.toFixed(0)}%` : 'N/A'} color="#F59E42" />
         </div>
@@ -76,7 +76,7 @@ export default function PaperTradingPage() {
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium text-gray-700">Portfolio Risk</span>
             <span className="text-sm text-gray-500">
-              {portfolioData.open_count} open · Max loss: ${portfolioData.total_max_loss.toLocaleString()}
+              {portfolioData.open_count} open · Max loss: ${(portfolioData.total_max_loss || 0).toLocaleString()}
             </span>
           </div>
           <div className="w-full bg-gray-100 rounded-full h-3">
@@ -174,7 +174,7 @@ function PositionCard({ position: p, closed }: { position: PaperTrade; closed?: 
         </div>
         <div>
           <span className="text-gray-400 text-xs">Credit</span>
-          <p className="font-medium text-gray-700">${totalCredit.toLocaleString()}</p>
+          <p className="font-medium text-gray-700">${(totalCredit || 0).toLocaleString()}</p>
         </div>
         <div>
           <span className="text-gray-400 text-xs">{closed ? 'Closed' : 'DTE'}</span>
