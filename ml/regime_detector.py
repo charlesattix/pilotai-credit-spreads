@@ -252,7 +252,7 @@ class RegimeDetector:
         features['trend_strength'] = (close - features['spy_sma_20']) / features['spy_sma_20'] * 100
 
         # RSI
-        features['rsi'] = self._calculate_rsi(close, period=14)
+        features['rsi'] = calculate_rsi(close, period=14)
 
         # SPY-TLT correlation (risk-on/risk-off)
         if not tlt.empty:
@@ -302,7 +302,7 @@ class RegimeDetector:
                 'vix_term_structure': float(vix['Close'].iloc[-1] / vix['Close'].tail(60).mean()),
                 'spy_sma_20': float(spy['Close'].tail(20).mean()),
                 'spy_sma_50': float(spy['Close'].tail(50).mean()),
-                'rsi': float(self._calculate_rsi(spy['Close'], period=14).iloc[-1]),
+                'rsi': float(calculate_rsi(spy['Close'], period=14).iloc[-1]),
                 'volume_ratio': float(spy['Volume'].iloc[-1] / spy['Volume'].tail(20).mean() if 'Volume' in spy.columns else 1.0),
             }
 
@@ -355,12 +355,6 @@ class RegimeDetector:
                 regime_labels[i] = 2  # mean_reverting
 
         return regime_labels
-
-    def _calculate_rsi(self, prices: pd.Series, period: int = 14) -> pd.Series:
-        """
-        Calculate RSI (Relative Strength Index).
-        """
-        return calculate_rsi(prices, period)
 
     def _get_feature_columns(self) -> list:
         """

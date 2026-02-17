@@ -1,6 +1,6 @@
 'use client'
 
-import { TrendingUp, TrendingDown, Clock, DollarSign, Activity } from 'lucide-react'
+import { DollarSign, Activity } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { Position } from '@/lib/types'
 

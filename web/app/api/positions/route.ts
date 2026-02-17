@@ -1,12 +1,12 @@
 import { logger } from "@/lib/logger"
 import { NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
 import path from 'path';
 import { PaperTrade, PositionsSummary } from '@/lib/types';
 import { calcUnrealizedPnL } from '@/lib/pnl';
 import { calculatePortfolioStats } from '@/lib/paper-trades';
 import { getTrades, TradeRow } from '@/lib/database';
 import { DATA_DIR } from '@/lib/paths';
+import { tryReadFile } from '@/lib/fs-utils';
 
 export const dynamic = 'force-dynamic'
 
@@ -52,15 +52,15 @@ function tradeRowToPaperTrade(row: TradeRow): PaperTrade {
 
 export async function GET() {
   try {
-    // Primary: read from SQLite
-    const dbTrades = getTrades({ source: 'scanner' });
+    // Primary: read ALL trades from SQLite (both scanner and user-initiated)
+    const dbTrades = getTrades({});
     if (dbTrades.length > 0) {
       const allTrades = dbTrades.map(tradeRowToPaperTrade);
       return buildResponse(allTrades);
     }
 
     // Fallback: read from JSON file during transition
-    const content = await tryRead(
+    const content = await tryReadFile(
       path.join(DATA_DIR, 'paper_trades.json'),
       path.join(process.cwd(), 'public', 'data', 'paper_trades.json'),
     );
@@ -113,11 +113,4 @@ function buildResponse(allTrades: PaperTrade[], paper?: Record<string, unknown>)
   };
 
   return NextResponse.json(response);
-}
-
-async function tryRead(...paths: string[]): Promise<string | null> {
-  for (const p of paths) {
-    try { return await fs.readFile(p, 'utf-8'); } catch { /* ignore */ }
-  }
-  return null;
 }

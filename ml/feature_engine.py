@@ -42,14 +42,9 @@ class FeatureEngine:
             data_cache: Optional DataCache instance for shared data retrieval.
         """
         self.data_cache = data_cache
-        self.feature_cache = {}
-        self.cache_timestamps = {}
 
         # Known FOMC meeting dates 2025-2026
         self.fomc_dates = FOMC_DATES
-
-        # CPI release dates (typically 2nd week of month)
-        self.cpi_months = list(range(1, 13))
 
         logger.info("FeatureEngine initialized")
 
@@ -146,7 +141,7 @@ class FeatureEngine:
             features = {}
 
             # RSI (14-day)
-            features['rsi_14'] = float(self._calculate_rsi(close, 14).iloc[-1])
+            features['rsi_14'] = float(calculate_rsi(close, 14).iloc[-1])
 
             # MACD
             macd_line, signal_line, macd_hist = self._calculate_macd(close)
@@ -469,10 +464,6 @@ class FeatureEngine:
         return derived
 
     # Helper methods for technical indicators
-
-    def _calculate_rsi(self, prices: pd.Series, period: int = 14) -> pd.Series:
-        """Calculate RSI."""
-        return calculate_rsi(prices, period)
 
     def _calculate_macd(self, prices: pd.Series, fast=12, slow=26, signal=9) -> tuple:
         """Calculate MACD."""

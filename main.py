@@ -326,15 +326,20 @@ class CreditSpreadSystem:
 
     def generate_alerts_only(self):
         """
-        Generate alerts from recent scans without new scanning.
+        Generate and send alerts from stored alert data in the database.
+        Does NOT run a new scan — reads previously saved alerts.
         """
+        from shared.database import get_latest_alerts
+
         logger.info("Generating alerts from stored data")
 
-        # For demo purposes, run a quick scan
-        opportunities = self.scan_opportunities()
+        stored_alerts = get_latest_alerts(limit=50)
+        if not stored_alerts:
+            logger.info("No stored alerts found. Run a scan first.")
+            return
 
-        if opportunities:
-            logger.info(f"Generated alerts for {len(opportunities)} opportunities")
+        logger.info(f"Found {len(stored_alerts)} stored alerts")
+        self._generate_alerts(stored_alerts)
 
 
 def create_system(config_file: str = 'config.yaml') -> CreditSpreadSystem:

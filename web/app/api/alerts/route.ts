@@ -1,18 +1,11 @@
 import { NextResponse } from "next/server";
-import { readFile } from "fs/promises";
 import path from "path";
 import { logger } from "@/lib/logger";
 import { getAlerts } from "@/lib/database";
 import { DATA_DIR, OUTPUT_DIR } from "@/lib/paths";
+import { tryReadFile } from "@/lib/fs-utils";
 
 export const dynamic = 'force-dynamic'
-
-async function tryReadJsonFile(...paths: string[]): Promise<string | null> {
-  for (const p of paths) {
-    try { return await readFile(p, "utf-8"); } catch {}
-  }
-  return null;
-}
 
 export async function GET() {
   try {
@@ -28,7 +21,7 @@ export async function GET() {
     }
 
     // Fallback: read from JSON file during transition
-    const content = await tryReadJsonFile(
+    const content = await tryReadFile(
       path.join(DATA_DIR, "alerts.json"),
       path.join(process.cwd(), "public", "data", "alerts.json"),
       path.join(OUTPUT_DIR, "alerts.json"),

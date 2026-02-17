@@ -281,11 +281,9 @@ class CreditSpreadStrategy:
 
             dte = (expiration - datetime.now()).days
 
-            # Distance to short strike direction differs
-            if spread_type == 'bull_put':
-                distance_to_short = short_strike - current_price
-            else:
-                distance_to_short = current_price - short_strike
+            # Distance to short strike (always positive — how far price
+            # must move adversely to reach the short strike)
+            distance_to_short = abs(current_price - short_strike)
 
             spread = {
                 'ticker': ticker,

@@ -4,6 +4,7 @@ This is the single canonical location for all named constants.  Do NOT
 create secondary ``constants.py`` files elsewhere in the tree.
 """
 
+import logging
 import os
 from datetime import datetime
 
@@ -65,3 +66,14 @@ FOMC_DATES = [
 
 # CPI release dates (typically 2nd Tuesday-Thursday of month)
 CPI_RELEASE_DAYS = [12, 13, 14]
+
+# ---------------------------------------------------------------------------
+# Staleness check — warn if FOMC dates are outdated
+# ---------------------------------------------------------------------------
+if FOMC_DATES and FOMC_DATES[-1] < datetime.now():
+    logging.getLogger(__name__).warning(
+        "FOMC_DATES are stale — the latest date (%s) is in the past. "
+        "Update shared/constants.py with the current year's FOMC schedule "
+        "to keep event-risk detection accurate.",
+        FOMC_DATES[-1].strftime("%Y-%m-%d"),
+    )

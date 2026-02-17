@@ -21,7 +21,7 @@ class DataCache:
         """Get historical data, using cache if fresh."""
         cached = None
         with self._lock:
-            key = ticker.upper()
+            key = f"{ticker.upper()}:{period}"
             if key in self._cache:
                 data, ts = self._cache[key]
                 if time.time() - ts < self._ttl:
@@ -33,11 +33,11 @@ class DataCache:
 
         # Download outside lock
         try:
-            data = yf.download(ticker, period='1y', progress=False)
+            data = yf.download(ticker, period=period, progress=False)
             if hasattr(data.columns, 'nlevels') and data.columns.nlevels > 1:
                 data.columns = data.columns.get_level_values(0)
             with self._lock:
-                self._cache[ticker.upper()] = (data, time.time())
+                self._cache[f"{ticker.upper()}:{period}"] = (data, time.time())
             return data.copy()
         except Exception as e:
             logger.error(f"Failed to download {ticker}: {e}", exc_info=True)
