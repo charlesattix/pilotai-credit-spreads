@@ -25,8 +25,13 @@ export default function PaperTradingPage() {
   )
 
   const portfolioData = {
+    account_size: data.account_size ?? 10000,
+    starting_balance: data.starting_balance ?? 10000,
     current_balance: data.current_balance ?? 0,
     total_pnl: data.total_pnl ?? 0,
+    total_realized_pnl: data.total_realized_pnl ?? 0,
+    total_unrealized_pnl: data.total_unrealized_pnl ?? 0,
+    total_trades: data.total_trades ?? 0,
     total_credit: data.total_credit ?? 0,
     total_max_loss: data.total_max_loss ?? 0,
     open_count: data.open_count ?? 0,
