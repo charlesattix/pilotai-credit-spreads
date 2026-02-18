@@ -124,34 +124,10 @@ export async function fetchAlerts(): Promise<AlertsResponse> {
   return apiFetch<AlertsResponse>('/api/alerts')
 }
 
-export async function fetchPositions(): Promise<Position[]> {
-  return apiFetch<Position[]>('/api/positions')
-}
-
-export async function fetchTrades(): Promise<Trade[]> {
-  return apiFetch<Trade[]>('/api/trades')
-}
-
-export async function fetchBacktest(): Promise<BacktestResult> {
-  return apiFetch<BacktestResult>('/api/backtest')
-}
-
 export async function fetchConfig(): Promise<Config> {
   return apiFetch<Config>('/api/config')
 }
 
 export async function runScan(): Promise<AlertsResponse> {
   return apiFetch<AlertsResponse>('/api/scan', { method: 'POST' })
-}
-
-export async function runBacktest(): Promise<BacktestResult> {
-  return apiFetch<BacktestResult>('/api/backtest/run', { method: 'POST' })
-}
-
-export async function updateConfig(config: Config): Promise<void> {
-  await apiFetch<void>('/api/config', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(config),
-  })
 }

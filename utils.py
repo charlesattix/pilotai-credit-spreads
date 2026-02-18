@@ -112,15 +112,12 @@ def setup_logging(config: Dict):
     logging.getLogger('yfinance').setLevel(logging.WARNING)
 
 
-def validate_config(config: Dict) -> bool:
+def validate_config(config: Dict) -> None:
     """
-    Validate configuration.
-    
+    Validate configuration.  Raises ``ValueError`` on invalid input.
+
     Args:
         config: Configuration dictionary
-        
-    Returns:
-        True if valid
     """
     required_sections = ['tickers', 'strategy', 'risk', 'alerts', 'data', 'logging', 'backtest']
 
@@ -147,5 +144,3 @@ def validate_config(config: Dict) -> bool:
 
     if risk['max_risk_per_trade'] <= 0 or risk['max_risk_per_trade'] > 100:
         raise ValueError("max_risk_per_trade must be between 0 and 100")
-
-    return True

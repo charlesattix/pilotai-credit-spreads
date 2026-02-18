@@ -34,8 +34,8 @@ class TestLoadConfig:
 class TestValidateConfig:
 
     def test_validate_config_valid(self, sample_config):
-        """A complete, well-formed config should pass validation."""
-        assert validate_config(sample_config) is True
+        """A complete, well-formed config should pass validation (no exception)."""
+        validate_config(sample_config)  # Should not raise
 
     def test_validate_config_missing_section(self, sample_config):
         """Removing a required section should raise ValueError."""

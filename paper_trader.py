@@ -128,8 +128,8 @@ class PaperTrader:
             "starting_balance": self.trades["starting_balance"],
             "total_pnl": self.trades["stats"]["total_pnl"],
             "win_rate": self.trades["stats"]["win_rate"],
-            "open_positions": [t for t in self.trades["trades"] if t.get("status") == "open"],
-            "closed_positions": [t for t in self.trades["trades"] if t.get("status") != "open"],
+            "open_positions": self._open_trades,
+            "closed_positions": self._closed_trades,
             "stats": self.trades["stats"],
             "updated_at": datetime.now().isoformat(),
         }

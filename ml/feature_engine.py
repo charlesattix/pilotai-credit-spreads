@@ -336,16 +336,19 @@ class FeatureEngine:
                 features['fomc_risk'] = 0.0
 
             # Days to next CPI (approx 2nd week of each month)
+            import calendar
             current_month = now.month
+            current_year = now.year
             current_day = now.day
+            CPI_RELEASE_DAY = 13  # BLS typically publishes CPI around day 10-14
 
-            if current_day < 14:
-                # CPI this month (around day 12-14)
-                days_to_cpi = 13 - current_day
+            if current_day < CPI_RELEASE_DAY + 1:
+                # CPI this month hasn't passed yet
+                days_to_cpi = CPI_RELEASE_DAY - current_day
             else:
                 # CPI next month
-                days_in_month = 30  # Approximation
-                days_to_cpi = days_in_month - current_day + 13
+                days_in_current_month = calendar.monthrange(current_year, current_month)[1]
+                days_to_cpi = days_in_current_month - current_day + CPI_RELEASE_DAY
 
             features['days_to_cpi'] = days_to_cpi
             features['cpi_risk'] = 1.0 if days_to_cpi < 5 else 0.0

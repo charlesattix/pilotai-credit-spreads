@@ -31,7 +31,12 @@ const PostTradeSchema = z.object({
 });
 
 function extractUserId(request: Request): string {
-  return request.headers.get('x-user-id') || 'default';
+  // Check header first, then query params (clients send userId as a query param)
+  const fromHeader = request.headers.get('x-user-id');
+  if (fromHeader) return fromHeader;
+
+  const { searchParams } = new URL(request.url);
+  return searchParams.get('userId') || 'default';
 }
 
 const STARTING_BALANCE = 100000;

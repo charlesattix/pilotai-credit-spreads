@@ -272,19 +272,27 @@ class Backtester:
         short_strike = position['short_strike']
         spread_width = position['short_strike'] - position['long_strike']
 
+        # Pricing heuristic thresholds
+        OTM_BUFFER = 0.05        # 5% above short strike = "well OTM"
+        ITM_BUFFER = 0.05        # 5% below short strike = "at risk"
+        TYPICAL_DTE = 35         # Typical DTE at entry for normalising time decay
+        ITM_EXTRINSIC_FRAC = 0.3 # Fraction of credit retained when deep OTM
+        NTM_EXTRINSIC_FRAC = 0.7 # Fraction of credit retained near the money
+        ITM_DISTANCE_MULT = 2    # How fast ITM distance maps to full spread value
+
         # If far OTM, value decays toward zero
-        if current_price > short_strike * 1.05:
+        if current_price > short_strike * (1 + OTM_BUFFER):
             # Well above short strike - rapid decay
-            decay_factor = max(0, dte / 35)
-            value = position['credit'] * decay_factor * 0.3
-        elif current_price < short_strike * 0.95:
+            decay_factor = max(0, dte / TYPICAL_DTE)
+            value = position['credit'] * decay_factor * ITM_EXTRINSIC_FRAC
+        elif current_price < short_strike * (1 - ITM_BUFFER):
             # Below short strike - at risk
             distance = (short_strike - current_price) / short_strike
-            value = spread_width * min(1.0, distance * 2)
+            value = spread_width * min(1.0, distance * ITM_DISTANCE_MULT)
         else:
             # Near the money - moderate value
-            time_factor = dte / 35
-            value = position['credit'] * 0.7 * time_factor
+            time_factor = dte / TYPICAL_DTE
+            value = position['credit'] * NTM_EXTRINSIC_FRAC * time_factor
 
         return max(0, value)
 
