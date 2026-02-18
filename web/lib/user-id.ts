@@ -17,8 +17,3 @@ export function getUserId(): string {
   }
   return id
 }
-
-export function clearUserId(): void {
-  if (typeof window === 'undefined') return
-  localStorage.removeItem(STORAGE_KEY)
-}

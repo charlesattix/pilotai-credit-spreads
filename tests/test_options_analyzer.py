@@ -126,7 +126,7 @@ class TestCleanOptionsData:
             'expiration': [exp_date],
             'impliedVolatility': [0.25],
         })
-        result = analyzer._clean_options_data(df, current_price=100.0)
+        result = analyzer._clean_options_data(df)
         assert 'iv' in result.columns
 
     def test_removes_zero_bid_ask(self):
@@ -141,7 +141,7 @@ class TestCleanOptionsData:
             'expiration': [exp_date, exp_date],
             'iv': [0.25, 0.30],
         })
-        result = analyzer._clean_options_data(df, current_price=100.0)
+        result = analyzer._clean_options_data(df)
         assert len(result) == 1
         assert result.iloc[0]['strike'] == 105.0
 

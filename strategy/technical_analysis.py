@@ -150,11 +150,12 @@ class TechnicalAnalyzer:
         # Resistance: recent highs
         resistance_levels = self._find_resistance_levels(price_data)
 
-        # Check if near support or resistance (within 2%)
+        # Check if near support or resistance
+        PROXIMITY_THRESHOLD = 0.02  # 2% of current price
         near_support = False
         nearest_support = None
         for level in support_levels:
-            if abs(current_price - level) / current_price < 0.02 and level < current_price:
+            if abs(current_price - level) / current_price < PROXIMITY_THRESHOLD and level < current_price:
                 near_support = True
                 nearest_support = level
                 break
@@ -162,7 +163,7 @@ class TechnicalAnalyzer:
         near_resistance = False
         nearest_resistance = None
         for level in resistance_levels:
-            if abs(current_price - level) / current_price < 0.02 and level > current_price:
+            if abs(current_price - level) / current_price < PROXIMITY_THRESHOLD and level > current_price:
                 near_resistance = True
                 nearest_resistance = level
                 break

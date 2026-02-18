@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Sparkles, Send, Loader2, MessageSquare, X, ChevronDown } from 'lucide-react'
+import { Sparkles, Send, Loader2, MessageSquare, ChevronDown } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 
 interface Message {
+  id: string
   role: 'user' | 'assistant'
   content: string
   timestamp: Date
@@ -46,7 +47,7 @@ export function AIChat({ forceExpanded }: { forceExpanded?: boolean } = {}) {
     const messageText = text || input.trim()
     if (!messageText || loading) return
 
-    const userMessage: Message = { role: 'user', content: messageText, timestamp: new Date() }
+    const userMessage: Message = { id: crypto.randomUUID(), role: 'user', content: messageText, timestamp: new Date() }
     const newMessages = [...messages, userMessage]
     setMessages(newMessages)
     setInput('')
@@ -62,6 +63,7 @@ export function AIChat({ forceExpanded }: { forceExpanded?: boolean } = {}) {
       })
       
       const assistantMessage: Message = {
+        id: crypto.randomUUID(),
         role: 'assistant',
         content: data.reply || "Sorry, I couldn't process that. Try again!",
         timestamp: new Date(),
@@ -69,6 +71,7 @@ export function AIChat({ forceExpanded }: { forceExpanded?: boolean } = {}) {
       setMessages([...newMessages, assistantMessage])
     } catch {
       setMessages([...newMessages, {
+        id: crypto.randomUUID(),
         role: 'assistant',
         content: "Connection error. Please try again.",
         timestamp: new Date(),
@@ -176,8 +179,8 @@ export function AIChat({ forceExpanded }: { forceExpanded?: boolean } = {}) {
             </div>
           </div>
         ) : (
-          messages.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+          messages.map((msg) => (
+            <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 ${
                 msg.role === 'user'
                   ? 'bg-brand-purple text-white rounded-br-md'

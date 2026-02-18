@@ -16,7 +16,7 @@ class PnLDashboard:
     Display P&L and performance dashboard.
     """
 
-    def __init__(self, config: Dict, tracker):
+    def __init__(self, config: Dict, tracker: 'TradeTracker'):
         """
         Initialize P&L dashboard.
         

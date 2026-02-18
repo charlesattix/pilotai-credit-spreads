@@ -17,29 +17,29 @@ export function Heatmap() {
   })
 
   // Generate last 28 days
-  const days: string[] = []
+  const days: { date: string; status: string }[] = []
   for (let i = 27; i >= 0; i--) {
     const d = new Date()
     d.setDate(d.getDate() - i)
-    const key = d.toISOString().split('T')[0]
-    days.push(tradeMap[key] || 'none')
+    const dateKey = d.toISOString().split('T')[0]
+    days.push({ date: dateKey, status: tradeMap[dateKey] || 'none' })
   }
 
   return (
     <div className="bg-white rounded-lg border border-border p-4">
       <h3 className="font-semibold mb-4">Recent 28 Days</h3>
       <div className="grid grid-cols-7 gap-1">
-        {days.map((status, idx) => (
+        {days.map((day) => (
           <div
-            key={idx}
+            key={day.date}
             className={`aspect-square rounded-sm ${
-              status === 'win'
+              day.status === 'win'
                 ? 'bg-profit'
-                : status === 'loss'
+                : day.status === 'loss'
                 ? 'bg-loss'
                 : 'bg-secondary'
             }`}
-            title={status === 'win' ? 'Win' : status === 'loss' ? 'Loss' : 'No trade'}
+            title={day.status === 'win' ? 'Win' : day.status === 'loss' ? 'Loss' : 'No trade'}
           />
         ))}
       </div>

@@ -296,7 +296,7 @@ class CreditSpreadStrategy:
                 'credit': round(credit, 2),
                 'max_loss': round(max_loss, 2),
                 'max_profit': round(credit, 2),
-                'profit_target': round(credit * 0.5, 2),
+                'profit_target': round(credit * self.risk_params['profit_target'] / 100, 2),
                 'stop_loss': round(credit * self.risk_params['stop_loss_multiplier'], 2),
                 'spread_width': spread_width,
                 'current_price': current_price,

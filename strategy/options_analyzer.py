@@ -156,7 +156,7 @@ class OptionsAnalyzer:
             logger.error(f"Error retrieving options for {ticker}: {e}", exc_info=True)
             return pd.DataFrame()
 
-    def _clean_options_data(self, df: pd.DataFrame, current_price: float = None) -> pd.DataFrame:
+    def _clean_options_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Clean and standardize options data.
         """
@@ -183,7 +183,7 @@ class OptionsAnalyzer:
 
         # Ensure delta exists (calculate if missing)
         if 'delta' not in df.columns:
-            df['delta'] = self._estimate_delta(df, current_price)
+            df['delta'] = self._estimate_delta(df)
 
         # Remove rows with zero bid/ask
         df = df[(df['bid'] > 0) & (df['ask'] > 0)].copy()

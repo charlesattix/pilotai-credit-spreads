@@ -9,6 +9,7 @@ import { logger } from '@/lib/logger'
 export default function PositionsPage() {
   const [trades, setTrades] = useState<Trade[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'open' | 'closed'>('open')
 
   useEffect(() => {
@@ -16,8 +17,10 @@ export default function PositionsPage() {
       try {
         const data = await apiFetch<Trade[]>('/api/trades')
         setTrades(data || [])
-      } catch (error) {
-        logger.error('Failed to fetch trades', { error: String(error) })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        logger.error('Failed to fetch trades', { error: message })
+        setError(message)
       } finally {
         setLoading(false)
       }
@@ -35,6 +38,23 @@ export default function PositionsPage() {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-200px)]">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-brand-purple border-t-transparent"></div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="bg-white rounded-lg border border-loss/30 p-12 text-center">
+          <p className="text-loss font-medium mb-2">Failed to load trades</p>
+          <p className="text-muted-foreground text-sm mb-4">{error}</p>
+          <button
+            onClick={() => { setError(null); setLoading(true); window.location.reload() }}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-brand-purple hover:opacity-90 transition-opacity"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     )
   }

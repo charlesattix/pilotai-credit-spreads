@@ -39,7 +39,7 @@ export default function LivePositions({ data }: LivePositionsProps) {
 
       {/* Positions Grid */}
       <div className="space-y-2">
-        {data.open_positions.map((pos, idx) => {
+        {data.open_positions.map((pos) => {
           const isBullish = pos.type.includes('put')
           const typeLabel = isBullish ? 'Bull Put' : 'Bear Call'
           const pnl = pos.unrealized_pnl || 0
@@ -47,7 +47,7 @@ export default function LivePositions({ data }: LivePositionsProps) {
           const progressWidth = Math.min(100, Math.abs(pnlPct))
 
           return (
-            <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between py-2 px-2 sm:px-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors gap-1 sm:gap-0">
+            <div key={`${pos.ticker}-${pos.short_strike}-${pos.expiration}`} className="flex flex-col sm:flex-row sm:items-center justify-between py-2 px-2 sm:px-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors gap-1 sm:gap-0">
               <div className="flex items-center justify-between sm:justify-start gap-2 sm:gap-3">
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs sm:text-sm font-bold">{pos.ticker}</span>

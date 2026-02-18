@@ -1,5 +1,5 @@
 'use client'
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { captureException } from '@/lib/error-tracking'
 
 export default function Error({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
