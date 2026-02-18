@@ -82,14 +82,32 @@ class TechnicalAnalyzer:
 
         # Work on a copy to avoid mutating the caller's DataFrame
         df = price_data.copy()
+        
+        # Flatten multi-level columns if present (happens with yfinance)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(-1)
+        
+        # Ensure 'Close' is a Series not a DataFrame
+        close_series = df['Close']
+        if isinstance(close_series, pd.DataFrame):
+            close_series = close_series.iloc[:, 0]
 
         # Calculate MAs
-        df['MA_fast'] = df['Close'].rolling(window=fast_period).mean()
-        df['MA_slow'] = df['Close'].rolling(window=slow_period).mean()
+        df['MA_fast'] = close_series.rolling(window=fast_period).mean()
+        df['MA_slow'] = close_series.rolling(window=slow_period).mean()
 
-        current_price = df['Close'].iloc[-1]
+        # Extract scalar values (handle Series/DataFrame cases)
+        current_price = close_series.iloc[-1]
+        if isinstance(current_price, pd.Series):
+            current_price = current_price.iloc[0]
+        
         ma_fast = df['MA_fast'].iloc[-1]
+        if isinstance(ma_fast, pd.Series):
+            ma_fast = ma_fast.iloc[0]
+            
         ma_slow = df['MA_slow'].iloc[-1]
+        if isinstance(ma_slow, pd.Series):
+            ma_slow = ma_slow.iloc[0]
 
         # Determine trend
         if current_price > ma_fast > ma_slow:
