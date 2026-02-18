@@ -1,6 +1,6 @@
 import useSWR from 'swr'
-import { apiFetch, AlertsResponse } from '@/lib/api'
-import { PaperTrade, PositionsSummary } from '@/lib/types'
+import { apiFetch } from '@/lib/api'
+import type { AlertsResponse, PaperTrade, PositionsSummary } from '@/lib/types'
 
 function fetcher<T>(url: string): Promise<T> {
   return apiFetch<T>(url)

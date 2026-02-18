@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Trade, apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api'
+import type { Trade } from '@/lib/types'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { logger } from '@/lib/logger'
 

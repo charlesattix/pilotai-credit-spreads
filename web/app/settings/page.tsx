@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Config, apiFetch } from '@/lib/api'
+import { apiFetch } from '@/lib/api'
+import type { Config } from '@/lib/types'
 import { Save } from 'lucide-react'
 import { toast } from 'sonner'
 import { logger } from '@/lib/logger'

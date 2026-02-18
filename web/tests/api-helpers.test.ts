@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest'
 // Test the type interfaces and utility aspects of lib/api.ts
 // The functions themselves are thin fetch wrappers, so we test structure and error behavior
 
-import type { Alert, Trade, BacktestResult, Config } from '@/lib/api'
+import type { Alert, Trade, BacktestResult, Config } from '@/lib/types'
 
 describe('API type contracts', () => {
   it('Alert interface has required fields', () => {
