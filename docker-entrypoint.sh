@@ -1,5 +1,14 @@
 #!/bin/sh
 set -e
+set -o pipefail 2>/dev/null || true  # pipefail not available in all sh implementations
+
+# Verify required binaries exist
+for bin in python3 node; do
+    if ! command -v "$bin" >/dev/null 2>&1; then
+        echo "ERROR: required binary '$bin' not found in PATH" >&2
+        exit 1
+    fi
+done
 
 # Ensure data directory exists and is writable
 # The volume is mounted by Railway, so we just need to ensure subdirectories exist

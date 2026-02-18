@@ -27,6 +27,8 @@ class PolygonProvider:
     """Options and stock data via Polygon.io API."""
 
     def __init__(self, api_key: str):
+        if not api_key:
+            raise ValueError("api_key must be a non-empty string")
         self.api_key = api_key
         self.base_url = BASE_URL
         self.session = requests.Session()

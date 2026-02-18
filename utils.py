@@ -131,16 +131,34 @@ def validate_config(config: Dict) -> None:
 
     # Validate strategy params
     strategy = config['strategy']
-    if strategy['min_dte'] >= strategy['max_dte']:
+    try:
+        min_dte = strategy['min_dte']
+        max_dte = strategy['max_dte']
+    except KeyError as e:
+        raise ValueError(f"Missing required strategy parameter: {e}")
+
+    if min_dte >= max_dte:
         raise ValueError("min_dte must be less than max_dte")
 
-    if strategy['min_delta'] >= strategy['max_delta']:
+    try:
+        min_delta = strategy['min_delta']
+        max_delta = strategy['max_delta']
+    except KeyError as e:
+        raise ValueError(f"Missing required strategy parameter: {e}")
+
+    if min_delta >= max_delta:
         raise ValueError("min_delta must be less than max_delta")
 
     # Validate risk params
     risk = config['risk']
-    if risk['account_size'] <= 0:
+    try:
+        account_size = risk['account_size']
+        max_risk_per_trade = risk['max_risk_per_trade']
+    except KeyError as e:
+        raise ValueError(f"Missing required risk parameter: {e}")
+
+    if account_size <= 0:
         raise ValueError("account_size must be positive")
 
-    if risk['max_risk_per_trade'] <= 0 or risk['max_risk_per_trade'] > 100:
+    if max_risk_per_trade <= 0 or max_risk_per_trade > 100:
         raise ValueError("max_risk_per_trade must be between 0 and 100")

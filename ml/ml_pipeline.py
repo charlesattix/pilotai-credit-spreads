@@ -193,7 +193,7 @@ class MLPipeline:
             event_scan = self.sentiment_scanner.scan(
                 ticker=ticker,
                 expiration_date=expiration_date,
-                lookback_days=45,
+                lookahead_days=45,
             )
             result['event_risk'] = event_scan
 

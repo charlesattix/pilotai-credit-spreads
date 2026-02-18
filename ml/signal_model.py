@@ -573,7 +573,7 @@ class SignalModel:
             features['iv_rank'] = np.random.uniform(0, 100)
             features['iv_percentile'] = np.random.uniform(0, 100)
             features['current_iv'] = np.random.gamma(4, 5)
-            features['rv_iv_spread'] = features['current_iv'] - features['realized_vol_20d']
+            features['rv_iv_spread'] = features['realized_vol_20d'] - features['current_iv']
             features['put_call_skew_ratio'] = np.random.lognormal(0, 0.2)
             features['put_skew_steepness'] = np.random.normal(0, 3)
 

@@ -294,7 +294,7 @@ class IVAnalyzer:
         """
         # Check cache
         if ticker in self.iv_history_cache:
-            cache_age = (datetime.now() - self.cache_timestamp.get(ticker, datetime.min)).seconds
+            cache_age = (datetime.now() - self.cache_timestamp.get(ticker, datetime.min)).total_seconds()
             if cache_age < 86400:  # 24 hours
                 return self.iv_history_cache[ticker]
 

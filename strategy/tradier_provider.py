@@ -25,6 +25,8 @@ class TradierProvider:
     """Real-time options data via Tradier API."""
 
     def __init__(self, api_key: str, sandbox: bool = True):
+        if not api_key:
+            raise ValueError("api_key must be a non-empty string")
         self.api_key = api_key
         self.base_url = SANDBOX_URL if sandbox else PROD_URL
         self.headers = {

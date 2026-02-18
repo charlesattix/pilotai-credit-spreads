@@ -3,14 +3,18 @@ Alert Generator
 Creates formatted alerts for credit spread opportunities.
 """
 
+import csv
+import io
 import json
 import logging
+import os
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
-import csv
 from shared.database import init_db, insert_alert
 from shared.constants import OUTPUT_DIR as _OUTPUT_DIR
+from shared.io_utils import atomic_json_write
 
 logger = logging.getLogger(__name__)
 
@@ -95,12 +99,11 @@ class AlertGenerator:
 
     def _generate_json(self, alerts: Dict) -> str:
         """
-        Generate JSON formatted alerts.
+        Generate JSON formatted alerts (atomic write).
         """
         json_file = self.output_dir / self.alert_config['json_file']
 
-        with open(json_file, 'w') as f:
-            json.dump(alerts, f, indent=2, default=str)
+        atomic_json_write(json_file, alerts)
 
         logger.info(f"JSON alerts saved to {json_file}")
 
@@ -163,8 +166,17 @@ class AlertGenerator:
 
         text_content = "\n".join(lines)
 
-        with open(text_file, 'w') as f:
-            f.write(text_content)
+        fd, tmp_path = tempfile.mkstemp(dir=text_file.parent, suffix=".tmp")
+        try:
+            with os.fdopen(fd, 'w') as f:
+                f.write(text_content)
+            os.replace(tmp_path, text_file)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
         logger.info(f"Text alerts saved to {text_file}")
 
@@ -183,15 +195,24 @@ class AlertGenerator:
             'risk_reward', 'pop', 'score', 'current_price', 'distance_to_short'
         ]
 
-        with open(csv_file, 'w', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
+        fd, tmp_path = tempfile.mkstemp(dir=csv_file.parent, suffix=".tmp")
+        try:
+            with os.fdopen(fd, 'w', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
 
-            for opp in alerts['opportunities']:
-                row = {k: opp.get(k, '') for k in fieldnames}
-                row['timestamp'] = alerts['timestamp']
-                row['expiration'] = str(opp['expiration'])
-                writer.writerow(row)
+                for opp in alerts['opportunities']:
+                    row = {k: opp.get(k, '') for k in fieldnames}
+                    row['timestamp'] = alerts['timestamp']
+                    row['expiration'] = str(opp['expiration'])
+                    writer.writerow(row)
+            os.replace(tmp_path, csv_file)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
         logger.info(f"CSV alerts saved to {csv_file}")
 

@@ -59,16 +59,16 @@ class SentimentScanner:
         self,
         ticker: str,
         expiration_date: Optional[datetime] = None,
-        lookback_days: int = 7
+        lookahead_days: int = 7
     ) -> Dict:
         """
         Comprehensive event risk scan for a ticker.
-        
+
         Args:
             ticker: Stock ticker
             expiration_date: Option expiration date
-            lookback_days: Days to look ahead for events
-            
+            lookahead_days: Days to look ahead for events
+
         Returns:
             Dictionary with event risk assessment
         """
@@ -79,7 +79,7 @@ class SentimentScanner:
             if expiration_date:
                 scan_end = expiration_date
             else:
-                scan_end = now + timedelta(days=lookback_days)
+                scan_end = now + timedelta(days=lookahead_days)
 
             result = {
                 'ticker': ticker,
@@ -146,7 +146,7 @@ class SentimentScanner:
         try:
             # Check cache first
             if ticker in self.earnings_cache:
-                cache_age = (datetime.now() - self.cache_timestamps.get(ticker, datetime.min)).seconds
+                cache_age = (datetime.now() - self.cache_timestamps.get(ticker, datetime.min)).total_seconds()
                 if cache_age < 86400:  # 24 hours
                     earnings_date = self.earnings_cache[ticker]
                     if earnings_date and start_date <= earnings_date <= end_date:

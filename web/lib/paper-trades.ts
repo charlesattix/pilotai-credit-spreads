@@ -6,12 +6,7 @@ import { calcUnrealizedPnL } from './pnl';
 
 // Re-export types for backward compatibility
 export type { PaperTrade as UserPaperTrade } from './types';
-
-export interface UserPortfolio {
-  trades: PaperTrade[];
-  starting_balance: number;
-  created_at: string;
-}
+export type { Portfolio as UserPortfolio } from './types';
 
 // Generate unique trade ID
 export function generateTradeId(): string {
