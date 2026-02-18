@@ -11,7 +11,7 @@ export default function Error({ error, reset }: { error: Error & { digest?: stri
     <div className="min-h-screen flex items-center justify-center bg-gray-950 px-4">
       <div className="text-center max-w-md">
         <div className="inline-block mb-6 rounded-full p-4 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500">
-          <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" role="img" aria-label="Error icon">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         </div>

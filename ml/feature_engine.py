@@ -309,7 +309,10 @@ class FeatureEngine:
 
             # Days to next earnings
             try:
-                stock = yf.Ticker(ticker)
+                if self.data_cache:
+                    stock = self.data_cache.get_ticker_obj(ticker)
+                else:
+                    stock = yf.Ticker(ticker)
                 calendar = stock.calendar
 
                 if calendar is not None and 'Earnings Date' in calendar:

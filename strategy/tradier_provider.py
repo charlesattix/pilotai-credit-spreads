@@ -40,6 +40,13 @@ class TradierProvider:
         self._circuit_breaker = CircuitBreaker(failure_threshold=5, reset_timeout=60)
         logger.info(f"TradierProvider initialized ({'sandbox' if sandbox else 'production'})")
 
+    def __del__(self):
+        """Close the requests session to prevent resource leaks."""
+        try:
+            self.session.close()
+        except Exception:
+            pass
+
     def get_quote(self, ticker: str) -> Dict:
         """Get real-time quote for a ticker."""
         def _do_get_quote():

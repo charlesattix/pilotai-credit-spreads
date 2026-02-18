@@ -40,6 +40,7 @@ export function Heatmap() {
                 : 'bg-secondary'
             }`}
             title={day.status === 'win' ? 'Win' : day.status === 'loss' ? 'Loss' : 'No trade'}
+            aria-label={`${day.date}: ${day.status === 'win' ? 'Win' : day.status === 'loss' ? 'Loss' : 'No trade'}`}
           />
         ))}
       </div>

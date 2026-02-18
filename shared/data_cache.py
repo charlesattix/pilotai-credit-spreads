@@ -58,7 +58,11 @@ class DataCache:
 
     def get_ticker_obj(self, ticker: str) -> yf.Ticker:
         """Get a yfinance Ticker object (not cached, used for options chains)."""
-        return yf.Ticker(ticker)
+        try:
+            return yf.Ticker(ticker)
+        except Exception as e:
+            logger.error(f"Failed to create Ticker object for {ticker}: {e}", exc_info=True)
+            raise DataFetchError(f"Failed to create Ticker object for {ticker}: {e}") from e
 
     def clear(self):
         """Clear all cached data."""

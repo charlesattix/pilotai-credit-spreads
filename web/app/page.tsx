@@ -27,10 +27,15 @@ export default function HomePage() {
 
   const runScan = async () => {
     setScanning(true)
-    toast.info('Refreshing alerts...')
-    await mutateAlerts()
-    toast.success('Alerts refreshed! Scans run automatically every 30 minutes.')
-    setScanning(false)
+    try {
+      toast.info('Refreshing alerts...')
+      await mutateAlerts()
+      toast.success('Alerts refreshed! Scans run automatically every 30 minutes.')
+    } catch {
+      toast.error('Failed to refresh alerts. Please try again.')
+    } finally {
+      setScanning(false)
+    }
   }
 
   const filteredAlerts = alerts.filter(alert => {

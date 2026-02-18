@@ -27,6 +27,7 @@ from .signal_model import SignalModel
 from .position_sizer import PositionSizer
 from .sentiment_scanner import SentimentScanner
 from shared.types import TradeAnalysis
+from shared.exceptions import ModelError
 
 logger = logging.getLogger(__name__)
 
@@ -122,9 +123,10 @@ class MLPipeline:
 
             return True
 
+        except ModelError:
+            raise
         except Exception as e:
-            logger.error(f"Error initializing ML pipeline: {e}", exc_info=True)
-            return False
+            raise ModelError(f"Failed to initialize ML pipeline: {e}") from e
 
     def analyze_trade(
         self,
@@ -165,7 +167,7 @@ class MLPipeline:
             }
 
             # 1. Detect market regime
-            regime_data = self.regime_detector.detect_regime(ticker='SPY')
+            regime_data = self.regime_detector.detect_regime(ticker=ticker)
             result['regime'] = regime_data
 
             # 2. Analyze IV surface
@@ -250,6 +252,8 @@ class MLPipeline:
 
             return result
 
+        except ModelError:
+            raise
         except Exception as e:
             with self._fallback_lock:
                 self.fallback_counter['analyze_trade'] += 1
@@ -488,6 +492,8 @@ class MLPipeline:
             train_stats = self.signal_model.train(features_df, labels)
             results['signal_model'] = 'success' if train_stats else 'failed'
             results['signal_model_stats'] = train_stats
+        except ModelError:
+            raise
         except Exception as e:
             logger.error(f"Error retraining signal model: {e}", exc_info=True)
             results['signal_model'] = 'failed'

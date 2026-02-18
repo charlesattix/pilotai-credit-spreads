@@ -37,6 +37,13 @@ class PolygonProvider:
         self._circuit_breaker = CircuitBreaker(failure_threshold=5, reset_timeout=60)
         logger.info("PolygonProvider initialized")
 
+    def __del__(self):
+        """Close the requests session to prevent resource leaks."""
+        try:
+            self.session.close()
+        except Exception:
+            pass
+
     def _get(self, path: str, params: Optional[Dict] = None, timeout: int = 10) -> Dict:
         """Make authenticated GET request."""
         def _do_request():

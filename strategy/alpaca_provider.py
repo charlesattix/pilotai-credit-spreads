@@ -12,6 +12,7 @@ import functools
 from datetime import datetime
 from typing import Dict, List, Optional
 
+from shared.exceptions import ProviderError
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import (
     LimitOrderRequest,
@@ -80,7 +81,11 @@ class AlpacaProvider:
 
     def get_account(self) -> Dict:
         """Get account balance and buying power."""
-        acct = self.client.get_account()
+        try:
+            acct = self.client.get_account()
+        except Exception as e:
+            logger.error(f"Failed to get Alpaca account info: {e}", exc_info=True)
+            raise ProviderError(f"Alpaca get_account failed: {e}") from e
         return {
             "account_number": acct.account_number,
             "status": str(acct.status),

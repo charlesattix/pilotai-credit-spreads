@@ -51,15 +51,20 @@ class PerformanceMetrics:
         # Save report
         report_file = report_dir / f"backtest_report_{self._timestamp()}.txt"
 
-        with open(report_file, 'w') as f:
-            f.write(text_report)
-
-        logger.info(f"Report generated: {report_file}")
+        try:
+            with open(report_file, 'w') as f:
+                f.write(text_report)
+            logger.info(f"Report generated: {report_file}")
+        except OSError as e:
+            logger.warning(f"Failed to write text report to {report_file}: {e}")
 
         # Also save JSON
         json_file = report_dir / f"backtest_results_{self._timestamp()}.json"
-        with open(json_file, 'w') as f:
-            json.dump(backtest_results, f, indent=2, default=str)
+        try:
+            with open(json_file, 'w') as f:
+                json.dump(backtest_results, f, indent=2, default=str)
+        except OSError as e:
+            logger.warning(f"Failed to write JSON results to {json_file}: {e}")
 
         return str(report_file)
 
