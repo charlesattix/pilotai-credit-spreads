@@ -5,6 +5,7 @@ import { promisify } from "util";
 import { apiError } from "@/lib/api-error";
 import { PROJECT_ROOT } from "@/lib/paths";
 import { checkRateLimit, acquireProcessLock, releaseProcessLock } from "@/lib/database";
+import { verifyAuth } from "@/lib/auth";
 
 const execFilePromise = promisify(execFile);
 
@@ -12,7 +13,8 @@ const SCAN_RATE_LIMIT = 5;
 const SCAN_RATE_WINDOW = 3600_000; // 1 hour in ms
 const SCAN_LOCK_TIMEOUT = 150_000; // 2.5 min (scan timeout is 2 min)
 
-export async function POST() {
+export async function POST(request: Request) {
+  const authErr = await verifyAuth(request); if (authErr) return authErr;
   if (!checkRateLimit("scan", SCAN_RATE_LIMIT, SCAN_RATE_WINDOW)) {
     return apiError("Rate limit exceeded: max 5 scans per hour", 429);
   }

@@ -39,6 +39,7 @@ from backtest import Backtester, PerformanceMetrics
 from tracker import TradeTracker, PnLDashboard
 from paper_trader import PaperTrader
 from shared.data_cache import DataCache
+from shared.metrics import metrics
 from shared.provider_protocol import DataProvider  # noqa: F401 – ARCH-PY-06
 
 
@@ -147,6 +148,8 @@ class CreditSpreadSystem:
 
         # Sort by score
         all_opportunities.sort(key=lambda x: x.get('score', 0), reverse=True)
+
+        metrics.inc('scans_completed')
 
         # Display top opportunities
         logger.info(f"Found {len(all_opportunities)} total opportunities")

@@ -5,6 +5,7 @@ import { promises as fs } from 'fs'
 import yaml from 'js-yaml'
 import { z } from 'zod'
 import { CONFIG_PATH } from "@/lib/paths"
+import { verifyAuth } from "@/lib/auth"
 
 const SECRET_KEYS = ['api_key', 'api_secret', 'bot_token', 'chat_id'];
 
@@ -182,7 +183,8 @@ const ConfigSchema = z.object({
   }).optional(),
 });
 
-export async function GET() {
+export async function GET(request: Request) {
+  const authErr = await verifyAuth(request); if (authErr) return authErr;
   try {
     const configPath = CONFIG_PATH
     const data = await fs.readFile(configPath, 'utf-8')
@@ -195,6 +197,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const authErr = await verifyAuth(request); if (authErr) return authErr;
   try {
     const rawBody = await request.json()
 

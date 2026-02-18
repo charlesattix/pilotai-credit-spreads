@@ -61,6 +61,7 @@ class FeatureEngine:
         regime_data: Optional[Dict] = None,
         iv_analysis: Optional[Dict] = None,
         technical_signals: Optional[Dict] = None,
+        market_features: Optional[Dict] = None,
     ) -> Dict:
         """
         Build complete feature set for a potential trade.
@@ -94,9 +95,12 @@ class FeatureEngine:
             )
             features.update(vol_features)
 
-            # 3. Market features
-            market_features = self._compute_market_features()
-            features.update(market_features)
+            # 3. Market features (use pre-computed if provided)
+            if market_features is not None:
+                features.update(market_features)
+            else:
+                computed_market = self._compute_market_features()
+                features.update(computed_market)
 
             # 4. Event risk features
             event_features = self._compute_event_risk_features(ticker)

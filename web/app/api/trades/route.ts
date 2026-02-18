@@ -5,8 +5,10 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import { getTrades } from '@/lib/database'
 import { DATA_DIR } from "@/lib/paths"
+import { verifyAuth } from "@/lib/auth"
 
-export async function GET() {
+export async function GET(request: Request) {
+  const authErr = await verifyAuth(request); if (authErr) return authErr;
   try {
     // Primary: read from SQLite
     const dbTrades = getTrades();

@@ -6,8 +6,18 @@ import yfinance as yf
 import pandas as pd
 from typing import List
 from shared.exceptions import DataFetchError
+from shared.metrics import metrics
 
 logger = logging.getLogger(__name__)
+
+# Mapping of period strings to approximate trading days
+_PERIOD_DAYS = {
+    '5d': 5,
+    '1mo': 21,
+    '3mo': 63,
+    '6mo': 126,
+    '1y': 252,
+}
 
 class DataCache:
     """Download each ticker's data once (1y period), slice to requested period."""
@@ -18,30 +28,45 @@ class DataCache:
         self._ttl = ttl_seconds
 
     def get_history(self, ticker: str, period: str = '1y') -> pd.DataFrame:
-        """Get historical data, using cache if fresh."""
+        """Get historical data, using cache if fresh.
+
+        Always downloads the full 1y period and caches by ticker only.
+        Shorter periods are sliced locally to avoid redundant downloads.
+        """
+        key = ticker.upper()
         cached = None
         with self._lock:
-            key = f"{ticker.upper()}:{period}"
             if key in self._cache:
                 data, ts = self._cache[key]
                 if time.time() - ts < self._ttl:
                     logger.debug(f"Cache hit for {key}")
+                    metrics.inc('cache_hits')
                     cached = data
 
         if cached is not None:
-            return cached.copy()
+            return self._slice_to_period(cached, period).copy()
 
-        # Download outside lock
+        metrics.inc('cache_misses')
+
+        # Download full 1y outside lock
         try:
-            data = yf.download(ticker, period=period, progress=False)
+            data = yf.download(ticker, period='1y', progress=False)
             if hasattr(data.columns, 'nlevels') and data.columns.nlevels > 1:
                 data.columns = data.columns.get_level_values(0)
             with self._lock:
-                self._cache[f"{ticker.upper()}:{period}"] = (data, time.time())
-            return data.copy()
+                self._cache[key] = (data, time.time())
+            return self._slice_to_period(data, period).copy()
         except Exception as e:
             logger.error(f"Failed to download {ticker}: {e}", exc_info=True)
             raise DataFetchError(f"Failed to download data for {ticker}: {e}") from e
+
+    @staticmethod
+    def _slice_to_period(data: pd.DataFrame, period: str) -> pd.DataFrame:
+        """Slice a full-year DataFrame to the requested period."""
+        days = _PERIOD_DAYS.get(period)
+        if days is None or days >= len(data):
+            return data
+        return data.iloc[-days:]
 
     def pre_warm(self, tickers: List[str]) -> None:
         """Pre-populate the cache for a list of tickers.

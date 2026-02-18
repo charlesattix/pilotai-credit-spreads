@@ -7,6 +7,7 @@ import { PaperTrade } from "@/lib/types";
 import { calcUnrealizedPnL } from "@/lib/pnl";
 import { calculatePortfolioStats, shouldAutoClose } from "@/lib/paper-trades";
 import { getUserTrades, upsertUserTrade, closeUserTrade, TradeRow } from "@/lib/database";
+import { verifyAuth } from "@/lib/auth";
 
 const AlertSchema = z.object({
   ticker: z.string().min(1).max(10),
@@ -74,6 +75,7 @@ function tradeRowToPaperTrade(row: TradeRow): PaperTrade {
 
 // GET — fetch user's paper trades
 export async function GET(request: Request) {
+  const authErr = await verifyAuth(request); if (authErr) return authErr;
   if (!PAPER_TRADING_ENABLED) {
     return NextResponse.json({ trades: [], stats: { disabled: true }, message: "Paper trading is temporarily disabled" });
   }
@@ -130,6 +132,7 @@ export async function GET(request: Request) {
 
 // POST — open a new paper trade
 export async function POST(request: Request) {
+  const authErr = await verifyAuth(request); if (authErr) return authErr;
   if (!PAPER_TRADING_ENABLED) {
     return apiError("Paper trading is temporarily disabled", 403);
   }
@@ -235,6 +238,7 @@ export async function POST(request: Request) {
 
 // DELETE — close a paper trade
 export async function DELETE(request: Request) {
+  const authErr = await verifyAuth(request); if (authErr) return authErr;
   if (!PAPER_TRADING_ENABLED) {
     return apiError("Paper trading is temporarily disabled", 403);
   }

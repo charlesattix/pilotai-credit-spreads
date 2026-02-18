@@ -35,3 +35,6 @@ pytz==2025.2
 
 # Logging
 colorlog==6.10.1
+
+# Error tracking
+sentry-sdk==2.19.2

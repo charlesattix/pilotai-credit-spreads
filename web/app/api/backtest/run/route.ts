@@ -7,6 +7,7 @@ import path from 'path';
 import { promises as fs } from 'fs';
 import { PROJECT_ROOT, OUTPUT_DIR } from "@/lib/paths";
 import { checkRateLimit, acquireProcessLock, releaseProcessLock } from "@/lib/database";
+import { verifyAuth } from "@/lib/auth";
 
 const execFilePromise = promisify(execFile);
 
@@ -14,7 +15,8 @@ const BACKTEST_RATE_LIMIT = 3;
 const BACKTEST_RATE_WINDOW = 3600_000; // 1 hour in ms
 const BACKTEST_LOCK_TIMEOUT = 330_000; // 5.5 min (backtest timeout is 5 min)
 
-export async function POST() {
+export async function POST(request: Request) {
+  const authErr = await verifyAuth(request); if (authErr) return authErr;
   if (!checkRateLimit("backtest", BACKTEST_RATE_LIMIT, BACKTEST_RATE_WINDOW)) {
     return apiError("Rate limit exceeded: max 3 backtests per hour", 429);
   }

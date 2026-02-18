@@ -5,10 +5,12 @@ import { apiError } from "@/lib/api-error";
 import { getAlerts } from "@/lib/database";
 import { DATA_DIR, OUTPUT_DIR } from "@/lib/paths";
 import { tryReadFile } from "@/lib/fs-utils";
+import { verifyAuth } from "@/lib/auth";
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
+export async function GET(request: Request) {
+  const authErr = await verifyAuth(request); if (authErr) return authErr;
   try {
     // Primary: read from SQLite
     const dbAlerts = getAlerts(50);

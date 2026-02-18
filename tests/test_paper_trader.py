@@ -541,7 +541,7 @@ class TestOpenRiskExposure:
 # ---------------------------------------------------------------------------
 
 class TestMaxDrawdownKillSwitch:
-    """EH-TRADE-03: Block all new trades when drawdown >= MAX_DRAWDOWN_PCT."""
+    """EH-TRADE-03: Block all new trades when drawdown >= MAX_DRAWDOWN_PCT (peak-based)."""
 
     @patch('paper_trader.upsert_trade')
     @patch('paper_trader.get_trades', return_value=[])
@@ -549,7 +549,7 @@ class TestMaxDrawdownKillSwitch:
     @patch('paper_trader.PAPER_LOG')
     @patch('paper_trader.DATA_DIR')
     def test_drawdown_at_threshold_blocks_trade(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
-        """Exactly at 20% drawdown should block new trades."""
+        """Exactly at 20% drawdown from peak should block new trades."""
         mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
         mock_data_dir.mkdir = MagicMock()
         mock_paper_log.exists.return_value = False
@@ -558,9 +558,9 @@ class TestMaxDrawdownKillSwitch:
         pt = PaperTrader(_make_config(tmp_path))
         pt._save_trades = MagicMock()
 
-        # Set balance to exactly 20% drawdown: 100000 * 0.80 = 80000
+        # Peak was 100000, balance at exactly 20% drawdown from peak
         pt.trades['current_balance'] = 80000
-        pt.trades['starting_balance'] = 100000
+        pt.trades['stats']['peak_balance'] = 100000
 
         opp = _make_opportunity()
         new_trades = pt.execute_signals([opp])
@@ -572,7 +572,7 @@ class TestMaxDrawdownKillSwitch:
     @patch('paper_trader.PAPER_LOG')
     @patch('paper_trader.DATA_DIR')
     def test_drawdown_beyond_threshold_blocks_trade(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
-        """More than 20% drawdown should block new trades."""
+        """More than 20% drawdown from peak should block new trades."""
         mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
         mock_data_dir.mkdir = MagicMock()
         mock_paper_log.exists.return_value = False
@@ -581,9 +581,9 @@ class TestMaxDrawdownKillSwitch:
         pt = PaperTrader(_make_config(tmp_path))
         pt._save_trades = MagicMock()
 
-        # 30% drawdown
+        # 30% drawdown from peak
         pt.trades['current_balance'] = 70000
-        pt.trades['starting_balance'] = 100000
+        pt.trades['stats']['peak_balance'] = 100000
 
         opp = _make_opportunity()
         new_trades = pt.execute_signals([opp])
@@ -595,7 +595,7 @@ class TestMaxDrawdownKillSwitch:
     @patch('paper_trader.PAPER_LOG')
     @patch('paper_trader.DATA_DIR')
     def test_drawdown_below_threshold_allows_trade(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
-        """Less than 20% drawdown should allow new trades."""
+        """Less than 20% drawdown from peak should allow new trades."""
         mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
         mock_data_dir.mkdir = MagicMock()
         mock_paper_log.exists.return_value = False
@@ -605,13 +605,38 @@ class TestMaxDrawdownKillSwitch:
         pt._save_trades = MagicMock()
         pt.alpaca = _mock_alpaca()
 
-        # 10% drawdown, below threshold
+        # 10% drawdown from peak, below threshold
         pt.trades['current_balance'] = 90000
-        pt.trades['starting_balance'] = 100000
+        pt.trades['stats']['peak_balance'] = 100000
 
         opp = _make_opportunity()
         new_trades = pt.execute_signals([opp])
         assert len(new_trades) == 1
+
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_peak_based_drawdown_blocks_even_when_close_to_start(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
+        """Starting=100K, peak=120K, current=95K should block (20.8% from peak >= 20%)
+        even though only 5% down from starting balance."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+        mock_paper_log.parent = tmp_path
+
+        pt = PaperTrader(_make_config(tmp_path))
+        pt._save_trades = MagicMock()
+
+        pt.trades['starting_balance'] = 100000
+        pt.trades['current_balance'] = 95000
+        pt.trades['stats']['peak_balance'] = 120000
+
+        # Drawdown from peak: (120000-95000)/120000 = 20.8% >= 20% => blocked
+        opp = _make_opportunity()
+        new_trades = pt.execute_signals([opp])
+        assert len(new_trades) == 0
 
     def test_max_drawdown_constant_value(self):
         """MAX_DRAWDOWN_PCT should be 0.20 (20%)."""

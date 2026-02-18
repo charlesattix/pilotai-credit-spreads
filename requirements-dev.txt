@@ -10,5 +10,4 @@ matplotlib==3.9.4
 seaborn==0.13.2
 plotly==5.24.1
 
-# Error tracking (optional, dev/staging only)
-sentry-sdk==2.19.2
+# Note: sentry-sdk moved to requirements.txt for production use

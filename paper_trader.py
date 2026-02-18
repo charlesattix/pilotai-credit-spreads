@@ -4,6 +4,7 @@ Automatically takes signals from the scanner and tracks simulated trades.
 Monitors open positions and closes at profit target, stop loss, or expiration.
 """
 
+import json
 import logging
 import threading
 import uuid
@@ -13,12 +14,14 @@ from pathlib import Path
 from shared.constants import MAX_CONTRACTS_PER_TRADE, MANAGEMENT_DTE_THRESHOLD, DATA_DIR as _DATA_DIR
 from shared.io_utils import atomic_json_write
 from shared.database import init_db, upsert_trade, get_trades, close_trade as db_close_trade
+from shared.metrics import metrics
 
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(_DATA_DIR)
 TRADES_FILE = DATA_DIR / "trades.json"
 PAPER_LOG = DATA_DIR / "paper_trades.json"
+KILL_SWITCH_FILE = DATA_DIR / "kill_switch.json"
 
 MAX_DRAWDOWN_PCT = 0.20  # 20% portfolio-level max drawdown kill switch
 EXTRINSIC_DECAY_RATE = 1.2  # Accelerating time-decay multiplier for OTM spreads
@@ -66,6 +69,11 @@ class PaperTrader:
                      f"Open: {len(self.open_trades)} | Closed: {len(self.closed_trades)} | "
                      f"Alpaca: {'ON' if self.alpaca else 'OFF'}")
 
+    @staticmethod
+    def _is_kill_switch_active() -> bool:
+        """Check if the kill switch file exists (trading halted externally)."""
+        return KILL_SWITCH_FILE.exists()
+
     def _load_trades(self) -> Dict:
         """Load trades from SQLite database.
 
@@ -89,6 +97,15 @@ class PaperTrader:
         losers = [t for t in closed if (t.get("pnl") or 0) <= 0]
         total_pnl = sum(t.get("pnl") or 0 for t in closed)
 
+        # Compute proper peak balance by replaying closed trades chronologically
+        peak_balance = self.account_size
+        running_balance = self.account_size
+        sorted_closed = sorted(closed, key=lambda t: t.get("exit_date") or t.get("entry_date") or "")
+        for t in sorted_closed:
+            running_balance += (t.get("pnl") or 0)
+            if running_balance > peak_balance:
+                peak_balance = running_balance
+
         return {
             "account_size": self.account_size,
             "starting_balance": self.account_size,
@@ -105,7 +122,7 @@ class PaperTrader:
                 "avg_winner": round(sum(t.get("pnl") or 0 for t in winners) / len(winners), 2) if winners else 0,
                 "avg_loser": round(sum(t.get("pnl") or 0 for t in losers) / len(losers), 2) if losers else 0,
                 "max_drawdown": 0,
-                "peak_balance": self.account_size + total_pnl,
+                "peak_balance": peak_balance,
             },
         }
 
@@ -205,8 +222,13 @@ class PaperTrader:
     def _open_trade(self, opp: Dict) -> Optional[Dict]:
         """Open a paper trade from an opportunity."""
         with self._trades_lock:
+            # Kill switch: halt all new trades when externally activated
+            if self._is_kill_switch_active():
+                logger.warning("TRADE REFUSED: kill switch is active — trading halted")
+                return None
+
             current_balance = self.trades["current_balance"]
-            starting_balance = self.trades["starting_balance"]
+            peak_balance = self.trades["stats"]["peak_balance"]
 
             # EH-TRADE-01: Refuse to open trades when balance is non-positive
             if current_balance <= 0:
@@ -216,13 +238,13 @@ class PaperTrader:
                 )
                 return None
 
-            # EH-TRADE-03: Portfolio-level max drawdown kill switch
-            drawdown_pct = (starting_balance - current_balance) / starting_balance if starting_balance > 0 else 0
+            # EH-TRADE-03: Portfolio-level max drawdown kill switch (peak-based)
+            drawdown_pct = (peak_balance - current_balance) / peak_balance if peak_balance > 0 else 0
             if drawdown_pct >= MAX_DRAWDOWN_PCT:
                 logger.critical(
                     f"TRADE REFUSED — MAX DRAWDOWN KILL SWITCH ACTIVE: "
                     f"drawdown {drawdown_pct:.1%} >= {MAX_DRAWDOWN_PCT:.0%} threshold. "
-                    f"Starting: ${starting_balance:,.2f}, Current: ${current_balance:,.2f}. "
+                    f"Peak: ${peak_balance:,.2f}, Current: ${current_balance:,.2f}. "
                     f"All new trades are blocked until manual review."
                 )
                 return None
@@ -319,6 +341,8 @@ class PaperTrader:
             # Persist to SQLite immediately
             upsert_trade(trade, source="scanner")
 
+            metrics.inc('trades_opened')
+
             logger.info(
                 f"PAPER TRADE OPENED: {trade['type']} on {trade['ticker']} | "
                 f"{trade['contracts']}x ${trade['short_strike']}/{trade['long_strike']} | "
@@ -337,6 +361,10 @@ class PaperTrader:
         Returns:
             List of closed trades
         """
+        if self._is_kill_switch_active():
+            logger.warning("Kill switch active — skipping position management")
+            return []
+
         closed = []
         now = datetime.now(timezone.utc)
 
@@ -497,6 +525,8 @@ class PaperTrader:
 
         # Persist to SQLite
         db_close_trade(str(trade.get("id", "")), pnl, reason)
+
+        metrics.inc('trades_closed')
 
         logger.info(
             f"PAPER TRADE CLOSED: {trade['ticker']} {trade.get('type', '')} | "

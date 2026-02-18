@@ -7,6 +7,7 @@ import { calculatePortfolioStats } from '@/lib/paper-trades';
 import { getTrades, TradeRow } from '@/lib/database';
 import { DATA_DIR } from '@/lib/paths';
 import { tryReadFile } from '@/lib/fs-utils';
+import { verifyAuth } from "@/lib/auth";
 
 export const dynamic = 'force-dynamic'
 
@@ -50,7 +51,8 @@ function tradeRowToPaperTrade(row: TradeRow): PaperTrade {
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const authErr = await verifyAuth(request); if (authErr) return authErr;
   try {
     // Primary: read ALL trades from SQLite (both scanner and user-initiated)
     const dbTrades = getTrades({});

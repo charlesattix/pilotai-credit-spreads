@@ -2,6 +2,7 @@ import { logger } from "@/lib/logger"
 import { NextResponse } from "next/server";
 import { apiError } from "@/lib/api-error";
 import { checkRateLimit } from "@/lib/database";
+import { verifyAuth } from "@/lib/auth";
 
 interface ChatAlert {
   ticker?: string;
@@ -38,6 +39,7 @@ When users ask about a specific alert or trade, reference the actual numbers the
 Format tips: Use bullet points for lists. Bold key numbers. Keep it scannable.`;
 
 export async function POST(request: Request) {
+  const authErr = await verifyAuth(request); if (authErr) return authErr;
   try {
     const forwarded = request.headers.get('x-forwarded-for');
     const ip = forwarded

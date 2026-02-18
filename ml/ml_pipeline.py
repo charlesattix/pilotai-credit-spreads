@@ -139,6 +139,7 @@ class MLPipeline:
         technical_signals: Optional[Dict] = None,
         current_positions: Optional[list] = None,
         regime: Optional[Dict] = None,
+        market_features: Optional[Dict] = None,
     ) -> TradeAnalysis:
         """
         Comprehensive ML-enhanced trade analysis.
@@ -188,6 +189,7 @@ class MLPipeline:
                 regime_data=regime_data,
                 iv_analysis=iv_analysis,
                 technical_signals=technical_signals,
+                market_features=market_features,
             )
             result['features'] = features
 
@@ -426,6 +428,10 @@ class MLPipeline:
             regime_data = self.regime_detector.detect_regime()
             logger.info(f"Pre-computed regime for batch: {regime_data.get('regime', 'unknown')}")
 
+            # 2. Pre-compute market features ONCE (SPY/VIX/TLT) to avoid
+            #    redundant downloads per ticker.
+            batch_market_features = self.feature_engine._compute_market_features()
+
             def _analyze_single(opp: Dict) -> Dict:
                 """Analyze a single opportunity (executed in a worker thread)."""
                 try:
@@ -445,6 +451,7 @@ class MLPipeline:
                         technical_signals=technical_signals,
                         current_positions=current_positions,
                         regime=regime_data,
+                        market_features=batch_market_features,
                     )
 
                     return {**opp, **analysis}

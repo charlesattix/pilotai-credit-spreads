@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from shared.exceptions import ProviderError
+from shared.circuit_breaker import CircuitBreaker, CircuitOpenError
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import (
     LimitOrderRequest,
@@ -32,8 +33,14 @@ from alpaca.trading.enums import (
 logger = logging.getLogger(__name__)
 
 
+_NO_RETRY = (ValueError, TypeError, CircuitOpenError)
+
+
 def _retry_with_backoff(max_retries: int = 2, base_delay: float = 1.0):
-    """Decorator that retries a method with exponential backoff + jitter."""
+    """Decorator that retries a method with exponential backoff + jitter.
+
+    Exceptions in ``_NO_RETRY`` are re-raised immediately without retry.
+    """
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -41,6 +48,8 @@ def _retry_with_backoff(max_retries: int = 2, base_delay: float = 1.0):
             for attempt in range(max_retries + 1):
                 try:
                     return func(*args, **kwargs)
+                except _NO_RETRY:
+                    raise
                 except Exception as exc:
                     last_exc = exc
                     if attempt < max_retries:
@@ -60,6 +69,7 @@ class AlpacaProvider:
 
     def __init__(self, api_key: str, api_secret: str, paper: bool = True):
         self.client = TradingClient(api_key, api_secret, paper=paper)
+        self._circuit_breaker = CircuitBreaker(failure_threshold=5, reset_timeout=60)
         self._verify_connection()
 
     def _verify_connection(self):
@@ -82,7 +92,9 @@ class AlpacaProvider:
     def get_account(self) -> Dict:
         """Get account balance and buying power."""
         try:
-            acct = self.client.get_account()
+            acct = self._circuit_breaker.call(self.client.get_account)
+        except CircuitOpenError:
+            raise
         except Exception as e:
             logger.error(f"Failed to get Alpaca account info: {e}", exc_info=True)
             raise ProviderError(f"Alpaca get_account failed: {e}") from e
@@ -189,7 +201,7 @@ class AlpacaProvider:
                 client_order_id=client_id,
             )
 
-        return self.client.submit_order(order_req)
+        return self._circuit_breaker.call(self.client.submit_order, order_req)
 
     # ------------------------------------------------------------------
     # Submit credit spread
@@ -360,7 +372,7 @@ class AlpacaProvider:
             status=status_map.get(status, QueryOrderStatus.ALL),
             limit=limit,
         )
-        orders = self.client.get_orders(req)
+        orders = self._circuit_breaker.call(self.client.get_orders, req)
         return [
             {
                 "id": str(o.id),
@@ -390,7 +402,7 @@ class AlpacaProvider:
 
     def get_order_status(self, order_id: str) -> Dict:
         """Get status of a specific order."""
-        order = self.client.get_order_by_id(order_id)
+        order = self._circuit_breaker.call(self.client.get_order_by_id, order_id)
         return {
             "id": str(order.id),
             "status": str(order.status),
@@ -400,7 +412,7 @@ class AlpacaProvider:
 
     def get_positions(self) -> List[Dict]:
         """Get all open positions."""
-        positions = self.client.get_all_positions()
+        positions = self._circuit_breaker.call(self.client.get_all_positions)
         return [
             {
                 "symbol": p.symbol,
@@ -418,7 +430,7 @@ class AlpacaProvider:
     def cancel_order(self, order_id: str) -> bool:
         """Cancel an open order."""
         try:
-            self.client.cancel_order_by_id(order_id)
+            self._circuit_breaker.call(self.client.cancel_order_by_id, order_id)
             logger.info(f"Order {order_id} cancelled")
             return True
         except Exception as e:
