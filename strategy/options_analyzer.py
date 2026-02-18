@@ -91,9 +91,19 @@ class OptionsAnalyzer:
             min_dte = self.config['strategy'].get('min_dte', 30) - 5
             max_dte = self.config['strategy'].get('max_dte', 45) + 5
             chain = provider.get_full_chain(ticker, min_dte=min_dte, max_dte=max_dte)
+            
             if chain.empty:
                 logger.warning(f"{provider_name} returned no data for {ticker}, falling back to yfinance")
                 return self._get_chain_yfinance(ticker)
+            
+            # Check data quality - Polygon contracts endpoint doesn't have bid/ask pricing
+            # If we have strikes but no meaningful pricing, fall back to yfinance
+            if 'bid' in chain.columns and 'ask' in chain.columns:
+                valid_pricing = ((chain['bid'] > 0.05) & (chain['ask'] > 0.05)).sum()
+                if valid_pricing < len(chain) * 0.1:  # Less than 10% have real prices
+                    logger.warning(f"{provider_name} returned {len(chain)} options but insufficient pricing data for {ticker}, falling back to yfinance")
+                    return self._get_chain_yfinance(ticker)
+            
             logger.info(f"Retrieved {len(chain)} options for {ticker} via {provider_name} (real-time)")
             return chain
         except Exception as e:
