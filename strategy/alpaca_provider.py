@@ -9,7 +9,7 @@ import uuid
 import time
 import random
 import functools
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from shared.exceptions import ProviderError
@@ -112,7 +112,7 @@ class AlpacaProvider:
         else:
             for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S"):
                 try:
-                    exp_dt = datetime.strptime(expiration.split(" ")[0], "%Y-%m-%d")
+                    exp_dt = datetime.strptime(expiration.split(" ")[0], "%Y-%m-%d").replace(tzinfo=timezone.utc)
                     break
                 except ValueError:
                     continue

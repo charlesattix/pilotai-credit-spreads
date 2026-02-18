@@ -135,8 +135,8 @@ class PerformanceMetrics:
         """
         Generate timestamp string for filenames.
         """
-        from datetime import datetime
-        return datetime.now().strftime("%Y%m%d_%H%M%S")
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
     def print_summary(self, results: Dict):
         """

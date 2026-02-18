@@ -48,8 +48,7 @@ export default function PaperTradingPage() {
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-bold text-gray-900">Paper Trading</h1>
           <button onClick={() => mutate()}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition"
-            style={{ background: 'linear-gradient(135deg, #9B6DFF, #E84FAD)' }}>
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition bg-gradient-brand">
             <RefreshCw className="w-3.5 h-3.5" /> Refresh
           </button>
         </div>
@@ -67,7 +66,7 @@ export default function PaperTradingPage() {
         </div>
 
         {/* Portfolio Risk Bar */}
-        <div className="bg-white rounded-xl border border-gray-100 p-4">
+        <div className="bg-white rounded-lg border border-gray-100 p-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium text-gray-700">Portfolio Risk</span>
             <span className="text-sm text-gray-500">
@@ -75,10 +74,9 @@ export default function PaperTradingPage() {
             </span>
           </div>
           <div className="w-full bg-gray-100 rounded-full h-3">
-            <div className="h-3 rounded-full transition-all"
+            <div className="h-3 rounded-full transition-all bg-gradient-brand"
               style={{
                 width: `${Math.min(100, (portfolioData.total_max_loss / portfolioData.account_size) * 100)}%`,
-                background: 'linear-gradient(90deg, #9B6DFF, #E84FAD, #F59E42)'
               }} />
           </div>
           <p className="text-xs text-gray-400 mt-1">
@@ -94,7 +92,7 @@ export default function PaperTradingPage() {
               <PositionCard key={pos.id} position={pos} />
             ))}
             {portfolioData.open_positions.length === 0 && (
-              <div className="bg-white rounded-xl border border-gray-100 p-8 text-center text-gray-400">
+              <div className="bg-white rounded-lg border border-gray-100 p-8 text-center text-gray-400">
                 No open positions
               </div>
             )}
@@ -119,7 +117,7 @@ export default function PaperTradingPage() {
 
 function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: string; color: string }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-4">
+    <div className="bg-white rounded-lg border border-gray-100 p-4">
       <div className="flex items-center gap-2 mb-1">
         <div style={{ color }}>{icon}</div>
         <span className="text-xs text-gray-500">{label}</span>
@@ -136,7 +134,7 @@ function PositionCard({ position: p, closed }: { position: PaperTrade; closed?: 
   const totalCredit = (p.entry_credit || 0) * 100 * (p.contracts || 1)
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-4 hover:shadow-sm transition">
+    <div className="bg-white rounded-lg border border-gray-100 p-4 hover:shadow-sm transition">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
           <span className="text-lg font-bold text-gray-900">{p.ticker}</span>

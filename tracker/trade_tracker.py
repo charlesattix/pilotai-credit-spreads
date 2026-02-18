@@ -4,7 +4,7 @@ Tracks open and closed positions, manages trade lifecycle.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 import json
@@ -99,10 +99,10 @@ class TradeTracker:
             Position ID
         """
         # Generate position ID
-        position_id = f"{position['ticker']}_{position['type']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        position_id = f"{position['ticker']}_{position['type']}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
         position['position_id'] = position_id
-        position['entry_date'] = datetime.now().isoformat()
+        position['entry_date'] = datetime.now(timezone.utc).isoformat()
         position['status'] = 'open'
 
         self.positions.append(position)
@@ -145,7 +145,7 @@ class TradeTracker:
             'ticker': position['ticker'],
             'type': position['type'],
             'entry_date': position['entry_date'],
-            'exit_date': datetime.now().isoformat(),
+            'exit_date': datetime.now(timezone.utc).isoformat(),
             'expiration': position.get('expiration'),
             'short_strike': position['short_strike'],
             'long_strike': position['long_strike'],

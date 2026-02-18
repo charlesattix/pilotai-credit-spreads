@@ -5,10 +5,6 @@ This script creates sample alerts to demonstrate the system's output.
 """
 
 from datetime import datetime, timedelta
-from pathlib import Path
-import sys
-
-sys.path.insert(0, str(Path(__file__).parent))
 
 from alerts import AlertGenerator
 from utils import load_config

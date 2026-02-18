@@ -14,7 +14,7 @@ Based on research:
 
 import pandas as pd
 from typing import Dict, List, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import yfinance as yf
 from shared.constants import FOMC_DATES as _SHARED_FOMC_DATES
@@ -73,13 +73,16 @@ class SentimentScanner:
             Dictionary with event risk assessment
         """
         try:
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
 
-            # Determine scan window
+            # Determine scan window: use the earlier of expiration_date
+            # and the lookahead window so we never look further ahead than
+            # either constraint allows.
+            lookahead_end = now + timedelta(days=lookahead_days)
             if expiration_date:
-                scan_end = expiration_date
+                scan_end = min(expiration_date, lookahead_end)
             else:
-                scan_end = now + timedelta(days=lookahead_days)
+                scan_end = lookahead_end
 
             result = {
                 'ticker': ticker,
@@ -146,7 +149,7 @@ class SentimentScanner:
         try:
             # Check cache first
             if ticker in self.earnings_cache:
-                cache_age = (datetime.now() - self.cache_timestamps.get(ticker, datetime.min)).total_seconds()
+                cache_age = (datetime.now(timezone.utc) - self.cache_timestamps.get(ticker, datetime.min.replace(tzinfo=timezone.utc))).total_seconds()
                 if cache_age < 86400:  # 24 hours
                     earnings_date = self.earnings_cache[ticker]
                     if earnings_date and start_date <= earnings_date <= end_date:
@@ -159,7 +162,7 @@ class SentimentScanner:
 
             if calendar is None or 'Earnings Date' not in calendar:
                 self.earnings_cache[ticker] = None
-                self.cache_timestamps[ticker] = datetime.now()
+                self.cache_timestamps[ticker] = datetime.now(timezone.utc)
                 return None
 
             earnings_date = pd.to_datetime(calendar['Earnings Date'])
@@ -173,7 +176,7 @@ class SentimentScanner:
 
             # Cache result
             self.earnings_cache[ticker] = earnings_date
-            self.cache_timestamps[ticker] = datetime.now()
+            self.cache_timestamps[ticker] = datetime.now(timezone.utc)
 
             # Check if in window
             if earnings_date and start_date <= earnings_date <= end_date:
@@ -189,7 +192,7 @@ class SentimentScanner:
         """
         Format earnings event data.
         """
-        days_until = (earnings_date - datetime.now()).days
+        days_until = (earnings_date - datetime.now(timezone.utc)).days
 
         # Risk score based on days until earnings
         if days_until < 0:
@@ -232,7 +235,7 @@ class SentimentScanner:
                 return None
 
             fomc_date = min(upcoming_fomc)
-            days_until = (fomc_date - datetime.now()).days
+            days_until = (fomc_date - datetime.now(timezone.utc)).days
 
             # Risk score
             if days_until < 0:
@@ -281,7 +284,7 @@ class SentimentScanner:
                 return None
 
             cpi_date = min(cpi_dates)
-            days_until = (cpi_date - datetime.now()).days
+            days_until = (cpi_date - datetime.now(timezone.utc)).days
 
             # Risk score (slightly lower than FOMC)
             if days_until < 0:
@@ -341,7 +344,7 @@ class SentimentScanner:
             DataFrame with earnings dates
         """
         try:
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
             end_date = now + timedelta(days=days_ahead)
 
             earnings_data = []
@@ -382,7 +385,7 @@ class SentimentScanner:
             List of economic events
         """
         try:
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
             end_date = now + timedelta(days=days_ahead)
 
             events = []
@@ -491,7 +494,7 @@ class SentimentScanner:
         Return default scan result when error occurs.
         """
         return {
-            'scan_date': datetime.now().isoformat(),
+            'scan_date': datetime.now(timezone.utc).isoformat(),
             'scan_window_days': 0,
             'events': [],
             'event_risk_score': 0.5,

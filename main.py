@@ -15,11 +15,12 @@ import os
 import sys
 import signal
 import logging
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
 import argparse
 from typing import Dict, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from shared.types import AppConfig
 
 try:
     import sentry_sdk
@@ -30,9 +31,6 @@ except ImportError:
     pass
 except Exception as e:
     logging.getLogger(__name__).error(f"Sentry initialization failed: {e}", exc_info=True)
-
-# Add current directory to path
-sys.path.insert(0, str(Path(__file__).parent))
 
 from utils import load_config, setup_logging, validate_config
 from strategy import CreditSpreadStrategy, TechnicalAnalyzer, OptionsAnalyzer
@@ -58,7 +56,7 @@ class CreditSpreadSystem:
 
     def __init__(
         self,
-        config: Dict,
+        config: AppConfig,
         strategy: Optional[CreditSpreadStrategy] = None,
         technical_analyzer: Optional[TechnicalAnalyzer] = None,
         options_analyzer: Optional[OptionsAnalyzer] = None,
@@ -301,7 +299,7 @@ class CreditSpreadSystem:
         """
         logger.info(f"Starting backtest for {ticker}")
 
-        end_date = datetime.now()
+        end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=lookback_days)
 
         backtester = Backtester(self.config)

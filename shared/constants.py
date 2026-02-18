@@ -6,7 +6,7 @@ create secondary ``constants.py`` files elsewhere in the tree.
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ---------------------------------------------------------------------------
 # Standardized project paths (ARCH-PY-09)
@@ -47,23 +47,23 @@ BACKTEST_CREDIT_FRACTION = 0.35
 
 # Known FOMC meeting dates 2025-2026
 FOMC_DATES = [
-    datetime(2025, 1, 29),
-    datetime(2025, 3, 19),
-    datetime(2025, 5, 7),
-    datetime(2025, 6, 18),
-    datetime(2025, 7, 30),
-    datetime(2025, 9, 17),
-    datetime(2025, 11, 5),
-    datetime(2025, 12, 17),
-    datetime(2026, 1, 28),
-    datetime(2026, 2, 4),
-    datetime(2026, 3, 18),
-    datetime(2026, 5, 6),
-    datetime(2026, 6, 17),
-    datetime(2026, 7, 29),
-    datetime(2026, 9, 16),
-    datetime(2026, 11, 4),
-    datetime(2026, 12, 16),
+    datetime(2025, 1, 29, tzinfo=timezone.utc),
+    datetime(2025, 3, 19, tzinfo=timezone.utc),
+    datetime(2025, 5, 7, tzinfo=timezone.utc),
+    datetime(2025, 6, 18, tzinfo=timezone.utc),
+    datetime(2025, 7, 30, tzinfo=timezone.utc),
+    datetime(2025, 9, 17, tzinfo=timezone.utc),
+    datetime(2025, 11, 5, tzinfo=timezone.utc),
+    datetime(2025, 12, 17, tzinfo=timezone.utc),
+    datetime(2026, 1, 28, tzinfo=timezone.utc),
+    datetime(2026, 2, 4, tzinfo=timezone.utc),
+    datetime(2026, 3, 18, tzinfo=timezone.utc),
+    datetime(2026, 5, 6, tzinfo=timezone.utc),
+    datetime(2026, 6, 17, tzinfo=timezone.utc),
+    datetime(2026, 7, 29, tzinfo=timezone.utc),
+    datetime(2026, 9, 16, tzinfo=timezone.utc),
+    datetime(2026, 11, 4, tzinfo=timezone.utc),
+    datetime(2026, 12, 16, tzinfo=timezone.utc),
 ]
 
 # CPI release dates (typically 2nd Tuesday-Thursday of month)
@@ -72,7 +72,7 @@ CPI_RELEASE_DAYS = [12, 13, 14]
 # ---------------------------------------------------------------------------
 # Staleness check — warn if FOMC dates are outdated
 # ---------------------------------------------------------------------------
-if FOMC_DATES and FOMC_DATES[-1] < datetime.now():
+if FOMC_DATES and FOMC_DATES[-1] < datetime.now(timezone.utc):
     logging.getLogger(__name__).warning(
         "FOMC_DATES are stale — the latest date (%s) is in the past. "
         "Update shared/constants.py with the current year's FOMC schedule "

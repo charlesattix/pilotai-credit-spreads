@@ -1,6 +1,6 @@
 import useSWR from 'swr'
 import { apiFetch } from '@/lib/api'
-import type { AlertsResponse, PaperTrade, PositionsSummary } from '@/lib/types'
+import type { AlertsResponse, Config, PaperTrade, PositionsSummary } from '@/lib/types'
 
 function fetcher<T>(url: string): Promise<T> {
   return apiFetch<T>(url)
@@ -47,4 +47,16 @@ export function usePaperTrades(userId: string = 'default') {
     dedupingInterval: 30000,
     revalidateOnFocus: true,
   })
+}
+
+export function useConfig() {
+  const { data, error, isLoading, mutate } = useSWR<Config>(
+    '/api/config',
+    fetcher<Config>,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 60_000,
+    }
+  )
+  return { config: data, error, isLoading, mutate }
 }

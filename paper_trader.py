@@ -7,7 +7,7 @@ Monitors open positions and closes at profit target, stop loss, or expiration.
 import logging
 import threading
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 from pathlib import Path
 from shared.constants import MAX_CONTRACTS_PER_TRADE, MANAGEMENT_DTE_THRESHOLD, DATA_DIR as _DATA_DIR
@@ -131,7 +131,7 @@ class PaperTrader:
             "open_positions": self._open_trades,
             "closed_positions": self._closed_trades,
             "stats": self.trades["stats"],
-            "updated_at": datetime.now().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         atomic_json_write(TRADES_FILE, dashboard_data)
 
@@ -270,7 +270,7 @@ class PaperTrader:
                 "profit_target": round(credit * self.profit_target_pct * contracts * 100, 2),
                 "stop_loss_amount": round(credit * self.stop_loss_mult * contracts * 100, 2),
                 "entry_price": opp.get("current_price", 0),
-                "entry_date": datetime.now().isoformat(),
+                "entry_date": datetime.now(timezone.utc).isoformat(),
                 "entry_score": opp.get("score", 0),
                 "entry_pop": opp.get("pop", 0),
                 "entry_delta": opp.get("short_delta", 0),
@@ -338,7 +338,7 @@ class PaperTrader:
             List of closed trades
         """
         closed = []
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
 
         for trade in self.open_trades:
             ticker = trade["ticker"]
@@ -348,10 +348,12 @@ class PaperTrader:
             exp_str = str(trade.get("expiration", ""))
             exp_str = exp_str.split(" ")[0] if " " in exp_str else exp_str
             try:
-                exp_date = datetime.strptime(exp_str, "%Y-%m-%d")
+                exp_date = datetime.strptime(exp_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
             except ValueError:
                 try:
                     exp_date = datetime.fromisoformat(exp_str)
+                    if exp_date.tzinfo is None:
+                        exp_date = exp_date.replace(tzinfo=timezone.utc)
                 except ValueError:
                     logger.error(f"Could not parse expiration '{trade.get('expiration')}' for trade {trade.get('id')}, defaulting to +30d", exc_info=True)
                     exp_date = now + timedelta(days=30)
@@ -454,7 +456,7 @@ class PaperTrader:
 
         with self._trades_lock:
             trade["status"] = "closed"
-            trade["exit_date"] = datetime.now().isoformat()
+            trade["exit_date"] = datetime.now(timezone.utc).isoformat()
             trade["exit_reason"] = reason
             trade["exit_pnl"] = pnl
             trade["pnl"] = pnl

@@ -7,7 +7,7 @@ Uses WAL mode for concurrent read access from Python and Node.js.
 import json
 import logging
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -156,7 +156,7 @@ def close_trade(
         conn.execute("""
             UPDATE trades SET status=?, exit_date=?, exit_reason=?, pnl=?, updated_at=datetime('now')
             WHERE id=?
-        """, (status, datetime.now().isoformat(), reason, pnl, trade_id))
+        """, (status, datetime.now(timezone.utc).isoformat(), reason, pnl, trade_id))
         conn.commit()
     finally:
         conn.close()
@@ -166,7 +166,7 @@ def insert_alert(alert: Dict[str, Any], path: Optional[str] = None) -> None:
     """Insert an alert."""
     conn = get_db(path)
     try:
-        alert_id = f"alert-{alert.get('ticker', 'UNK')}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        alert_id = f"alert-{alert.get('ticker', 'UNK')}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
         conn.execute(
             "INSERT OR REPLACE INTO alerts (id, ticker, data) VALUES (?, ?, ?)",
             (alert_id, alert.get("ticker", ""), json.dumps(alert, default=str)),

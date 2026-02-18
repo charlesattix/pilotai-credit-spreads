@@ -4,7 +4,7 @@ Implements bull put spreads and bear call spreads with high probability setups.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List
 import pandas as pd
 
@@ -100,11 +100,12 @@ class CreditSpreadStrategy:
 
     def _filter_by_dte(self, option_chain: pd.DataFrame) -> List[datetime]:
         """Filter expirations by DTE range."""
-        today = datetime.now()
+        today = datetime.now(timezone.utc)
         valid_expirations = []
 
         for exp in option_chain['expiration'].unique():
-            dte = (exp - today).days
+            exp_aware = exp if hasattr(exp, 'tzinfo') and exp.tzinfo else (exp.replace(tzinfo=timezone.utc) if isinstance(exp, datetime) else exp)
+            dte = (exp_aware - today).days
             if self.strategy_params['min_dte'] <= dte <= self.strategy_params['max_dte']:
                 valid_expirations.append(exp)
 
@@ -279,7 +280,8 @@ class CreditSpreadStrategy:
             if credit < min_credit:
                 continue
 
-            dte = (expiration - datetime.now()).days
+            exp_aware = expiration if expiration.tzinfo else expiration.replace(tzinfo=timezone.utc)
+            dte = (exp_aware - datetime.now(timezone.utc)).days
 
             # Distance to short strike (always positive — how far price
             # must move adversely to reach the short strike)

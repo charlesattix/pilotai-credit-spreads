@@ -63,8 +63,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading || !token}
-            className="w-full py-2 px-4 text-white font-medium rounded-lg transition-opacity disabled:opacity-50"
-            style={{ background: 'linear-gradient(135deg, #9B6DFF, #E84FAD)' }}
+            className="w-full py-2 px-4 text-white font-medium rounded-lg transition-opacity disabled:opacity-50 bg-gradient-brand"
           >
             {loading ? 'Signing in...' : 'Sign In'}
           </button>

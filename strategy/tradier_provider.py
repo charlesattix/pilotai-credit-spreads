@@ -10,7 +10,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List
 from shared.exceptions import ProviderError
 from shared.circuit_breaker import CircuitBreaker
@@ -137,7 +137,7 @@ class TradierProvider:
                     "theta": greeks.get("theta", 0) or 0,
                     "vega": greeks.get("vega", 0) or 0,
                     "mid": ((opt.get("bid", 0) or 0) + (opt.get("ask", 0) or 0)) / 2,
-                    "expiration": datetime.strptime(expiration, "%Y-%m-%d"),
+                    "expiration": datetime.strptime(expiration, "%Y-%m-%d").replace(tzinfo=timezone.utc),
                     "itm": opt.get("strike", 0) < opt.get("last", 0) if opt.get("option_type") == "call" else opt.get("strike", 0) > opt.get("last", 0),
                 })
 
@@ -163,11 +163,11 @@ class TradierProvider:
             Combined DataFrame of all relevant expirations
         """
         expirations = self.get_expirations(ticker)
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
 
         all_chains = []
         for exp_str in expirations:
-            exp_date = datetime.strptime(exp_str, "%Y-%m-%d")
+            exp_date = datetime.strptime(exp_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
             dte = (exp_date - now).days
 
             if min_dte <= dte <= max_dte:

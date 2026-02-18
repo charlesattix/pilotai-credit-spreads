@@ -34,9 +34,9 @@ test-web:
 lint: lint-python lint-web
 
 lint-python:
-	python -m py_compile main.py
-	python -m py_compile paper_trader.py
-	python -m py_compile utils.py
+	python3 -m py_compile main.py
+	find . -name '*.py' -not -path './venv/*' -not -path './.venv/*' | xargs -I{} python3 -m py_compile {}
+	@echo "Lint passed"
 
 lint-web:
 	cd web && npm run lint 2>/dev/null || echo "No lint script configured"

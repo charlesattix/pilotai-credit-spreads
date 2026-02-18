@@ -33,6 +33,6 @@ export async function GET() {
     return NextResponse.json(JSON.parse(data))
   } catch (error) {
     logger.error('Failed to read trades', { error: String(error) })
-    return NextResponse.json([])
+    return apiError('Failed to read trades', 500)
   }
 }

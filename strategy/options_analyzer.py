@@ -4,7 +4,7 @@ Handles options chain data, Greeks calculation, and IV analysis.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional
 import numpy as np
 import pandas as pd
@@ -114,10 +114,10 @@ class OptionsAnalyzer:
 
             min_dte = self.config.get('strategy', {}).get('min_dte', 30) - 5  # buffer
             max_dte = self.config.get('strategy', {}).get('max_dte', 45) + 5
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
 
             for exp_date_str in expirations:
-                exp_date = datetime.strptime(exp_date_str, '%Y-%m-%d')
+                exp_date = datetime.strptime(exp_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
 
                 dte = (exp_date - now).days
                 if dte < min_dte or dte > max_dte:
@@ -199,11 +199,12 @@ class OptionsAnalyzer:
         logger.warning("Delta not available in data, using estimates")
 
         spot = current_price if current_price is not None else df['strike'].median()
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         risk_free = DEFAULT_RISK_FREE_RATE
 
         K = df['strike'].values.astype(float)
-        T = np.maximum((df['expiration'] - now).dt.days.values / 365.0, 1/365)
+        exp_col = pd.to_datetime(df['expiration']).dt.tz_localize('UTC') if pd.to_datetime(df['expiration']).dt.tz is None else pd.to_datetime(df['expiration'])
+        T = np.maximum((exp_col - now).dt.days.values / 365.0, 1/365)
         iv = df['iv'].fillna(0.20).values.astype(float)
         iv = np.where(iv <= 0, 0.20, iv)
 

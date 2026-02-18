@@ -88,3 +88,61 @@ class TradeAnalysis(TypedDict, total=False):
     enhanced_score: float
     recommendation: TradeRecommendation
     error: bool
+
+
+class StrategyConfig(TypedDict, total=False):
+    """Strategy-related configuration."""
+    min_dte: int
+    max_dte: int
+    min_credit: float
+    max_spread_width: float
+    delta_range: List[float]
+    min_pop: float
+    min_volume: int
+    min_open_interest: int
+    symbols: List[str]
+    spread_type: str
+
+class RiskConfig(TypedDict, total=False):
+    """Risk management configuration."""
+    max_position_size: float
+    max_portfolio_risk: float
+    max_positions: int
+    profit_target: float
+    stop_loss: float
+    max_daily_loss: float
+    kelly_fraction: float
+
+class AlertsConfig(TypedDict, total=False):
+    """Alert and notification configuration."""
+    telegram_enabled: bool
+    telegram_token: str
+    telegram_chat_id: str
+    min_score: float
+    alert_interval: int
+
+class MLConfig(TypedDict, total=False):
+    """ML pipeline configuration."""
+    model_path: str
+    retrain_interval: int
+    min_confidence: float
+    feature_set: List[str]
+    lookahead_days: int
+
+class BacktestConfig(TypedDict, total=False):
+    """Backtesting configuration."""
+    start_date: str
+    end_date: str
+    initial_capital: float
+    commission: float
+
+class AppConfig(TypedDict, total=False):
+    """Top-level application configuration."""
+    strategy: StrategyConfig
+    risk: RiskConfig
+    alerts: AlertsConfig
+    ml: MLConfig
+    backtest: BacktestConfig
+    paper_trading: bool
+    log_level: str
+    data_dir: str

@@ -12,7 +12,7 @@ Based on research:
 import numpy as np
 import pandas as pd
 from typing import Dict, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import yfinance as yf
 from shared.indicators import calculate_iv_rank as _shared_iv_rank
@@ -77,7 +77,7 @@ class IVAnalyzer:
 
             result = {
                 'ticker': ticker,
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'skew': skew_metrics,
                 'term_structure': term_structure,
                 'iv_rank_percentile': iv_rank_percentile,
@@ -191,7 +191,7 @@ class IVAnalyzer:
                 return {'available': False}
 
             # Calculate DTE for each option (copy to avoid mutating caller's DataFrame)
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
             options_chain = options_chain.copy()
             options_chain['dte'] = (options_chain['expiration'] - now).dt.days
 
@@ -294,13 +294,13 @@ class IVAnalyzer:
         """
         # Check cache
         if ticker in self.iv_history_cache:
-            cache_age = (datetime.now() - self.cache_timestamp.get(ticker, datetime.min)).total_seconds()
+            cache_age = (datetime.now(timezone.utc) - self.cache_timestamp.get(ticker, datetime.min.replace(tzinfo=timezone.utc))).total_seconds()
             if cache_age < 86400:  # 24 hours
                 return self.iv_history_cache[ticker]
 
         try:
             # Fetch historical data
-            end_date = datetime.now()
+            end_date = datetime.now(timezone.utc)
             start_date = end_date - timedelta(days=self.lookback_days + 30)
 
             if self.data_cache:
@@ -318,7 +318,7 @@ class IVAnalyzer:
 
             # Cache result
             self.iv_history_cache[ticker] = hv
-            self.cache_timestamp[ticker] = datetime.now()
+            self.cache_timestamp[ticker] = datetime.now(timezone.utc)
 
             return hv
 
@@ -398,7 +398,7 @@ class IVAnalyzer:
         Return default analysis when data unavailable.
         """
         return {
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'skew': {'available': False},
             'term_structure': {'available': False},
             'iv_rank_percentile': {'available': False},

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { StatsBar } from '@/components/layout/stats-bar'
 import { AlertCard } from '@/components/alerts/alert-card'
 import { AIChat } from '@/components/sidebar/ai-chat'
@@ -12,7 +12,7 @@ import type { Alert } from '@/lib/types'
 import LivePositions from '@/components/positions/live-positions'
 import { RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
-import { useAlerts, usePositions } from '@/lib/hooks'
+import { useAlerts, usePositions, usePaperTrades } from '@/lib/hooks'
 import { PaperTrade } from '@/lib/types'
 
 type FilterType = 'all' | 'bullish' | 'bearish' | 'neutral' | 'high-prob'
@@ -20,12 +20,17 @@ type FilterType = 'all' | 'bullish' | 'bearish' | 'neutral' | 'high-prob'
 export default function HomePage() {
   const { data: alertsData, isLoading: alertsLoading, mutate: mutateAlerts } = useAlerts()
   const { data: positions } = usePositions()
+  const { mutate: mutatePaperTrades } = usePaperTrades()
+
+  const handlePaperTrade = () => {
+    mutatePaperTrades()
+  }
   const [filter, setFilter] = useState<FilterType>('all')
   const [scanning, setScanning] = useState(false)
 
   const alerts: Alert[] = alertsData?.alerts || alertsData?.opportunities || []
 
-  const runScan = async () => {
+  const runScan = useCallback(async () => {
     setScanning(true)
     try {
       toast.info('Refreshing alerts...')
@@ -36,29 +41,34 @@ export default function HomePage() {
     } finally {
       setScanning(false)
     }
-  }
+  }, [mutateAlerts])
 
-  const filteredAlerts = alerts.filter(alert => {
+  const filteredAlerts = useMemo(() => alerts.filter(alert => {
     const t = (alert.type || '').toLowerCase()
     if (filter === 'bullish') return t.includes('put')
     if (filter === 'bearish') return t.includes('call')
     if (filter === 'neutral') return !t.includes('put') && !t.includes('call')
     if (filter === 'high-prob') return (alert.pop || 0) >= 70
     return true
-  })
+  }), [alerts, filter])
 
-  const avgPOP = alerts.length > 0 ? alerts.reduce((sum, a) => sum + (a.pop || 0), 0) / alerts.length : 0
+  const avgPOP = useMemo(() =>
+    alerts.length > 0 ? alerts.reduce((sum, a) => sum + (a.pop || 0), 0) / alerts.length : 0
+  , [alerts])
 
   // Compute real stats from positions data
-  const closedTrades: PaperTrade[] = positions?.closed_trades || []
-  const winners = closedTrades.filter((t) => (t.realized_pnl || 0) > 0)
-  const losers = closedTrades.filter((t) => (t.realized_pnl || 0) <= 0)
-  const realWinRate = closedTrades.length > 0 ? (winners.length / closedTrades.length) * 100 : 0
-  const avgWinnerPct = winners.length > 0 ? winners.reduce((s, t) => s + (t.realized_pnl || 0), 0) / winners.length : 0
-  const avgLoserPct = losers.length > 0 ? losers.reduce((s, t) => s + (t.realized_pnl || 0), 0) / losers.length : 0
-  const profitFactor = losers.length > 0 && avgLoserPct !== 0
-    ? Math.abs(winners.reduce((s, t) => s + (t.realized_pnl || 0), 0) / losers.reduce((s, t) => s + (t.realized_pnl || 0), 0))
-    : 0
+  const { closedTrades, winners, losers, realWinRate, avgWinnerPct, avgLoserPct, profitFactor } = useMemo(() => {
+    const closedTrades: PaperTrade[] = positions?.closed_trades || []
+    const winners = closedTrades.filter((t) => (t.realized_pnl || 0) > 0)
+    const losers = closedTrades.filter((t) => (t.realized_pnl || 0) <= 0)
+    const realWinRate = closedTrades.length > 0 ? (winners.length / closedTrades.length) * 100 : 0
+    const avgWinnerPct = winners.length > 0 ? winners.reduce((s, t) => s + (t.realized_pnl || 0), 0) / winners.length : 0
+    const avgLoserPct = losers.length > 0 ? losers.reduce((s, t) => s + (t.realized_pnl || 0), 0) / losers.length : 0
+    const profitFactor = losers.length > 0 && avgLoserPct !== 0
+      ? Math.abs(winners.reduce((s, t) => s + (t.realized_pnl || 0), 0) / losers.reduce((s, t) => s + (t.realized_pnl || 0), 0))
+      : 0
+    return { closedTrades, winners, losers, realWinRate, avgWinnerPct, avgLoserPct, profitFactor }
+  }, [positions])
 
   if (alertsLoading) {
     return (
@@ -160,7 +170,7 @@ export default function HomePage() {
             ) : (
               <div className="space-y-4">
                 {filteredAlerts.map((alert, idx) => (
-                  <AlertCard key={`${alert.ticker}-${alert.type}-${alert.short_strike}-${alert.long_strike}`} alert={alert} isNew={idx < 2} />
+                  <AlertCard key={`${alert.ticker}-${alert.type}-${alert.short_strike}-${alert.long_strike}`} alert={alert} isNew={idx < 2} onPaperTrade={handlePaperTrade} />
                 ))}
               </div>
             )}
@@ -202,6 +212,7 @@ function FilterPill({
   return (
     <button
       onClick={onClick}
+      aria-pressed={active}
       className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
         active
           ? 'bg-brand-purple text-white shadow-md'

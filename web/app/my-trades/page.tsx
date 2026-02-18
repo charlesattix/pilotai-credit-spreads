@@ -60,8 +60,7 @@ export default function MyTradesPage() {
         </div>
         <Link
           href="/"
-          className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
-          style={{ background: 'linear-gradient(135deg, #9B6DFF, #E84FAD)' }}
+          className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors bg-gradient-brand"
         >
           Browse Alerts
         </Link>
@@ -142,8 +141,7 @@ export default function MyTradesPage() {
           </p>
           <Link
             href="/"
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg"
-            style={{ background: 'linear-gradient(135deg, #9B6DFF, #E84FAD)' }}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg bg-gradient-brand"
           >
             <TrendingUp className="w-4 h-4" />
             Browse Alerts

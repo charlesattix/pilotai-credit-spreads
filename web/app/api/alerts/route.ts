@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import path from "path";
 import { logger } from "@/lib/logger";
+import { apiError } from "@/lib/api-error";
 import { getAlerts } from "@/lib/database";
 import { DATA_DIR, OUTPUT_DIR } from "@/lib/paths";
 import { tryReadFile } from "@/lib/fs-utils";
@@ -39,6 +40,6 @@ export async function GET() {
     });
   } catch (error) {
     logger.error("Failed to read alerts", { error: String(error) });
-    return NextResponse.json({ alerts: [], opportunities: [], count: 0 });
+    return apiError("Failed to read alerts", 500);
   }
 }

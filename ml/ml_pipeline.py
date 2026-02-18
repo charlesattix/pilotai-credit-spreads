@@ -13,11 +13,12 @@ This module:
 """
 
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 from collections import Counter
 from typing import Dict, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from .regime_detector import RegimeDetector
@@ -137,6 +138,7 @@ class MLPipeline:
         expiration_date: Optional[datetime] = None,
         technical_signals: Optional[Dict] = None,
         current_positions: Optional[list] = None,
+        regime: Optional[Dict] = None,
     ) -> TradeAnalysis:
         """
         Comprehensive ML-enhanced trade analysis.
@@ -149,7 +151,9 @@ class MLPipeline:
             expiration_date: Option expiration date
             technical_signals: Technical analysis signals (optional)
             current_positions: Current portfolio positions (optional)
-            
+            regime: Pre-computed regime detection result (optional).
+                    When provided, regime detection is skipped.
+
         Returns:
             Dictionary with enhanced trade analysis
         """
@@ -163,11 +167,11 @@ class MLPipeline:
             result = {
                 'ticker': ticker,
                 'spread_type': spread_type,
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
             }
 
-            # 1. Detect market regime
-            regime_data = self.regime_detector.detect_regime(ticker=ticker)
+            # 1. Detect market regime (use pre-computed if available)
+            regime_data = regime if regime is not None else self.regime_detector.detect_regime(ticker=ticker)
             result['regime'] = regime_data
 
             # 2. Analyze IV surface
@@ -400,22 +404,31 @@ class MLPipeline:
     ) -> list:
         """
         Analyze multiple opportunities in batch.
-        
+
+        Regime detection is computed once up front and shared across all
+        per-opportunity analyses.  Individual analyses are parallelized
+        with a ThreadPoolExecutor to reduce wall-clock time.
+
         Args:
             opportunities: List of opportunity dictionaries
             current_positions: Current portfolio positions
-            
+
         Returns:
             List of enhanced opportunity dictionaries
         """
         try:
+            if not opportunities:
+                return []
+
             logger.info(f"Batch analyzing {len(opportunities)} opportunities...")
 
-            enhanced_opportunities = []
+            # 1. Compute regime detection ONCE and reuse for every opportunity
+            regime_data = self.regime_detector.detect_regime()
+            logger.info(f"Pre-computed regime for batch: {regime_data.get('regime', 'unknown')}")
 
-            for opp in opportunities:
+            def _analyze_single(opp: Dict) -> Dict:
+                """Analyze a single opportunity (executed in a worker thread)."""
                 try:
-                    # Extract opportunity parameters
                     ticker = opp.get('ticker', '')
                     current_price = opp.get('current_price', 0)
                     options_chain = opp.get('options_chain', pd.DataFrame())
@@ -423,7 +436,6 @@ class MLPipeline:
                     expiration_date = opp.get('expiration')
                     technical_signals = opp.get('technical_signals', {})
 
-                    # Analyze
                     analysis = self.analyze_trade(
                         ticker=ticker,
                         current_price=current_price,
@@ -432,15 +444,22 @@ class MLPipeline:
                         expiration_date=expiration_date,
                         technical_signals=technical_signals,
                         current_positions=current_positions,
+                        regime=regime_data,
                     )
 
-                    # Merge with original opportunity
-                    enhanced_opp = {**opp, **analysis}
-                    enhanced_opportunities.append(enhanced_opp)
+                    return {**opp, **analysis}
 
                 except Exception as e:
-                    logger.error(f"Error analyzing opportunity {opp.get('ticker', '')}: {e}", exc_info=True)
-                    enhanced_opportunities.append(opp)
+                    logger.error(
+                        f"Error analyzing opportunity {opp.get('ticker', '')}: {e}",
+                        exc_info=True,
+                    )
+                    return opp
+
+            # 2. Parallelize per-opportunity analysis
+            max_workers = min(len(opportunities), 4)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                enhanced_opportunities = list(executor.map(_analyze_single, opportunities))
 
             # Sort by enhanced score
             enhanced_opportunities.sort(
@@ -509,7 +528,7 @@ class MLPipeline:
         return {
             'ticker': ticker,
             'spread_type': spread_type,
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'enhanced_score': 50.0,
             'recommendation': {
                 'action': 'pass',

@@ -13,7 +13,7 @@ Based on research:
 import numpy as np
 import pandas as pd
 from typing import Dict, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import yfinance as yf
 from shared.indicators import calculate_rsi
@@ -80,7 +80,7 @@ class FeatureEngine:
             # Initialize feature dict
             features = {
                 'ticker': ticker,
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'current_price': current_price,
             }
 
@@ -305,7 +305,7 @@ class FeatureEngine:
         """
         try:
             features = {}
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
 
             # Days to next earnings
             try:
@@ -388,7 +388,7 @@ class FeatureEngine:
         Compute seasonal/calendar features.
         """
         try:
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
 
             features = {
                 'day_of_week': now.weekday(),  # 0=Monday, 4=Friday

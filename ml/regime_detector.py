@@ -12,7 +12,7 @@ Based on research:
 import numpy as np
 import pandas as pd
 from typing import Dict, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
@@ -78,7 +78,7 @@ class RegimeDetector:
         """
         # Check if we need to retrain (daily retraining)
         if self.trained and not force_retrain:
-            if self.last_train_date and (datetime.now().date() == self.last_train_date):
+            if self.last_train_date and (datetime.now(timezone.utc).date() == self.last_train_date):
                 logger.info("Models already trained today, skipping")
                 return True
 
@@ -128,7 +128,7 @@ class RegimeDetector:
             self.rf_model.fit(X_scaled, regime_labels)
 
             self.trained = True
-            self.last_train_date = datetime.now().date()
+            self.last_train_date = datetime.now(timezone.utc).date()
 
             logger.info("✓ Regime models trained successfully")
 
@@ -186,7 +186,7 @@ class RegimeDetector:
                 'confidence': round(confidence, 3),
                 'hmm_state': int(hmm_state),
                 'features': features,
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
             }
 
             logger.info(f"Detected regime: {regime_name} (confidence={confidence:.2%})")
@@ -201,7 +201,7 @@ class RegimeDetector:
         """
         Fetch and compute features for training.
         """
-        end_date = datetime.now()
+        end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=self.lookback_days + 60)
 
         # Fetch via cache-aware helper (downloads 1y, we slice locally)
@@ -214,12 +214,14 @@ class RegimeDetector:
             if not df.empty and df.index.tz is not None:
                 df.index = df.index.tz_localize(None)
 
+        # Compare with naive timestamp since index tz was stripped above
+        start_naive = pd.Timestamp(start_date.replace(tzinfo=None))
         if not spy.empty:
-            spy = spy.loc[spy.index >= pd.Timestamp(start_date)]
+            spy = spy.loc[spy.index >= start_naive]
         if not vix.empty:
-            vix = vix.loc[vix.index >= pd.Timestamp(start_date)]
+            vix = vix.loc[vix.index >= start_naive]
         if not tlt.empty:
-            tlt = tlt.loc[tlt.index >= pd.Timestamp(start_date)]
+            tlt = tlt.loc[tlt.index >= start_naive]
 
         if spy.empty or vix.empty:
             logger.error("Failed to fetch market data")
@@ -398,6 +400,6 @@ class RegimeDetector:
             'confidence': 0.5,
             'hmm_state': 2,
             'features': {},
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'fallback': True,
         }

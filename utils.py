@@ -9,6 +9,8 @@ from typing import Dict
 import yaml
 import colorlog
 
+from shared.types import AppConfig
+
 
 def _resolve_env_vars(obj):
     """Recursively resolve ${ENV_VAR} references in config values."""
@@ -112,7 +114,7 @@ def setup_logging(config: Dict):
     logging.getLogger('yfinance').setLevel(logging.WARNING)
 
 
-def validate_config(config: Dict) -> None:
+def validate_config(config: AppConfig) -> None:
     """
     Validate configuration.  Raises ``ValueError`` on invalid input.
 

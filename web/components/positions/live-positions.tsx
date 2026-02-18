@@ -22,7 +22,7 @@ export default function LivePositions({ data }: LivePositionsProps) {
   if (!data || data.open_count === 0) return null
 
   return (
-    <div className="bg-white rounded-xl border border-border p-3 sm:p-4 mb-4 sm:mb-6">
+    <div className="bg-white rounded-lg border border-border p-3 sm:p-4 mb-4 sm:mb-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">

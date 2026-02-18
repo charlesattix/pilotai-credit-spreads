@@ -1,36 +1,32 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState, useEffect } from 'react'
 import { apiFetch } from '@/lib/api'
 import type { Config } from '@/lib/types'
 import { Save } from 'lucide-react'
 import { toast } from 'sonner'
 import { logger } from '@/lib/logger'
+import { useConfig } from '@/lib/hooks'
 
 export default function SettingsPage() {
+  const { config: fetchedConfig, error, isLoading, mutate } = useConfig()
   const [config, setConfig] = useState<Config | null>(null)
-  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
+  // Sync SWR data into local form state when it loads or refreshes
   useEffect(() => {
-    const fetchConfig = async () => {
-      try {
-        const data = await apiFetch<Config>('/api/config')
-        setConfig(data)
-      } catch (error) {
-        logger.error('Failed to fetch config', { error: String(error) })
-        toast.error('Failed to load configuration')
-      } finally {
-        setLoading(false)
-      }
+    if (fetchedConfig && !config) {
+      setConfig(fetchedConfig)
     }
+  }, [fetchedConfig, config])
 
-    fetchConfig()
-  }, [])
+  if (error) {
+    toast.error('Failed to load configuration')
+  }
 
   const saveConfig = async () => {
     if (!config) return
-    
+
     setSaving(true)
     try {
       await apiFetch('/api/config', {
@@ -39,6 +35,7 @@ export default function SettingsPage() {
         body: JSON.stringify(config),
       })
       toast.success('Configuration saved successfully!')
+      mutate()
     } catch (error) {
       logger.error('Failed to save config', { error: String(error) })
       toast.error('Failed to save configuration')
@@ -60,7 +57,7 @@ export default function SettingsPage() {
     });
   }
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-200px)]">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-brand-purple border-t-transparent"></div>

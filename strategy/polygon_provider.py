@@ -11,7 +11,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 from shared.exceptions import ProviderError
 from shared.circuit_breaker import CircuitBreaker
@@ -187,7 +187,7 @@ class PolygonProvider:
             f"/v3/snapshot/options/{ticker}", params={"limit": 250}, timeout=30, caller="get_options_chain"
         )
 
-        exp_dt = datetime.strptime(expiration, "%Y-%m-%d")
+        exp_dt = datetime.strptime(expiration, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         rows = []
         for item in all_results:
             details = item.get("details", {})
@@ -208,7 +208,7 @@ class PolygonProvider:
         Get full options chain across relevant expirations.
         Fetches snapshot once and filters by DTE.
         """
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
 
         all_results = self._paginate(
             f"/v3/snapshot/options/{ticker}", params={"limit": 250}, timeout=30, caller="get_full_chain"
@@ -221,7 +221,7 @@ class PolygonProvider:
             if not exp_str:
                 continue
             try:
-                exp_date = datetime.strptime(exp_str, "%Y-%m-%d")
+                exp_date = datetime.strptime(exp_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
             except ValueError:
                 continue
             dte = (exp_date - now).days
@@ -243,7 +243,7 @@ class PolygonProvider:
 
     def get_historical(self, ticker: str, days: int = 365) -> pd.DataFrame:
         """Get historical daily bars for technical analysis / IV rank."""
-        end = datetime.now()
+        end = datetime.now(timezone.utc)
         start = end - timedelta(days=days)
         from_str = start.strftime("%Y-%m-%d")
         to_str = end.strftime("%Y-%m-%d")

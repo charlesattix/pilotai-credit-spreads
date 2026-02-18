@@ -9,7 +9,7 @@ import json
 import logging
 import os
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List
 from shared.database import init_db, insert_alert
@@ -66,7 +66,7 @@ class AlertGenerator:
             return {}
 
         alerts = {
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'opportunities': top_opportunities,
             'count': len(top_opportunities),
         }

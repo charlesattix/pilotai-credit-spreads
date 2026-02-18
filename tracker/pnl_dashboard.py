@@ -5,7 +5,7 @@ Displays profit/loss and performance metrics.
 
 import logging
 from typing import Dict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ class PnLDashboard:
         print("\n" + "=" * 80)
         print("CREDIT SPREAD TRADING SYSTEM - P&L DASHBOARD")
         print("=" * 80)
-        print(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
         print("")
 
         # Overall statistics
@@ -92,7 +92,7 @@ class PnLDashboard:
         trades_df['exit_date'] = pd.to_datetime(trades_df['exit_date'])
 
         # Filter last 30 days
-        thirty_days_ago = datetime.now() - timedelta(days=30)
+        thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
         recent_trades = trades_df[trades_df['exit_date'] >= thirty_days_ago]
 
         if recent_trades.empty:
@@ -172,7 +172,7 @@ class PnLDashboard:
         positions = self.tracker.get_open_positions()
 
         summary = {
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'statistics': stats,
             'open_positions_count': len(positions),
             'open_positions': positions,

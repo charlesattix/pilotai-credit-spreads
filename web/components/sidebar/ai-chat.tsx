@@ -218,7 +218,7 @@ export function AIChat({ forceExpanded }: { forceExpanded?: boolean } = {}) {
 
       {/* Input */}
       <div className="p-2.5 border-t border-border bg-white">
-        <div className="flex items-center gap-2 bg-secondary/50 rounded-xl px-3 py-1.5">
+        <div className="flex items-center gap-2 bg-secondary/50 rounded-lg px-3 py-1.5">
           <input
             ref={inputRef}
             type="text"

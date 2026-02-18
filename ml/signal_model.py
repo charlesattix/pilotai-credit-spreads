@@ -9,6 +9,7 @@ Based on research:
 - Niculescu-Mizil & Caruana (2005): Predicting good probabilities with supervised learning
 """
 
+import json
 import os
 import threading
 
@@ -16,7 +17,7 @@ import numpy as np
 import pandas as pd
 from collections import Counter
 from typing import Dict, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import joblib
 from pathlib import Path
@@ -59,6 +60,8 @@ class SignalModel:
         self.feature_names = None
         self.trained = False
         self.training_stats = {}
+        self.feature_means: Optional[np.ndarray] = None
+        self.feature_stds: Optional[np.ndarray] = None
         self._fallback_lock = threading.Lock()
         self.fallback_counter: Counter = Counter()
 
@@ -189,9 +192,14 @@ class SignalModel:
             # Feature importance
             self._log_feature_importance()
 
+            # Compute feature distribution stats for drift monitoring
+            self.feature_means = np.mean(X, axis=0)
+            self.feature_stds = np.std(X, axis=0)
+            logger.info("Computed feature distribution stats for monitoring")
+
             # Save model
             if save_model:
-                self.save(f"signal_model_{datetime.now().strftime('%Y%m%d')}.joblib")
+                self.save(f"signal_model_{datetime.now(timezone.utc).strftime('%Y%m%d')}.joblib")
 
             return stats
 
@@ -221,6 +229,9 @@ class SignalModel:
             if X is None:
                 return self._get_default_prediction()
 
+            # Check for feature distribution drift
+            self._check_feature_distribution(X)
+
             # Predict with calibrated model if available
             model = self.calibrated_model if self.calibrated_model else self.model
 
@@ -236,7 +247,7 @@ class SignalModel:
                 'confidence': round(confidence, 4),
                 'signal': 'bullish' if probability > 0.55 else 'bearish' if probability < 0.45 else 'neutral',
                 'signal_strength': round(probability * 100, 1),
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
             }
 
             return result
@@ -267,6 +278,9 @@ class SignalModel:
         try:
             X = features_df[self.feature_names].values
             X = sanitize_features(X)
+
+            # Check for feature distribution drift
+            self._check_feature_distribution(X)
 
             model = self.calibrated_model if self.calibrated_model else self.model
             probabilities = model.predict_proba(X)[:, 1]
@@ -377,6 +391,42 @@ class SignalModel:
             logger.error(f"Error converting features to array: {e}", exc_info=True)
             return None
 
+    def _check_feature_distribution(self, X: np.ndarray) -> None:
+        """
+        Check whether any feature values are far from the training distribution.
+
+        Logs a warning for each feature whose value is more than 3 standard
+        deviations from its training mean.  Silently skips the check when
+        distribution stats are unavailable (e.g. models saved before this
+        feature was added).
+
+        Args:
+            X: Feature array of shape (n_samples, n_features).
+        """
+        try:
+            if self.feature_means is None or self.feature_stds is None:
+                return
+            if self.feature_names is None:
+                return
+
+            means = self.feature_means
+            stds = self.feature_stds
+
+            for row in X:
+                for i, (value, mean, std) in enumerate(zip(row, means, stds)):
+                    if std == 0 or np.isnan(std) or np.isnan(mean):
+                        continue
+                    n_stds = abs(value - mean) / std
+                    if n_stds > 3.0:
+                        feature_name = self.feature_names[i] if i < len(self.feature_names) else f"feature_{i}"
+                        logger.warning(
+                            f"Feature '{feature_name}' value {value:.3f} is "
+                            f"{n_stds:.1f} std devs from training mean"
+                        )
+        except Exception as e:
+            # Never let monitoring errors break prediction
+            logger.debug(f"Feature distribution check error (non-fatal): {e}")
+
     def _log_feature_importance(self, top_n: int = 15):
         """
         Log top N most important features.
@@ -402,6 +452,9 @@ class SignalModel:
     def save(self, filename: str):
         """
         Save trained model to disk.
+
+        Also saves feature distribution statistics (means and standard
+        deviations) as a companion JSON file for distribution monitoring.
         """
         try:
             filepath = self.model_dir / filename
@@ -411,10 +464,25 @@ class SignalModel:
                 'calibrated_model': self.calibrated_model,
                 'feature_names': self.feature_names,
                 'training_stats': self.training_stats,
-                'timestamp': datetime.now().isoformat(),
+                'feature_means': self.feature_means,
+                'feature_stds': self.feature_stds,
+                'timestamp': datetime.now(timezone.utc).isoformat(),
             }
 
             joblib.dump(model_data, filepath)
+
+            # Also save feature stats as a standalone JSON for easy inspection
+            if self.feature_means is not None and self.feature_stds is not None:
+                stats_path = filepath.with_suffix('.feature_stats.json')
+                stats_data = {
+                    'feature_names': self.feature_names,
+                    'feature_means': self.feature_means.tolist(),
+                    'feature_stds': self.feature_stds.tolist(),
+                    'timestamp': datetime.now(timezone.utc).isoformat(),
+                }
+                with open(stats_path, 'w') as f:
+                    json.dump(stats_data, f, indent=2)
+                logger.info(f"Feature distribution stats saved to {stats_path}")
 
             logger.info(f"✓ Model saved to {filepath}")
 
@@ -472,12 +540,24 @@ class SignalModel:
             self.training_stats = model_data.get('training_stats', {})
             self.trained = True
 
+            # Load feature distribution stats for monitoring (backward-compatible)
+            loaded_means = model_data.get('feature_means')
+            loaded_stds = model_data.get('feature_stds')
+            if loaded_means is not None and loaded_stds is not None:
+                self.feature_means = np.asarray(loaded_means)
+                self.feature_stds = np.asarray(loaded_stds)
+                logger.info("Feature distribution stats loaded for monitoring")
+            else:
+                self.feature_means = None
+                self.feature_stds = None
+                logger.info("No feature distribution stats in model file (old model format)")
+
             # ARCH-ML-12: Warn if model is stale (older than 30 days)
             model_timestamp = model_data.get('timestamp')
             if model_timestamp:
                 try:
                     trained_at = datetime.fromisoformat(model_timestamp)
-                    age_days = (datetime.now() - trained_at).days
+                    age_days = (datetime.now(timezone.utc) - trained_at).days
                     if age_days > 30:
                         logger.warning(
                             f"Model is {age_days} days old (trained {model_timestamp}). "
@@ -506,7 +586,7 @@ class SignalModel:
             'confidence': 0.0,
             'signal': 'neutral',
             'signal_strength': 50.0,
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'fallback': True,
         }
 
