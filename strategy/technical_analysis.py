@@ -34,6 +34,14 @@ class TechnicalAnalyzer:
 
         logger.info("TechnicalAnalyzer initialized")
 
+    @staticmethod
+    def _get_close_series(price_data: pd.DataFrame) -> pd.Series:
+        """Extract Close as a flat Series, handling yfinance multi-level columns."""
+        close = price_data['Close']
+        if isinstance(close, pd.DataFrame):
+            close = close.iloc[:, 0]
+        return close
+
     def analyze(self, ticker: str, price_data: pd.DataFrame) -> Dict:
         """
         Perform technical analysis on price data.
@@ -51,7 +59,7 @@ class TechnicalAnalyzer:
 
         signals = {
             'ticker': ticker,
-            'current_price': price_data['Close'].iloc[-1],
+            'current_price': float(self._get_close_series(price_data).iloc[-1]),
         }
 
         # Calculate moving averages
@@ -81,34 +89,15 @@ class TechnicalAnalyzer:
         fast_period = self.tech_params['fast_ma']
         slow_period = self.tech_params['slow_ma']
 
-        # Work on a copy to avoid mutating the caller's DataFrame
-        df = price_data.copy()
-        
-        # Flatten multi-level columns if present (happens with yfinance)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(-1)
-        
-        # Ensure 'Close' is a Series not a DataFrame
-        close_series = df['Close']
-        if isinstance(close_series, pd.DataFrame):
-            close_series = close_series.iloc[:, 0]
+        close_series = self._get_close_series(price_data)
 
         # Calculate MAs
-        df['MA_fast'] = close_series.rolling(window=fast_period).mean()
-        df['MA_slow'] = close_series.rolling(window=slow_period).mean()
+        ma_fast_series = close_series.rolling(window=fast_period).mean()
+        ma_slow_series = close_series.rolling(window=slow_period).mean()
 
-        # Extract scalar values (handle Series/DataFrame cases)
-        current_price = close_series.iloc[-1]
-        if isinstance(current_price, pd.Series):
-            current_price = current_price.iloc[0]
-        
-        ma_fast = df['MA_fast'].iloc[-1]
-        if isinstance(ma_fast, pd.Series):
-            ma_fast = ma_fast.iloc[0]
-            
-        ma_slow = df['MA_slow'].iloc[-1]
-        if isinstance(ma_slow, pd.Series):
-            ma_slow = ma_slow.iloc[0]
+        current_price = float(close_series.iloc[-1])
+        ma_fast = float(ma_fast_series.iloc[-1])
+        ma_slow = float(ma_slow_series.iloc[-1])
 
         # Determine trend
         if current_price > ma_fast > ma_slow:
@@ -134,13 +123,14 @@ class TechnicalAnalyzer:
             Dictionary with RSI signals
         """
         rsi_period = self.tech_params['rsi_period']
+        close_series = self._get_close_series(price_data)
 
         # Calculate RSI
         if HAS_TALIB:
-            rsi = pd.Series(talib.RSI(price_data['Close'].values, timeperiod=rsi_period), index=price_data.index)
+            rsi = pd.Series(talib.RSI(close_series.values, timeperiod=rsi_period), index=price_data.index)
         else:
-            rsi = calculate_rsi(price_data['Close'], period=rsi_period)
-        current_rsi = rsi.iloc[-1]
+            rsi = calculate_rsi(close_series, period=rsi_period)
+        current_rsi = float(rsi.iloc[-1])
 
         # RSI conditions
         oversold = current_rsi < self.tech_params['rsi_oversold']
@@ -161,7 +151,7 @@ class TechnicalAnalyzer:
         Returns:
             Dictionary with support/resistance levels
         """
-        current_price = float(price_data['Close'].iloc[-1])
+        current_price = float(self._get_close_series(price_data).iloc[-1])
 
         # Support: recent lows
         support_levels = self._find_support_levels(price_data)
@@ -200,7 +190,10 @@ class TechnicalAnalyzer:
         """
         Find support levels using local minima.
         """
-        lows = np.asarray(price_data['Low']).flatten()
+        low_col = price_data['Low']
+        if isinstance(low_col, pd.DataFrame):
+            low_col = low_col.iloc[:, 0]
+        lows = np.asarray(low_col).flatten()
         support = []
 
         for i in range(window, len(lows) - window):
@@ -217,7 +210,10 @@ class TechnicalAnalyzer:
         """
         Find resistance levels using local maxima.
         """
-        highs = np.asarray(price_data['High']).flatten()
+        high_col = price_data['High']
+        if isinstance(high_col, pd.DataFrame):
+            high_col = high_col.iloc[:, 0]
+        highs = np.asarray(high_col).flatten()
         resistance = []
 
         for i in range(window, len(highs) - window):
