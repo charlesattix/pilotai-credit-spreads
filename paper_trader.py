@@ -4,11 +4,14 @@ Automatically takes signals from the scanner and tracks simulated trades.
 Monitors open positions and closes at profit target, stop loss, or expiration.
 """
 
+import json
 import logging
+import os
 import threading
 import uuid
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 from shared.constants import MAX_CONTRACTS_PER_TRADE, MANAGEMENT_DTE_THRESHOLD, DATA_DIR as _DATA_DIR
 from shared.database import init_db, upsert_trade, get_trades, close_trade as db_close_trade
@@ -23,6 +26,12 @@ KILL_SWITCH_FILE = DATA_DIR / "kill_switch.json"
 MAX_DRAWDOWN_PCT = 0.20  # 20% portfolio-level max drawdown kill switch
 EXTRINSIC_DECAY_RATE = 1.2  # Accelerating time-decay multiplier for OTM spreads
 BASE_DECAY_FACTOR = 0.3  # Fraction of extrinsic value remaining when ITM
+
+# Anti-suicide-loop circuit breakers
+CONSECUTIVE_LOSS_BLOCK_THRESHOLD = 2   # Block after N consecutive losses on same ticker+direction
+CONSECUTIVE_LOSS_LOOKBACK_HOURS = 1    # Only count losses within this window
+TICKER_DIRECTION_COOLDOWN_HOURS = 4    # Block ticker+direction for this long after consecutive losses
+STRIKE_COOLDOWN_HOURS = 2              # Block exact same strikes after stop-out
 
 
 class PaperTrader:
@@ -39,6 +48,12 @@ class PaperTrader:
 
         # Lock to protect self.trades mutations from concurrent threads
         self._trades_lock = threading.Lock()
+
+        # Anti-suicide-loop: track recent losses per (ticker, direction)
+        # Key: (ticker, direction_str), Value: list of {"exit_time": datetime, "pnl": float, "strikes": (short, long)}
+        self._recent_losses: Dict[Tuple[str, str], List[Dict]] = defaultdict(list)
+        # Key: (ticker, direction, short_strike, long_strike), Value: datetime of last stop-out
+        self._strike_cooldowns: Dict[Tuple, datetime] = {}
 
         # Initialize Alpaca provider if configured
         self.alpaca = None
@@ -62,6 +77,7 @@ class PaperTrader:
         # Load trades from SQLite
         self.trades = self._load_trades()
         self._rebuild_cached_lists()
+        self._seed_loss_tracker()
         logger.info(f"PaperTrader initialized | Balance: ${self.account_size:,.0f} | "
                      f"Open: {len(self.open_trades)} | Closed: {len(self.closed_trades)} | "
                      f"Alpaca: {'ON' if self.alpaca else 'OFF'}")
@@ -127,6 +143,114 @@ class PaperTrader:
         """Build the cached open/closed lists from the trades list."""
         self._open_trades = [t for t in self.trades["trades"] if t.get("status") == "open"]
         self._closed_trades = [t for t in self.trades["trades"] if t.get("status") != "open"]
+
+    def _seed_loss_tracker(self):
+        """Pre-populate loss tracker from recent closed trades so circuit breakers work across restarts."""
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=TICKER_DIRECTION_COOLDOWN_HOURS)
+        for trade in self._closed_trades:
+            if (trade.get("pnl") or 0) >= 0:
+                continue
+            exit_str = trade.get("exit_date")
+            if not exit_str:
+                continue
+            try:
+                exit_time = datetime.fromisoformat(exit_str)
+                if exit_time.tzinfo is None:
+                    exit_time = exit_time.replace(tzinfo=timezone.utc)
+            except (ValueError, TypeError):
+                continue
+            if exit_time < cutoff:
+                continue
+            direction = self._trade_direction(trade)
+            key = (trade["ticker"], direction)
+            self._recent_losses[key].append({
+                "exit_time": exit_time,
+                "pnl": trade.get("pnl", 0),
+                "strikes": (trade.get("short_strike"), trade.get("long_strike")),
+            })
+            if trade.get("exit_reason") == "stop_loss":
+                strike_key = (trade["ticker"], direction,
+                              trade.get("short_strike"), trade.get("long_strike"))
+                self._strike_cooldowns[strike_key] = exit_time
+
+    @staticmethod
+    def _trade_direction(trade: Dict) -> str:
+        """Extract direction (bullish/bearish) from trade type."""
+        t = (trade.get("type") or trade.get("strategy_type") or "").lower()
+        if "put" in t:
+            return "bullish"
+        if "call" in t:
+            return "bearish"
+        return "unknown"
+
+    def _check_loss_circuit_breaker(self, ticker: str, direction: str) -> Optional[str]:
+        """Check if ticker+direction is blocked due to consecutive losses.
+
+        Returns a reason string if blocked, None if clear.
+        """
+        now = datetime.now(timezone.utc)
+        key = (ticker, direction)
+        losses = self._recent_losses.get(key, [])
+
+        # Prune entries older than the cooldown window
+        lookback_cutoff = now - timedelta(hours=CONSECUTIVE_LOSS_LOOKBACK_HOURS)
+        recent = [l for l in losses if l["exit_time"] >= lookback_cutoff]
+
+        if len(recent) >= CONSECUTIVE_LOSS_BLOCK_THRESHOLD:
+            latest_loss = max(l["exit_time"] for l in recent)
+            block_until = latest_loss + timedelta(hours=TICKER_DIRECTION_COOLDOWN_HOURS)
+            if now < block_until:
+                remaining = block_until - now
+                return (
+                    f"{len(recent)} consecutive losses on {ticker} {direction} "
+                    f"in the last {CONSECUTIVE_LOSS_LOOKBACK_HOURS}h. "
+                    f"Blocked for {remaining.total_seconds()/3600:.1f}h more."
+                )
+        return None
+
+    def _check_strike_cooldown(self, ticker: str, direction: str,
+                                short_strike: float, long_strike: float) -> Optional[str]:
+        """Check if exact strikes are on cooldown after a stop-out.
+
+        Returns a reason string if blocked, None if clear.
+        """
+        now = datetime.now(timezone.utc)
+        strike_key = (ticker, direction, short_strike, long_strike)
+        last_stopout = self._strike_cooldowns.get(strike_key)
+        if last_stopout is None:
+            return None
+        cooldown_until = last_stopout + timedelta(hours=STRIKE_COOLDOWN_HOURS)
+        if now < cooldown_until:
+            remaining = cooldown_until - now
+            return (
+                f"Same strikes {short_strike}/{long_strike} on {ticker} {direction} "
+                f"stopped out recently. Cooldown for {remaining.total_seconds()/3600:.1f}h more."
+            )
+        return None
+
+    def _record_loss(self, trade: Dict):
+        """Record a losing trade for circuit breaker tracking."""
+        direction = self._trade_direction(trade)
+        key = (trade["ticker"], direction)
+        exit_time = datetime.now(timezone.utc)
+        self._recent_losses[key].append({
+            "exit_time": exit_time,
+            "pnl": trade.get("pnl", 0),
+            "strikes": (trade.get("short_strike"), trade.get("long_strike")),
+        })
+        # Keep only last 10 entries per key to avoid unbounded growth
+        self._recent_losses[key] = self._recent_losses[key][-10:]
+
+        if trade.get("exit_reason") == "stop_loss":
+            strike_key = (trade["ticker"], direction,
+                          trade.get("short_strike"), trade.get("long_strike"))
+            self._strike_cooldowns[strike_key] = exit_time
+
+    def _consecutive_loss_count(self, ticker: str, direction: str) -> int:
+        """Count consecutive losses for a ticker+direction (most recent first)."""
+        key = (ticker, direction)
+        losses = self._recent_losses.get(key, [])
+        return len(losses)
 
     def _save_trades(self):
         """Persist all trades to SQLite."""
@@ -227,6 +351,25 @@ class PaperTrader:
                 )
                 return None
 
+            # Anti-suicide-loop: check circuit breakers
+            ticker = opp.get("ticker", "")
+            direction = "bullish" if "put" in (opp.get("type") or "").lower() else "bearish"
+
+            # Check 1: Consecutive losses on same ticker+direction
+            cb_reason = self._check_loss_circuit_breaker(ticker, direction)
+            if cb_reason:
+                logger.warning(f"TRADE BLOCKED (loss circuit breaker): {cb_reason}")
+                return None
+
+            # Check 2: Same strikes just stopped out
+            sc_reason = self._check_strike_cooldown(
+                ticker, direction,
+                opp.get("short_strike", 0), opp.get("long_strike", 0),
+            )
+            if sc_reason:
+                logger.warning(f"TRADE BLOCKED (strike cooldown): {sc_reason}")
+                return None
+
             credit = opp.get("credit", 0)
             max_loss = opp.get("max_loss", 0)
 
@@ -278,6 +421,7 @@ class PaperTrader:
                 "exit_date": None,
                 "exit_reason": None,
                 "exit_pnl": None,
+                "consecutive_loss_count": self._consecutive_loss_count(ticker, direction),
             }
 
             # Optionally submit to Alpaca broker for real paper execution
@@ -500,6 +644,13 @@ class PaperTrader:
 
         metrics.inc('trades_closed')
 
+        # Anti-suicide-loop: record losing trades for circuit breaker
+        if pnl < 0:
+            self._record_loss(trade)
+
+        # Log outcome for ML retraining
+        self._log_trade_outcome(trade)
+
         logger.info(
             f"PAPER TRADE CLOSED: {trade['ticker']} {trade.get('type', '')} | "
             f"P&L: ${pnl:+.2f} | Reason: {reason} | "
@@ -534,6 +685,43 @@ class PaperTrader:
 
             except Exception as e:
                 logger.warning(f"Alpaca sync failed for {trade['ticker']}: {e}")
+
+    def _log_trade_outcome(self, trade: Dict):
+        """Log closed trade outcome to ml/training_data/ for future model retraining."""
+        try:
+            training_dir = Path("ml/training_data")
+            training_dir.mkdir(parents=True, exist_ok=True)
+
+            outcome = {
+                "id": trade.get("id"),
+                "ticker": trade.get("ticker"),
+                "type": trade.get("type"),
+                "short_strike": trade.get("short_strike"),
+                "long_strike": trade.get("long_strike"),
+                "expiration": trade.get("expiration"),
+                "entry_date": trade.get("entry_date"),
+                "exit_date": trade.get("exit_date"),
+                "exit_reason": trade.get("exit_reason"),
+                "entry_price": trade.get("entry_price"),
+                "credit": trade.get("credit"),
+                "contracts": trade.get("contracts"),
+                "pnl": trade.get("pnl"),
+                "result": "win" if (trade.get("pnl") or 0) > 0 else "loss",
+                "entry_score": trade.get("entry_score"),
+                "entry_pop": trade.get("entry_pop"),
+                "entry_delta": trade.get("entry_delta"),
+                "dte_at_entry": trade.get("dte_at_entry"),
+                "consecutive_loss_count": trade.get("consecutive_loss_count", 0),
+            }
+
+            # Append to JSONL file (one line per outcome)
+            log_file = training_dir / "trade_outcomes.jsonl"
+            with open(log_file, "a") as f:
+                f.write(json.dumps(outcome) + "\n")
+
+            logger.debug(f"Logged trade outcome for {trade.get('ticker')} to {log_file}")
+        except Exception as e:
+            logger.warning(f"Failed to log trade outcome: {e}")
 
     def get_summary(self) -> Dict:
         """Get paper trading summary."""

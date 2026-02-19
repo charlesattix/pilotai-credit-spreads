@@ -924,3 +924,89 @@ class TestRecommendation:
         rec = pipeline._generate_recommendation(analysis)
 
         assert rec["ml_probability"] == 0.82
+
+
+@patch(f"{MODULE}.SentimentScanner")
+@patch(f"{MODULE}.PositionSizer")
+@patch(f"{MODULE}.SignalModel")
+@patch(f"{MODULE}.FeatureEngine")
+@patch(f"{MODULE}.IVAnalyzer")
+@patch(f"{MODULE}.RegimeDetector")
+class TestRegimeDirectionMismatch:
+    """Regime-direction mismatch should penalize the enhanced score."""
+
+    def test_mean_reverting_high_confidence_penalizes_directional(
+        self, MockRegime, MockIV, MockFeature, MockSignal, MockSizer, MockSentiment
+    ):
+        """mean_reverting at >95% confidence should reduce score for directional spreads."""
+        pipeline = _build_pipeline(
+            MockRegime, MockIV, MockFeature, MockSignal, MockSizer, MockSentiment,
+        )
+
+        base = {
+            "ml_prediction": _mock_ml_prediction(probability=0.65, confidence=0.70),
+            "iv_analysis": _mock_iv_analysis(overall_signal="neutral"),
+            "event_risk": _mock_event_scan(risk_score=0.0),
+            "features": _mock_features(iv_rank=50, vol_premium=0.0),
+        }
+
+        # Score with low-confidence mean_reverting (no penalty)
+        low_conf = {**base, "spread_type": "bull_put", "regime": _mock_regime("mean_reverting", 0.60)}
+        score_low_conf = pipeline._calculate_enhanced_score(low_conf)
+
+        # Score with high-confidence mean_reverting (penalty applied)
+        high_conf = {**base, "spread_type": "bull_put", "regime": _mock_regime("mean_reverting", 0.97)}
+        score_high_conf = pipeline._calculate_enhanced_score(high_conf)
+
+        assert score_high_conf < score_low_conf
+
+    def test_no_penalty_below_95_confidence(
+        self, MockRegime, MockIV, MockFeature, MockSignal, MockSizer, MockSentiment
+    ):
+        """No mismatch penalty when regime confidence is below 95%."""
+        pipeline = _build_pipeline(
+            MockRegime, MockIV, MockFeature, MockSignal, MockSizer, MockSentiment,
+        )
+
+        analysis = {
+            "ml_prediction": _mock_ml_prediction(probability=0.65, confidence=0.70),
+            "iv_analysis": _mock_iv_analysis(overall_signal="neutral"),
+            "event_risk": _mock_event_scan(risk_score=0.0),
+            "features": _mock_features(iv_rank=50, vol_premium=0.0),
+            "spread_type": "bear_call",
+            "regime": _mock_regime("mean_reverting", 0.90),
+        }
+
+        # Should get the base score + 5 for mean_reverting, no penalty
+        score = pipeline._calculate_enhanced_score(analysis)
+        # mean_reverting normally adds 5. If penalty were applied, score would be lower.
+        # With 0.90 confidence, no penalty should apply.
+        # ml contribution: (0.65-0.5)*2*40*0.70 = 8.4
+        # regime: +5
+        # expected roughly 50 + 8.4 + 5 = 63.4
+        assert score > 60  # no penalty applied
+
+    def test_crisis_with_high_confidence_penalizes(
+        self, MockRegime, MockIV, MockFeature, MockSignal, MockSizer, MockSentiment
+    ):
+        """Crisis regime at >95% confidence should further penalize directional spreads."""
+        pipeline = _build_pipeline(
+            MockRegime, MockIV, MockFeature, MockSignal, MockSizer, MockSentiment,
+        )
+
+        base = {
+            "ml_prediction": _mock_ml_prediction(probability=0.65, confidence=0.70),
+            "iv_analysis": _mock_iv_analysis(overall_signal="neutral"),
+            "event_risk": _mock_event_scan(risk_score=0.0),
+            "features": _mock_features(iv_rank=50, vol_premium=0.0),
+        }
+
+        # Crisis at 80% confidence
+        crisis_80 = {**base, "spread_type": "bull_put", "regime": _mock_regime("crisis", 0.80)}
+        score_80 = pipeline._calculate_enhanced_score(crisis_80)
+
+        # Crisis at 98% confidence (should get additional mismatch penalty)
+        crisis_98 = {**base, "spread_type": "bull_put", "regime": _mock_regime("crisis", 0.98)}
+        score_98 = pipeline._calculate_enhanced_score(crisis_98)
+
+        assert score_98 < score_80

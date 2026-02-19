@@ -293,6 +293,7 @@ class MLPipeline:
 
             # 2. Regime (0-15 points)
             regime = analysis['regime']['regime']
+            regime_confidence = analysis['regime'].get('confidence', 0.5)
             if regime == 'low_vol_trending':
                 score += 15
             elif regime == 'high_vol_trending':
@@ -301,6 +302,25 @@ class MLPipeline:
                 score += 5
             elif regime == 'crisis':
                 score -= 20
+
+            # Regime direction mismatch penalty: if high-confidence regime
+            # contradicts the spread direction, penalize the score.
+            # e.g., mean_reverting with >95% confidence but spread is directional
+            if regime_confidence > 0.95:
+                spread_type = analysis.get('spread_type', '')
+                regime_mismatch = False
+                if regime == 'mean_reverting' and spread_type in ('bull_put', 'bear_call'):
+                    # High-confidence mean-reverting but taking a directional bet
+                    regime_mismatch = True
+                elif regime == 'crisis' and spread_type in ('bull_put', 'bear_call'):
+                    regime_mismatch = True
+                if regime_mismatch:
+                    penalty = 15 * regime_confidence
+                    score -= penalty
+                    logger.warning(
+                        f"Regime-direction mismatch: {regime} ({regime_confidence:.0%} confidence) "
+                        f"vs {spread_type} spread. Reducing score by {penalty:.1f}."
+                    )
 
             # 3. IV analysis (0-15 points)
             iv_signals = analysis['iv_analysis']['signals']
