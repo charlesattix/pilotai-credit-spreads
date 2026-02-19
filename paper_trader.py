@@ -689,7 +689,7 @@ class PaperTrader:
     def _log_trade_outcome(self, trade: Dict):
         """Log closed trade outcome to ml/training_data/ for future model retraining."""
         try:
-            training_dir = Path("ml/training_data")
+            training_dir = DATA_DIR / "ml_training"
             training_dir.mkdir(parents=True, exist_ok=True)
 
             outcome = {
