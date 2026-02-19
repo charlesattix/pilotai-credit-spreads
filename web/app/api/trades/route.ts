@@ -1,16 +1,12 @@
 import { logger } from "@/lib/logger"
 import { NextResponse } from 'next/server'
 import { apiError } from "@/lib/api-error"
-import { promises as fs } from 'fs'
-import path from 'path'
 import { getTrades } from '@/lib/database'
-import { DATA_DIR } from "@/lib/paths"
 import { verifyAuth } from "@/lib/auth"
 
 export async function GET(request: Request) {
   const authErr = await verifyAuth(request); if (authErr) return authErr;
   try {
-    // Primary: read from SQLite
     const dbTrades = getTrades();
     if (dbTrades.length > 0) {
       return NextResponse.json(dbTrades.map(t => ({
@@ -29,10 +25,7 @@ export async function GET(request: Request) {
       })));
     }
 
-    // Fallback: read from JSON file during transition
-    const tradesPath = path.join(DATA_DIR, 'trades.json')
-    const data = await fs.readFile(tradesPath, 'utf-8')
-    return NextResponse.json(JSON.parse(data))
+    return NextResponse.json([]);
   } catch (error) {
     logger.error('Failed to read trades', { error: String(error) })
     return apiError('Failed to read trades', 500)

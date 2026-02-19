@@ -54,8 +54,10 @@ output/
 # ML model artifacts
 *.pkl
 *.joblib
+*.pickle
 ml/models/*.pkl
 ml/models/*.joblib
+ml/models/*.pickle
 
 # SQLite databases
 *.db

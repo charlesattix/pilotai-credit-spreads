@@ -3,6 +3,7 @@ import json
 from unittest.mock import patch, MagicMock
 
 from paper_trader import PaperTrader, MAX_DRAWDOWN_PCT
+from shared.io_utils import atomic_json_write
 
 
 # ---------------------------------------------------------------------------
@@ -177,16 +178,11 @@ class TestPaperTrader:
         # verify that the trade was evaluated (no crash).
         assert isinstance(closed, list)
 
-    @patch('paper_trader.PAPER_LOG')
-    @patch('paper_trader.DATA_DIR')
-    def test_atomic_write(self, mock_data_dir, mock_paper_log, tmp_path):
-        """_atomic_json_write should write via temp file then rename."""
-        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
-        mock_data_dir.mkdir = MagicMock()
-
+    def test_atomic_write(self, tmp_path):
+        """atomic_json_write should write via temp file then rename."""
         target = tmp_path / "test_output.json"
         data = {"hello": "world", "number": 42}
-        PaperTrader._atomic_json_write(target, data)
+        atomic_json_write(target, data)
 
         assert target.exists()
         with open(target) as f:

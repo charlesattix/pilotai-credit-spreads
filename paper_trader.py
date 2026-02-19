@@ -4,7 +4,6 @@ Automatically takes signals from the scanner and tracks simulated trades.
 Monitors open positions and closes at profit target, stop loss, or expiration.
 """
 
-import json
 import logging
 import threading
 import uuid
@@ -12,15 +11,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 from pathlib import Path
 from shared.constants import MAX_CONTRACTS_PER_TRADE, MANAGEMENT_DTE_THRESHOLD, DATA_DIR as _DATA_DIR
-from shared.io_utils import atomic_json_write
 from shared.database import init_db, upsert_trade, get_trades, close_trade as db_close_trade
 from shared.metrics import metrics
 
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(_DATA_DIR)
-TRADES_FILE = DATA_DIR / "trades.json"
-PAPER_LOG = DATA_DIR / "paper_trades.json"
+PAPER_LOG = DATA_DIR / "paper_trades.json"  # legacy path, kept for test compatibility
 KILL_SWITCH_FILE = DATA_DIR / "kill_switch.json"
 
 MAX_DRAWDOWN_PCT = 0.20  # 20% portfolio-level max drawdown kill switch
@@ -132,29 +129,10 @@ class PaperTrader:
         self._closed_trades = [t for t in self.trades["trades"] if t.get("status") != "open"]
 
     def _save_trades(self):
-        """Persist all trades to SQLite and export dashboard JSON."""
+        """Persist all trades to SQLite."""
         with self._trades_lock:
             for trade in self.trades["trades"]:
                 upsert_trade(trade, source="scanner")
-        self._export_for_dashboard()
-
-    def _export_for_dashboard(self):
-        """Write trades in format the web dashboard expects (deprecated — use SQLite)."""
-        dashboard_data = {
-            "balance": self.trades["current_balance"],
-            "starting_balance": self.trades["starting_balance"],
-            "total_pnl": self.trades["stats"]["total_pnl"],
-            "win_rate": self.trades["stats"]["win_rate"],
-            "open_positions": self._open_trades,
-            "closed_positions": self._closed_trades,
-            "stats": self.trades["stats"],
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-        atomic_json_write(TRADES_FILE, dashboard_data)
-
-    # Keep a thin static wrapper so existing callers (e.g. tests) that
-    # reference PaperTrader._atomic_json_write still work.
-    _atomic_json_write = staticmethod(atomic_json_write)
 
     @property
     def open_trades(self) -> List[Dict]:

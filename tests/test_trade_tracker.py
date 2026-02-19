@@ -33,14 +33,15 @@ def _make_position(ticker='SPY', spread_type='bull_put_spread',
 
 @pytest.fixture
 def tracker(tmp_path):
-    """Create a TradeTracker with data files in tmp_path."""
-    with patch.object(TradeTracker, '_load_trades', return_value=[]), \
+    """Create a TradeTracker with SQLite mocked out."""
+    with patch('tracker.trade_tracker.init_db'), \
+         patch.object(TradeTracker, '_load_trades', return_value=[]), \
          patch.object(TradeTracker, '_load_positions', return_value=[]):
         t = TradeTracker(_make_config())
-        # Redirect storage to tmp_path
         t.data_dir = tmp_path
-        t.trades_file = tmp_path / 'tracker_trades.json'
-        t.positions_file = tmp_path / 'positions.json'
+        # Mock save methods so tests don't need a real database
+        t._save_trades = lambda: None
+        t._save_positions = lambda: None
         return t
 
 

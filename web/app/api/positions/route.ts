@@ -1,12 +1,9 @@
 import { logger } from "@/lib/logger"
 import { NextResponse } from 'next/server';
-import path from 'path';
 import { PaperTrade, PositionsSummary } from '@/lib/types';
 import { calcUnrealizedPnL } from '@/lib/pnl';
 import { calculatePortfolioStats } from '@/lib/paper-trades';
 import { getTrades, TradeRow } from '@/lib/database';
-import { DATA_DIR } from '@/lib/paths';
-import { tryReadFile } from '@/lib/fs-utils';
 import { verifyAuth } from "@/lib/auth";
 
 export const dynamic = 'force-dynamic'
@@ -54,26 +51,13 @@ function tradeRowToPaperTrade(row: TradeRow): PaperTrade {
 export async function GET(request: Request) {
   const authErr = await verifyAuth(request); if (authErr) return authErr;
   try {
-    // Primary: read ALL trades from SQLite (both scanner and user-initiated)
     const dbTrades = getTrades({});
     if (dbTrades.length > 0) {
       const allTrades = dbTrades.map(tradeRowToPaperTrade);
       return buildResponse(allTrades);
     }
 
-    // Fallback: read from JSON file during transition
-    const content = await tryReadFile(
-      path.join(DATA_DIR, 'paper_trades.json'),
-      path.join(process.cwd(), 'public', 'data', 'paper_trades.json'),
-    );
-
-    if (!content) {
-      return NextResponse.json(EMPTY_RESPONSE);
-    }
-
-    const paper = JSON.parse(content);
-    const allTrades: PaperTrade[] = paper.trades || [];
-    return buildResponse(allTrades, paper);
+    return NextResponse.json(EMPTY_RESPONSE);
   } catch (error) {
     logger.error('Failed to read positions', { error: String(error) });
     return NextResponse.json(EMPTY_RESPONSE);

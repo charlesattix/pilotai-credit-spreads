@@ -63,11 +63,10 @@ class TestAlertGenerator:
         assert gen.generate_alerts(opps) == {}
 
     def test_generate_alerts_produces_outputs(self):
-        """Alerts should produce json, text, and csv outputs."""
+        """Alerts should produce text and csv outputs (JSON is in SQLite only)."""
         gen = AlertGenerator(_make_config())
         opps = [_make_opportunity(score=75)]
         outputs = gen.generate_alerts(opps)
-        assert 'json' in outputs
         assert 'text' in outputs
         assert 'csv' in outputs
 

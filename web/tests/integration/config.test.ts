@@ -32,26 +32,28 @@ alerts:
 
 import { GET, POST } from '@/app/api/config/route'
 
+const fakeRequest = new Request('http://localhost/api/config')
+
 describe('GET /api/config (integration)', () => {
   it('returns 200', async () => {
-    const response = await GET()
+    const response = await GET(fakeRequest)
     expect(response.status).toBe(200)
   })
 
   it('strips api_key secrets', async () => {
-    const data = await (await GET()).json()
+    const data = await (await GET(fakeRequest)).json()
     expect(data.alpaca.api_key).toBe('***REDACTED***')
     expect(data.alpaca.api_secret).toBe('***REDACTED***')
   })
 
   it('strips telegram secrets', async () => {
-    const data = await (await GET()).json()
+    const data = await (await GET(fakeRequest)).json()
     expect(data.alerts.telegram.bot_token).toBe('***REDACTED***')
     expect(data.alerts.telegram.chat_id).toBe('***REDACTED***')
   })
 
   it('preserves non-secret fields', async () => {
-    const data = await (await GET()).json()
+    const data = await (await GET(fakeRequest)).json()
     expect(data.tickers).toEqual(['SPY', 'QQQ'])
     expect(data.strategy.min_dte).toBe(20)
   })

@@ -67,6 +67,10 @@ RUN chmod +x docker-entrypoint.sh
 # Running as root to ensure volume mount permissions work correctly
 RUN mkdir -p /app/data /app/output /app/logs
 
+# Declare /app/data as a volume so Railway (and Docker) can mount persistent storage.
+# On Railway: add a volume mount at /app/data in the service settings.
+VOLUME ["/app/data"]
+
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \

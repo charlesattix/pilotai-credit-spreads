@@ -7,10 +7,9 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
-import json
 import pandas as pd
-from shared.io_utils import atomic_json_write
 from shared.constants import DATA_DIR as _DATA_DIR, OUTPUT_DIR as _OUTPUT_DIR
+from shared.database import init_db, upsert_trade, get_trades as db_get_trades
 
 logger = logging.getLogger(__name__)
 
@@ -23,70 +22,65 @@ class TradeTracker:
     def __init__(self, config: Dict):
         """
         Initialize trade tracker.
-        
+
         Args:
             config: Configuration dictionary
         """
         self.config = config
 
-        # Storage paths — use centralized DATA_DIR from shared.constants
+        # Ensure data dir exists and initialize database
         self.data_dir = Path(_DATA_DIR)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
-        self.trades_file = self.data_dir / 'tracker_trades.json'
-        self.positions_file = self.data_dir / 'positions.json'
+        init_db()
 
-        # Load existing data
+        # Load existing data from SQLite
         self.trades = self._load_trades()
         self.positions = self._load_positions()
 
         logger.info("TradeTracker initialized")
 
     def _load_trades(self) -> List[Dict]:
-        """Load historical trades.
+        """Load historical (closed) trades from SQLite.
 
-        Returns an empty list when the file is missing or corrupted so the
+        Returns an empty list when the database is empty or unavailable so the
         tracker can always start cleanly (EH-PY-08).
         """
-        if self.trades_file.exists():
-            try:
-                with open(self.trades_file, 'r') as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, OSError) as e:
-                logger.warning(
-                    f"Could not read trades file {self.trades_file}: {e}. "
-                    "Starting with empty trade list."
-                )
-        return []
+        try:
+            all_trades = db_get_trades(source="tracker")
+            return [t for t in all_trades if t.get("status") != "open"]
+        except Exception as e:
+            logger.warning(
+                f"Could not load trades from database: {e}. "
+                "Starting with empty trade list."
+            )
+            return []
 
     def _load_positions(self) -> List[Dict]:
-        """Load open positions.
+        """Load open positions from SQLite.
 
-        Returns an empty list when the file is missing or corrupted so the
+        Returns an empty list when the database is empty or unavailable so the
         tracker can always start cleanly (EH-PY-08).
         """
-        if self.positions_file.exists():
-            try:
-                with open(self.positions_file, 'r') as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, OSError) as e:
-                logger.warning(
-                    f"Could not read positions file {self.positions_file}: {e}. "
-                    "Starting with empty positions list."
-                )
-        return []
-
-    # Delegate to the shared utility; keep the class attribute so any code
-    # referencing TradeTracker._atomic_json_write still resolves.
-    _atomic_json_write = staticmethod(atomic_json_write)
+        try:
+            all_trades = db_get_trades(source="tracker", status="open")
+            return list(all_trades)
+        except Exception as e:
+            logger.warning(
+                f"Could not load positions from database: {e}. "
+                "Starting with empty positions list."
+            )
+            return []
 
     def _save_trades(self):
-        """Save trades to disk."""
-        atomic_json_write(self.trades_file, self.trades)
+        """Persist trades to SQLite."""
+        for trade in self.trades:
+            upsert_trade(trade, source="tracker")
 
     def _save_positions(self):
-        """Save positions to disk."""
-        atomic_json_write(self.positions_file, self.positions)
+        """Persist positions to SQLite."""
+        for pos in self.positions:
+            upsert_trade(pos, source="tracker")
 
     def add_position(self, position: Dict) -> str:
         """
@@ -101,6 +95,7 @@ class TradeTracker:
         # Generate position ID
         position_id = f"{position['ticker']}_{position['type']}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
+        position['id'] = position_id
         position['position_id'] = position_id
         position['entry_date'] = datetime.now(timezone.utc).isoformat()
         position['status'] = 'open'
@@ -139,8 +134,9 @@ class TradeTracker:
             logger.warning(f"Position not found: {position_id}")
             return
 
-        # Create trade record
+        # Create trade record (reuse position_id as the trade id for SQLite)
         trade = {
+            'id': position_id,
             'position_id': position_id,
             'ticker': position['ticker'],
             'type': position['type'],
@@ -154,6 +150,7 @@ class TradeTracker:
             'exit_price': exit_price,
             'exit_reason': exit_reason,
             'pnl': pnl,
+            'status': 'closed',
             'return_pct': (pnl / (position.get('max_loss', 1) * 100)) * 100,
         }
 

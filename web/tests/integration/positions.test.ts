@@ -21,9 +21,11 @@ vi.mock('@/lib/database', () => ({
 
 import { GET } from '@/app/api/positions/route'
 
+const fakeRequest = new Request('http://localhost/api/positions')
+
 describe('GET /api/positions (integration)', () => {
   it('returns 200 with empty positions when no file exists', async () => {
-    const response = await GET()
+    const response = await GET(fakeRequest)
     expect(response.status).toBe(200)
     const data = await response.json()
     expect(data.account_size).toBe(100000)
@@ -34,7 +36,7 @@ describe('GET /api/positions (integration)', () => {
   })
 
   it('returns correct balance fields', async () => {
-    const data = await (await GET()).json()
+    const data = await (await GET(fakeRequest)).json()
     expect(data.starting_balance).toBe(100000)
     expect(data.current_balance).toBe(100000)
     expect(data.total_pnl).toBe(0)
@@ -43,7 +45,7 @@ describe('GET /api/positions (integration)', () => {
   })
 
   it('win_rate is 0 with no trades', async () => {
-    const data = await (await GET()).json()
+    const data = await (await GET(fakeRequest)).json()
     expect(data.win_rate).toBe(0)
   })
 })

@@ -16,9 +16,11 @@ vi.mock('fs', async () => {
 
 import { GET } from '@/app/api/backtest/route'
 
+const fakeRequest = new Request('http://localhost/api/backtest')
+
 describe('GET /api/backtest (integration)', () => {
   it('returns 200 with default empty results when no file exists', async () => {
-    const response = await GET()
+    const response = await GET(fakeRequest)
     expect(response.status).toBe(200)
     const data = await response.json()
     expect(data.total_trades).toBe(0)

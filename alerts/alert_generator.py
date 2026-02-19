@@ -4,8 +4,6 @@ Creates formatted alerts for credit spread opportunities.
 """
 
 import csv
-import io
-import json
 import logging
 import os
 import tempfile
@@ -14,7 +12,6 @@ from pathlib import Path
 from typing import Dict, List
 from shared.database import init_db, insert_alert
 from shared.constants import OUTPUT_DIR as _OUTPUT_DIR
-from shared.io_utils import atomic_json_write
 
 logger = logging.getLogger(__name__)
 
@@ -27,14 +24,14 @@ class AlertGenerator:
     def __init__(self, config: Dict):
         """
         Initialize alert generator.
-        
+
         Args:
             config: Configuration dictionary
         """
         self.config = config
         self.alert_config = config['alerts']
 
-        # Ensure output directory exists — use centralized OUTPUT_DIR from shared.constants
+        # Ensure output directory exists
         self.output_dir = Path(_OUTPUT_DIR)
         self.output_dir.mkdir(exist_ok=True)
 
@@ -44,10 +41,10 @@ class AlertGenerator:
     def generate_alerts(self, opportunities: List[Dict]) -> Dict:
         """
         Generate alerts for all opportunities.
-        
+
         Args:
             opportunities: List of spread opportunities
-            
+
         Returns:
             Dictionary with alert outputs
         """
@@ -78,36 +75,20 @@ class AlertGenerator:
             except Exception as e:
                 logger.warning(f"Failed to insert alert to DB: {e}")
 
-        # Generate file outputs (fallback)
+        # Generate file outputs (text and CSV only; JSON alerts live in SQLite)
         outputs = {}
 
-        if self.alert_config['output_json']:
-            json_output = self._generate_json(alerts)
-            outputs['json'] = json_output
-
-        if self.alert_config['output_text']:
+        if self.alert_config.get('output_text'):
             text_output = self._generate_text(alerts)
             outputs['text'] = text_output
 
-        if self.alert_config['output_csv']:
+        if self.alert_config.get('output_csv'):
             csv_output = self._generate_csv(alerts)
             outputs['csv'] = csv_output
 
         logger.info(f"Generated {len(top_opportunities)} alerts")
 
         return outputs
-
-    def _generate_json(self, alerts: Dict) -> str:
-        """
-        Generate JSON formatted alerts (atomic write).
-        """
-        json_file = self.output_dir / self.alert_config['json_file']
-
-        atomic_json_write(json_file, alerts)
-
-        logger.info(f"JSON alerts saved to {json_file}")
-
-        return str(json_file)
 
     def _generate_text(self, alerts: Dict) -> str:
         """
@@ -221,23 +202,23 @@ class AlertGenerator:
     def format_telegram_message(self, opportunity: Dict) -> str:
         """
         Format a single opportunity for Telegram.
-        
+
         Args:
             opportunity: Spread opportunity data
-            
+
         Returns:
             Formatted message string
         """
         msg_lines = []
 
         # Header with emoji
-        emoji = "🔵" if opportunity['type'] == 'bull_put_spread' else "🔴"
+        emoji = "\U0001f535" if opportunity['type'] == 'bull_put_spread' else "\U0001f534"
         msg_lines.append(f"{emoji} <b>{opportunity['ticker']} {opportunity['type'].replace('_', ' ').upper()}</b>")
-        msg_lines.append(f"Score: {opportunity['score']:.1f}/100 ⭐")
+        msg_lines.append(f"Score: {opportunity['score']:.1f}/100 \u2b50")
         msg_lines.append("")
 
         # Trade setup
-        msg_lines.append("📋 <b>TRADE:</b>")
+        msg_lines.append("\U0001f4cb <b>TRADE:</b>")
         if opportunity['type'] == 'bull_put_spread':
             msg_lines.append(f"  Sell ${opportunity['short_strike']:.2f} Put")
             msg_lines.append(f"  Buy  ${opportunity['long_strike']:.2f} Put")
@@ -250,7 +231,7 @@ class AlertGenerator:
         msg_lines.append("")
 
         # Risk/Reward
-        msg_lines.append("💰 <b>RISK/REWARD:</b>")
+        msg_lines.append("\U0001f4b0 <b>RISK/REWARD:</b>")
         msg_lines.append(f"  Max Profit: ${opportunity['max_profit']:.2f}")
         msg_lines.append(f"  Target (50%): ${opportunity['profit_target']:.2f}")
         msg_lines.append(f"  Max Loss: ${opportunity['max_loss']:.2f}")
@@ -258,7 +239,7 @@ class AlertGenerator:
         msg_lines.append("")
 
         # Probabilities
-        msg_lines.append("📊 <b>PROBABILITY:</b>")
+        msg_lines.append("\U0001f4ca <b>PROBABILITY:</b>")
         msg_lines.append(f"  POP: {opportunity['pop']:.1f}%")
         msg_lines.append(f"  Delta: {opportunity['short_delta']:.3f}")
 
