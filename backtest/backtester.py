@@ -67,6 +67,11 @@ class Backtester:
             logger.error(f"No historical data for {ticker}")
             return {}
 
+        # Strip timezone from everything for consistent date-only comparison
+        # (yfinance returns America/New_York tz, main.py passes UTC)
+        start_date = start_date.replace(tzinfo=None) if hasattr(start_date, 'tzinfo') and start_date.tzinfo else start_date
+        end_date = end_date.replace(tzinfo=None) if hasattr(end_date, 'tzinfo') and end_date.tzinfo else end_date
+
         # Initialize portfolio
         self.capital = self.starting_capital
         self.trades = []
@@ -74,16 +79,23 @@ class Backtester:
 
         open_positions = []
 
+        if price_data.index.tz is not None:
+            price_data.index = price_data.index.tz_localize(None)
+        trading_dates = set(price_data.index)
+
         # Simulate trading day by day
         current_date = start_date
 
         while current_date <= end_date:
+            # Use tz-naive Timestamp for index lookup
+            lookup_date = pd.Timestamp(current_date.date())
+
             # Get price for current date
-            if current_date not in price_data.index:
+            if lookup_date not in trading_dates:
                 current_date += timedelta(days=1)
                 continue
 
-            current_price = price_data.loc[current_date, 'Close']
+            current_price = float(price_data.loc[lookup_date, 'Close'])
 
             # Check existing positions
             open_positions = self._manage_positions(
@@ -355,8 +367,20 @@ class Backtester:
         if not self.trades:
             return {
                 'total_trades': 0,
+                'winning_trades': 0,
+                'losing_trades': 0,
                 'win_rate': 0,
                 'total_pnl': 0,
+                'avg_win': 0,
+                'avg_loss': 0,
+                'profit_factor': 0,
+                'max_drawdown': 0,
+                'sharpe_ratio': 0,
+                'starting_capital': self.starting_capital,
+                'ending_capital': self.capital,
+                'return_pct': 0,
+                'trades': [],
+                'equity_curve': [],
             }
 
         trades_df = pd.DataFrame(self.trades)
