@@ -8,7 +8,7 @@ export async function apiFetch<T>(url: string, options?: RequestInit, retries = 
     try {
       const res = await fetch(url, {
         cache: 'no-store',
-        credentials: 'same-origin',
+        credentials: 'include',
         ...options,
         headers: { ...options?.headers },
       })
