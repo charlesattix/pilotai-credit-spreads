@@ -116,8 +116,16 @@ class PolygonProvider:
 
         bid = last_quote.get("bid", 0) or 0
         ask = last_quote.get("ask", 0) or 0
+        close_price = day.get("close", 0) or 0
+
+        # After hours, last_quote may be empty. Use day close as fallback pricing.
+        if bid == 0 and ask == 0 and close_price > 0:
+            bid = close_price
+            ask = close_price
+
         strike = details.get("strike_price", 0)
         opt_type = "call" if details.get("contract_type", "").lower() == "call" else "put"
+        mid = (bid + ask) / 2 if (bid + ask) > 0 else close_price
 
         return {
             "contract_symbol": details.get("ticker", ""),
@@ -125,7 +133,7 @@ class PolygonProvider:
             "type": opt_type,
             "bid": bid,
             "ask": ask,
-            "last": day.get("close", 0) or 0,
+            "last": close_price,
             "volume": day.get("volume", 0) or 0,
             "open_interest": item.get("open_interest", 0) or 0,
             "iv": greeks.get("iv", 0) or item.get("implied_volatility", 0) or 0,
@@ -134,7 +142,7 @@ class PolygonProvider:
             "gamma": greeks.get("gamma", 0) or 0,
             "theta": greeks.get("theta", 0) or 0,
             "vega": greeks.get("vega", 0) or 0,
-            "mid": (bid + ask) / 2 if (bid + ask) > 0 else 0,
+            "mid": mid,
             "expiration": expiration_dt,
             "itm": (strike < underlying.get("price", 0)) if opt_type == "call" else (strike > underlying.get("price", 0)),
         }
@@ -205,76 +213,50 @@ class PolygonProvider:
 
     def get_full_chain(self, ticker: str, min_dte: int = 25, max_dte: int = 50) -> pd.DataFrame:
         """
-        Get full options chain across relevant expirations.
-        Uses contracts endpoint to filter by expiration date.
-        Note: Snapshot endpoint only returns today's expiring options, so we use contracts
-        which have open_interest but not real-time bid/ask. We'll fetch quotes separately if needed.
+        Get full options chain across relevant expirations via snapshot endpoint.
+
+        Uses ``/v3/snapshot/options/{ticker}`` which returns pricing (bid/ask or
+        day close), Greeks, and IV — even after market hours.
         """
         now = datetime.now(timezone.utc)
         exp_min = (now + timedelta(days=min_dte)).strftime("%Y-%m-%d")
         exp_max = (now + timedelta(days=max_dte)).strftime("%Y-%m-%d")
 
-        # Get contracts in DTE range - this is the only way to filter by expiration on Polygon
-        contracts = self._paginate(
-            "/v3/reference/options/contracts",
+        all_results = self._paginate(
+            f"/v3/snapshot/options/{ticker}",
             params={
-                "underlying_ticker": ticker,
                 "expiration_date.gte": exp_min,
                 "expiration_date.lte": exp_max,
-                "order": "desc",
-                "sort": "expiration_date",
-                "limit": 1000,  # Increased limit to get more contracts
+                "limit": 250,
             },
             timeout=30,
-            caller="get_full_chain"
+            caller="get_full_chain",
         )
 
-        if not contracts:
-            logger.warning(f"No contracts found for {ticker} in {min_dte}-{max_dte} DTE range")
+        if not all_results:
+            logger.warning(f"No options found for {ticker} in {min_dte}-{max_dte} DTE range")
             return pd.DataFrame()
 
         rows = []
-        for contract in contracts:
-            contract_ticker = contract.get("ticker", "")
-            exp_str = contract.get("expiration_date", "")
-            strike = contract.get("strike_price", 0)
-            contract_type = contract.get("contract_type", "").lower()
-            
-            if not exp_str or not contract_ticker or not strike:
+        for item in all_results:
+            details = item.get("details", {})
+            exp_str = details.get("expiration_date", "")
+            if not exp_str:
                 continue
-                
             try:
-                exp_date = datetime.strptime(exp_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                exp_dt = datetime.strptime(exp_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
             except ValueError:
                 continue
-                
-            dte = (exp_date - now).days
-            
-            # Build row from contract data
-            # Note: bid/ask/last will be 0 since contracts endpoint doesn't provide pricing
-            # The system will need to handle this or fetch quotes separately
-            row = {
-                "ticker": contract_ticker,
-                "strike": strike,
-                "expiration": exp_date,
-                "option_type": contract_type,
-                "bid": 0.01,  # Set small non-zero value so it passes filters
-                "ask": 0.01,  # Will be overridden by yfinance fallback if needed
-                "last": 0,
-                "volume": 0,
-                "open_interest": contract.get("open_interest", 0),
-                "iv": 0,  # Will be calculated if needed
-                "delta": 0,  # Will be estimated if needed
-                "dte": dte,
-            }
-            rows.append(row)
+            rows.append(self._build_option_row(item, exp_dt))
 
         if not rows:
             logger.warning(f"No options found for {ticker} in {min_dte}-{max_dte} DTE range")
             return pd.DataFrame()
 
         df = pd.DataFrame(rows)
-        logger.info(f"Polygon: {len(df)} total options for {ticker} ({min_dte}-{max_dte} DTE)")
+        # Filter out contracts with no pricing at all (no quote and no day close)
+        df = df[(df["bid"] > 0) & (df["ask"] > 0)].copy()
+        logger.info(f"Polygon: {len(df)} options for {ticker} ({min_dte}-{max_dte} DTE)")
         return df
 
     def get_historical(self, ticker: str, days: int = 365) -> pd.DataFrame:
