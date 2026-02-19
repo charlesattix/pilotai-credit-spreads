@@ -361,7 +361,10 @@ class PaperTrader:
 
         for trade in self.open_trades:
             ticker = trade["ticker"]
-            current_price = float(current_prices.get(ticker, trade.get("entry_price", 0)))
+            raw_price = current_prices.get(ticker, trade.get("entry_price", 0))
+            if hasattr(raw_price, 'iloc'):
+                raw_price = raw_price.iloc[0]
+            current_price = float(raw_price)
 
             # Parse expiration
             exp_str = str(trade.get("expiration", ""))

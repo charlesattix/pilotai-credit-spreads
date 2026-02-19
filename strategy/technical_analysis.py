@@ -200,12 +200,12 @@ class TechnicalAnalyzer:
         """
         Find support levels using local minima.
         """
-        lows = price_data['Low'].values
+        lows = np.asarray(price_data['Low']).flatten()
         support = []
 
         for i in range(window, len(lows) - window):
-            if lows[i] == np.min(lows[i - window:i + window + 1]):
-                support.append(lows[i])
+            if float(lows[i]) == float(np.min(lows[i - window:i + window + 1])):
+                support.append(float(lows[i]))
 
         # Remove duplicates (within 1% of each other)
         support = self._consolidate_levels(support)
@@ -217,12 +217,12 @@ class TechnicalAnalyzer:
         """
         Find resistance levels using local maxima.
         """
-        highs = price_data['High'].values
+        highs = np.asarray(price_data['High']).flatten()
         resistance = []
 
         for i in range(window, len(highs) - window):
-            if highs[i] == np.max(highs[i - window:i + window + 1]):
-                resistance.append(highs[i])
+            if float(highs[i]) == float(np.max(highs[i - window:i + window + 1])):
+                resistance.append(float(highs[i]))
 
         resistance = self._consolidate_levels(resistance)
         resistance.sort()  # Lowest first
