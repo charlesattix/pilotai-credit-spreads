@@ -5,6 +5,7 @@ Provides technical indicators and signals for credit spread strategy.
 
 import logging
 from typing import Dict
+import numpy as np
 import pandas as pd
 from shared.indicators import calculate_rsi
 try:
@@ -203,7 +204,7 @@ class TechnicalAnalyzer:
         support = []
 
         for i in range(window, len(lows) - window):
-            if lows[i] == min(lows[i - window:i + window + 1]):
+            if lows[i] == np.min(lows[i - window:i + window + 1]):
                 support.append(lows[i])
 
         # Remove duplicates (within 1% of each other)
@@ -220,7 +221,7 @@ class TechnicalAnalyzer:
         resistance = []
 
         for i in range(window, len(highs) - window):
-            if highs[i] == max(highs[i - window:i + window + 1]):
+            if highs[i] == np.max(highs[i - window:i + window + 1]):
                 resistance.append(highs[i])
 
         resistance = self._consolidate_levels(resistance)
