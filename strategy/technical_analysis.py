@@ -161,7 +161,7 @@ class TechnicalAnalyzer:
         Returns:
             Dictionary with support/resistance levels
         """
-        current_price = price_data['Close'].iloc[-1]
+        current_price = float(price_data['Close'].iloc[-1])
 
         # Support: recent lows
         support_levels = self._find_support_levels(price_data)

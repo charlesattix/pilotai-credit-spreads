@@ -463,7 +463,7 @@ class PaperTrader:
                     short_strike=trade["short_strike"],
                     long_strike=trade["long_strike"],
                     expiration=trade["expiration"],
-                    spread_type=trade["type"],
+                    spread_type=trade.get("type", trade.get("strategy_type", "bull_put_spread")),
                     contracts=trade["contracts"],
                 )
                 logger.info(f"Alpaca close order submitted for {trade['ticker']}")

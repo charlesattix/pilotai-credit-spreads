@@ -162,9 +162,10 @@ export function getTrades(filters: TradeFilters = {}): TradeRow[] {
 export function getUserTrades(userId: string): TradeRow[] {
   const db = getDb()
   if (!db) return []
+  // Return all trades (scanner + user) so the dashboard shows paper-traded positions
   return db.prepare(
-    "SELECT * FROM trades WHERE source = 'user' AND metadata LIKE ? ORDER BY created_at DESC"
-  ).all(`%"user_id":"${userId}"%`) as TradeRow[]
+    "SELECT * FROM trades ORDER BY created_at DESC"
+  ).all() as TradeRow[]
 }
 
 export function upsertUserTrade(trade: {
