@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Market Regime Detector - Live Analysis</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #fff;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            animation: fadeInDown 0.6s ease-out;
+        }
+        
+        .header h1 {
+            font-size: 3rem;
+            margin-bottom: 10px;
+            text-shadow: 0 2px 20px rgba(0,0,0,0.3);
+        }
+        
+        .header .subtitle {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+        
+        .health-score {
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            text-align: center;
+            animation: fadeIn 0.8s ease-out;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        }
+        
+        .health-score h2 {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+        }
+        
+        .health-meter {
+            position: relative;
+            width: 100%;
+            height: 40px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 20px;
+            overflow: hidden;
+        }
+        
+        .health-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ff4444, #ffaa00, #00ff88);
+            border-radius: 20px;
+            transition: width 1s ease-out;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 15px;
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+        
+        .regime-card {
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            animation: fadeIn 1s ease-out;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+            border: 2px solid rgba(255,255,255,0.2);
+        }
+        
+        .regime-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .regime-emoji {
+            font-size: 4rem;
+            animation: pulse 2s infinite;
+        }
+        
+        .regime-info h2 {
+            font-size: 2rem;
+            margin-bottom: 5px;
+        }
+        
+        .regime-description {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+        
+        .risk-badge {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 0.9rem;
+            margin-top: 10px;
+            background: rgba(255,255,255,0.2);
+        }
+        
+        .strategies {
+            background: rgba(0,0,0,0.2);
+            border-radius: 15px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        
+        .strategies h3 {
+            font-size: 1.3rem;
+            margin-bottom: 15px;
+        }
+        
+        .strategy-list {
+            list-style: none;
+        }
+        
+        .strategy-list li {
+            padding: 12px;
+            margin-bottom: 10px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            border-left: 4px solid #00ff88;
+            transition: transform 0.2s, background 0.2s;
+        }
+        
+        .strategy-list li:hover {
+            transform: translateX(5px);
+            background: rgba(255,255,255,0.2);
+        }
+        
+        .ticker-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+        
+        .ticker-card {
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            animation: fadeInUp 1.2s ease-out;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            border: 2px solid rgba(255,255,255,0.2);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        
+        .ticker-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+        }
+        
+        .ticker-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .ticker-symbol {
+            font-size: 1.8rem;
+            font-weight: bold;
+        }
+        
+        .ticker-emoji {
+            font-size: 2.5rem;
+        }
+        
+        .ticker-regime {
+            font-size: 1.1rem;
+            margin-bottom: 10px;
+            opacity: 0.9;
+        }
+        
+        .ticker-price {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .ticker-change {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+        
+        .positive {
+            color: #00ff88;
+        }
+        
+        .negative {
+            color: #ff4444;
+        }
+        
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .metric {
+            text-align: center;
+            padding: 10px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+        }
+        
+        .metric-label {
+            font-size: 0.8rem;
+            opacity: 0.7;
+            margin-bottom: 5px;
+        }
+        
+        .metric-value {
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+        
+        .timestamp {
+            text-align: center;
+            margin-top: 30px;
+            opacity: 0.7;
+            font-size: 0.9rem;
+        }
+        
+        .refresh-btn {
+            display: block;
+            margin: 30px auto;
+            padding: 15px 40px;
+            background: rgba(255,255,255,0.2);
+            border: 2px solid rgba(255,255,255,0.4);
+            border-radius: 30px;
+            color: #fff;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            backdrop-filter: blur(10px);
+        }
+        
+        .refresh-btn:hover {
+            background: rgba(255,255,255,0.3);
+            transform: scale(1.05);
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+        
+        @keyframes fadeInDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes pulse {
+            0%, 100% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.1);
+            }
+        }
+        
+        .loading {
+            text-align: center;
+            font-size: 2rem;
+            padding: 100px;
+            animation: pulse 1.5s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 Market Regime Detector</h1>
+            <p class="subtitle">Real-time analysis of market conditions & optimal strategies</p>
+        </div>
+        
+        <div id="loading" class="loading">
+            🔄 Analyzing markets...
+        </div>
+        
+        <div id="content" style="display: none;">
+            <!-- Content will be dynamically inserted -->
+        </div>
+        
+        <button class="refresh-btn" onclick="loadData()">🔄 Refresh Analysis</button>
+    </div>
+    
+    <script>
+        const REGIME_CONFIG = {
+            "TRENDING_BULL": { emoji: "🚀", color: "#00ff88" },
+            "TRENDING_BEAR": { emoji: "🐻", color: "#ff4444" },
+            "HIGH_VOLATILITY": { emoji: "⚡", color: "#ffaa00" },
+            "LOW_VOLATILITY": { emoji: "😴", color: "#88aaff" },
+            "CHOPPY": { emoji: "🌊", color: "#aa88ff" },
+            "CRASH": { emoji: "💥", color: "#ff0000" },
+            "RECOVERY": { emoji: "🌱", color: "#44ff44" }
+        };
+        
+        async function loadData() {
+            const loading = document.getElementById('loading');
+            const content = document.getElementById('content');
+            
+            loading.style.display = 'block';
+            content.style.display = 'none';
+            
+            try {
+                // In production, this would fetch from an API
+                // For demo, we'll generate mock data
+                const data = await generateMockData();
+                renderContent(data);
+                
+                loading.style.display = 'none';
+                content.style.display = 'block';
+            } catch (error) {
+                loading.innerHTML = '❌ Error loading data. Check console.';
+                console.error(error);
+            }
+        }
+        
+        async function generateMockData() {
+            // Simulate API call
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            return {
+                timestamp: new Date().toISOString(),
+                overall_regime: "HIGH_VOLATILITY",
+                market_health_score: 72,
+                ticker_regimes: {
+                    SPY: {
+                        ticker: "SPY",
+                        regime: "HIGH_VOLATILITY",
+                        current_price: 589.42,
+                        price_change_1d: 1.23,
+                        price_change_5d: -2.15,
+                        metrics: {
+                            trend: 0.35,
+                            volatility: 0.68,
+                            momentum: 0.42,
+                            range: 0.38
+                        }
+                    },
+                    QQQ: {
+                        ticker: "QQQ",
+                        regime: "CHOPPY",
+                        current_price: 512.18,
+                        price_change_1d: -0.87,
+                        price_change_5d: -1.42,
+                        metrics: {
+                            trend: -0.12,
+                            volatility: 0.52,
+                            momentum: -0.18,
+                            range: 0.55
+                        }
+                    },
+                    IWM: {
+                        ticker: "IWM",
+                        regime: "HIGH_VOLATILITY",
+                        current_price: 228.45,
+                        price_change_1d: 2.15,
+                        price_change_5d: -3.22,
+                        metrics: {
+                            trend: 0.28,
+                            volatility: 0.71,
+                            momentum: 0.35,
+                            range: 0.42
+                        }
+                    }
+                },
+                recommendations: [
+                    "⚡ Market Regime: High Volatility",
+                    "📊 Elevated IV - premium selling heaven",
+                    "⚠️ Risk Level: Medium-High",
+                    "",
+                    "🎯 Optimal Strategies:",
+                    "  1. Credit Spreads",
+                    "  2. Iron Condors",
+                    "  3. Sell Premium"
+                ]
+            };
+        }
+        
+        function renderContent(data) {
+            const regimeConfig = REGIME_CONFIG[data.overall_regime];
+            const regimeInfo = {
+                "TRENDING_BULL": { desc: "Strong uptrend with momentum", risk: "Medium" },
+                "TRENDING_BEAR": { desc: "Downtrend with selling pressure", risk: "High" },
+                "HIGH_VOLATILITY": { desc: "Elevated IV - premium selling heaven", risk: "Medium-High" },
+                "LOW_VOLATILITY": { desc: "Compressed volatility - cheap options", risk: "Low" },
+                "CHOPPY": { desc: "No clear direction - stay nimble", risk: "Medium" },
+                "CRASH": { desc: "Market stress - preserve capital", risk: "EXTREME" },
+                "RECOVERY": { desc: "Bouncing from lows - opportunity", risk: "Medium" }
+            };
+            
+            const strategies = {
+                "TRENDING_BULL": ["Bull Put Spreads", "Covered Calls", "Cash-Secured Puts"],
+                "TRENDING_BEAR": ["Bear Call Spreads", "Protective Puts", "Short Straddles"],
+                "HIGH_VOLATILITY": ["Credit Spreads", "Iron Condors", "Sell Premium"],
+                "LOW_VOLATILITY": ["Debit Spreads", "Long Options", "Breakout Plays"],
+                "CHOPPY": ["Range-Bound Trades", "Strangles", "Wait for Clarity"],
+                "CRASH": ["Cash", "Protective Puts", "Extreme Caution"],
+                "RECOVERY": ["Bullish Spreads", "Long Calls", "Accumulation"]
+            };
+            
+            let html = `
+                <div class="health-score">
+                    <h2>💪 Market Health Score</h2>
+                    <div class="health-meter">
+                        <div class="health-fill" style="width: ${data.market_health_score}%">
+                            ${data.market_health_score}/100
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="regime-card" style="border-color: ${regimeConfig.color}">
+                    <div class="regime-header">
+                        <div class="regime-emoji">${regimeConfig.emoji}</div>
+                        <div class="regime-info">
+                            <h2>${data.overall_regime.replace(/_/g, ' ')}</h2>
+                            <p class="regime-description">${regimeInfo[data.overall_regime].desc}</p>
+                            <span class="risk-badge" style="background: ${regimeConfig.color}">
+                                ⚠️ Risk: ${regimeInfo[data.overall_regime].risk}
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <div class="strategies">
+                        <h3>🎯 Optimal Strategies</h3>
+                        <ul class="strategy-list">
+                            ${strategies[data.overall_regime].map(s => `<li>${s}</li>`).join('')}
+                        </ul>
+                    </div>
+                </div>
+                
+                <h2 style="margin-bottom: 20px; text-align: center;">📈 Individual Ticker Analysis</h2>
+                <div class="ticker-grid">
+            `;
+            
+            for (const [ticker, tickerData] of Object.entries(data.ticker_regimes)) {
+                const tickerRegimeConfig = REGIME_CONFIG[tickerData.regime];
+                const changeClass = tickerData.price_change_1d >= 0 ? 'positive' : 'negative';
+                const changeEmoji = tickerData.price_change_1d >= 0 ? '📈' : '📉';
+                
+                html += `
+                    <div class="ticker-card" style="border-color: ${tickerRegimeConfig.color}">
+                        <div class="ticker-header">
+                            <div class="ticker-symbol">${ticker}</div>
+                            <div class="ticker-emoji">${tickerRegimeConfig.emoji}</div>
+                        </div>
+                        <div class="ticker-regime">${tickerData.regime.replace(/_/g, ' ')}</div>
+                        <div class="ticker-price">$${tickerData.current_price.toFixed(2)}</div>
+                        <div class="ticker-change ${changeClass}">
+                            ${changeEmoji} ${tickerData.price_change_1d >= 0 ? '+' : ''}${tickerData.price_change_1d.toFixed(2)}%
+                        </div>
+                        
+                        <div class="metrics">
+                            <div class="metric">
+                                <div class="metric-label">Trend</div>
+                                <div class="metric-value">${(tickerData.metrics.trend * 100).toFixed(0)}%</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-label">Volatility</div>
+                                <div class="metric-value">${(tickerData.metrics.volatility * 100).toFixed(0)}%</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-label">Momentum</div>
+                                <div class="metric-value">${(tickerData.metrics.momentum * 100).toFixed(0)}%</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-label">Range</div>
+                                <div class="metric-value">${(tickerData.metrics.range * 100).toFixed(0)}%</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            html += `
+                </div>
+                <div class="timestamp">
+                    ⏰ Last updated: ${new Date(data.timestamp).toLocaleString()}
+                </div>
+            `;
+            
+            document.getElementById('content').innerHTML = html;
+        }
+        
+        // Load data on page load
+        loadData();
+        
+        // Auto-refresh every 5 minutes
+        setInterval(loadData, 5 * 60 * 1000);
+    </script>
+</body>
+</html>
