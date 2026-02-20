@@ -127,6 +127,19 @@ class PerformanceMetrics:
             lines.append("❌ Strategy shows losses")
 
         lines.append("")
+
+        # Strategy Breakdown
+        bp = results.get('bull_put_trades', 0)
+        bc = results.get('bear_call_trades', 0)
+        if bp or bc:
+            lines.append("STRATEGY BREAKDOWN")
+            lines.append("-" * 80)
+            if bp:
+                lines.append(f"Bull Put Spreads: {bp} trades, Win Rate: {results.get('bull_put_win_rate', 0):.2f}%")
+            if bc:
+                lines.append(f"Bear Call Spreads: {bc} trades, Win Rate: {results.get('bear_call_win_rate', 0):.2f}%")
+            lines.append("")
+
         lines.append("=" * 80)
 
         return "\n".join(lines)
@@ -151,4 +164,12 @@ class PerformanceMetrics:
         print(f"Return: {results['return_pct']:.2f}%")
         print(f"Max Drawdown: {results['max_drawdown']:.2f}%")
         print(f"Sharpe Ratio: {results['sharpe_ratio']:.2f}")
+        bp = results.get('bull_put_trades', 0)
+        bc = results.get('bear_call_trades', 0)
+        if bp or bc:
+            print("-" * 60)
+            if bp:
+                print(f"Bull Puts: {bp} trades ({results.get('bull_put_win_rate', 0):.1f}% win)")
+            if bc:
+                print(f"Bear Calls: {bc} trades ({results.get('bear_call_win_rate', 0):.1f}% win)")
         print("=" * 60 + "\n")

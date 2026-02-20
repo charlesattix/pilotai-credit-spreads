@@ -1,7 +1,7 @@
 """Tests for DataCache."""
 import pandas as pd
 import numpy as np
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from shared.data_cache import DataCache
 
 
@@ -22,28 +22,39 @@ def _make_price_df(periods=100, seed=42):
     }, index=dates)
 
 
+def _patch_ticker_history(mock_ticker_cls, df=None):
+    """Configure mock yf.Ticker so .history() returns the given DataFrame."""
+    if df is None:
+        df = _make_price_df()
+    mock_instance = MagicMock()
+    mock_instance.history.return_value = df
+    mock_ticker_cls.return_value = mock_instance
+    return mock_instance
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 
 class TestDataCache:
 
-    @patch('shared.data_cache.yf.download')
-    def test_get_history_caches(self, mock_dl):
+    @patch('shared.data_cache.yf.Ticker')
+    def test_get_history_caches(self, mock_ticker_cls):
         """Second call should use cached data, not download again."""
-        mock_dl.return_value = _make_price_df()
+        mock_inst = _patch_ticker_history(mock_ticker_cls)
         cache = DataCache(ttl_seconds=60)
 
         result1 = cache.get_history('SPY')
         result2 = cache.get_history('SPY')
 
-        assert mock_dl.call_count == 1
+        assert mock_ticker_cls.call_count == 1
+        assert mock_inst.history.call_count == 1
         assert len(result1) == len(result2)
 
-    @patch('shared.data_cache.yf.download')
-    def test_get_history_returns_copy(self, mock_dl):
+    @patch('shared.data_cache.yf.Ticker')
+    def test_get_history_returns_copy(self, mock_ticker_cls):
         """Each call should return a copy, not a reference to cached data."""
-        mock_dl.return_value = _make_price_df()
+        _patch_ticker_history(mock_ticker_cls)
         cache = DataCache(ttl_seconds=60)
 
         result1 = cache.get_history('SPY')
@@ -53,28 +64,28 @@ class TestDataCache:
         result1.iloc[0, 0] = -9999
         assert result2.iloc[0, 0] != -9999
 
-    @patch('shared.data_cache.yf.download')
-    def test_different_tickers_download_separately(self, mock_dl):
+    @patch('shared.data_cache.yf.Ticker')
+    def test_different_tickers_download_separately(self, mock_ticker_cls):
         """Different tickers should each trigger their own download."""
-        mock_dl.return_value = _make_price_df()
+        _patch_ticker_history(mock_ticker_cls)
         cache = DataCache(ttl_seconds=60)
 
         cache.get_history('SPY')
         cache.get_history('QQQ')
 
-        assert mock_dl.call_count == 2
+        assert mock_ticker_cls.call_count == 2
 
-    @patch('shared.data_cache.yf.download')
-    def test_clear_resets_cache(self, mock_dl):
+    @patch('shared.data_cache.yf.Ticker')
+    def test_clear_resets_cache(self, mock_ticker_cls):
         """After clear(), next call should download again."""
-        mock_dl.return_value = _make_price_df()
+        _patch_ticker_history(mock_ticker_cls)
         cache = DataCache(ttl_seconds=60)
 
         cache.get_history('SPY')
         cache.clear()
         cache.get_history('SPY')
 
-        assert mock_dl.call_count == 2
+        assert mock_ticker_cls.call_count == 2
 
     def test_get_ticker_obj(self):
         """get_ticker_obj should return a yf.Ticker object."""

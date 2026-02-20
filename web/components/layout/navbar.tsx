@@ -28,6 +28,7 @@ function useMarketOpen() {
 const navItems = [
   { name: "Today's Alerts", href: '/' },
   { name: 'My Trades', href: '/my-trades' },
+  { name: 'Backtest', href: '/backtest' },
   { name: 'System Results', href: '/paper-trading' },
   { name: 'Learn', href: '/settings' },
 ]

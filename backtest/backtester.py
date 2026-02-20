@@ -1,15 +1,16 @@
 """
 Backtesting Engine
-Tests credit spread strategies against historical data.
+Tests credit spread strategies against historical data using real option prices.
 """
 
 import logging
+import math
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
+
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from shared.constants import BACKTEST_SHORT_STRIKE_OTM_FRACTION, BACKTEST_CREDIT_FRACTION
 
 logger = logging.getLogger(__name__)
 
@@ -17,14 +18,20 @@ logger = logging.getLogger(__name__)
 class Backtester:
     """
     Backtest credit spread strategies on historical data.
+
+    When an ``HistoricalOptionsData`` instance is provided, real Polygon
+    option prices are used for entry credits, daily marks, and exit P&L.
+    Otherwise falls back to the legacy heuristic mode (for quick testing).
     """
 
-    def __init__(self, config: Dict):
+    def __init__(self, config: Dict, historical_data=None):
         """
         Initialize backtester.
-        
+
         Args:
             config: Configuration dictionary
+            historical_data: Optional HistoricalOptionsData instance for
+                             real pricing.  None = legacy heuristic mode.
         """
         self.config = config
         self.backtest_config = config['backtest']
@@ -35,26 +42,30 @@ class Backtester:
         self.commission = self.backtest_config['commission_per_contract']
         self.slippage = self.backtest_config['slippage']
 
+        self.historical_data = historical_data
+        self._use_real_data = historical_data is not None
+
         # Trade history
         self.trades = []
         self.equity_curve = []
 
-        logger.info("Backtester initialized")
+        mode = "real data" if self._use_real_data else "heuristic"
+        logger.info("Backtester initialized (%s mode)", mode)
 
     def run_backtest(
         self,
         ticker: str,
         start_date: datetime,
-        end_date: datetime
+        end_date: datetime,
     ) -> Dict:
         """
         Run backtest for a ticker over date range.
-        
+
         Args:
             ticker: Stock ticker
             start_date: Start date for backtest
             end_date: End date for backtest
-            
+
         Returns:
             Dictionary with backtest results
         """
@@ -67,8 +78,7 @@ class Backtester:
             logger.error(f"No historical data for {ticker}")
             return {}
 
-        # Strip timezone from everything for consistent date-only comparison
-        # (yfinance returns America/New_York tz, main.py passes UTC)
+        # Strip timezone for consistent date-only comparison
         start_date = start_date.replace(tzinfo=None) if hasattr(start_date, 'tzinfo') and start_date.tzinfo else start_date
         end_date = end_date.replace(tzinfo=None) if hasattr(end_date, 'tzinfo') and end_date.tzinfo else end_date
 
@@ -87,10 +97,8 @@ class Backtester:
         current_date = start_date
 
         while current_date <= end_date:
-            # Use tz-naive Timestamp for index lookup
             lookup_date = pd.Timestamp(current_date.date())
 
-            # Get price for current date
             if lookup_date not in trading_dates:
                 current_date += timedelta(days=1)
                 continue
@@ -99,7 +107,7 @@ class Backtester:
 
             # Check existing positions
             open_positions = self._manage_positions(
-                open_positions, current_date, current_price
+                open_positions, current_date, current_price, ticker
             )
 
             # Look for new opportunities (once per week)
@@ -110,6 +118,14 @@ class Backtester:
                     )
                     if new_position:
                         open_positions.append(new_position)
+
+                    # Also look for bear call spread if no bull put was opened
+                    if not new_position and len(open_positions) < self.risk_params['max_positions']:
+                        bear_call = self._find_bear_call_opportunity(
+                            ticker, current_date, current_price, price_data
+                        )
+                        if bear_call:
+                            open_positions.append(bear_call)
 
             # Record equity
             position_value = sum(pos.get('current_value', 0) for pos in open_positions)
@@ -125,7 +141,13 @@ class Backtester:
         # Calculate performance metrics
         results = self._calculate_results()
 
-        logger.info(f"Backtest complete. Total trades: {len(self.trades)}")
+        if self._use_real_data:
+            logger.info(
+                "Backtest complete. Total trades: %d, API calls: %d",
+                len(self.trades), self.historical_data.api_calls_made,
+            )
+        else:
+            logger.info(f"Backtest complete. Total trades: {len(self.trades)}")
 
         return results
 
@@ -133,11 +155,9 @@ class Backtester:
         self,
         ticker: str,
         start_date: datetime,
-        end_date: datetime
+        end_date: datetime,
     ) -> pd.DataFrame:
-        """
-        Retrieve historical price data.
-        """
+        """Retrieve historical price data."""
         try:
             stock = yf.Ticker(ticker)
             data = stock.history(start=start_date, end=end_date)
@@ -146,61 +166,174 @@ class Backtester:
             logger.error(f"Error getting historical data: {e}", exc_info=True)
             return pd.DataFrame()
 
+    # ------------------------------------------------------------------
+    # Opportunity finding
+    # ------------------------------------------------------------------
+
     def _find_backtest_opportunity(
         self,
         ticker: str,
         date: datetime,
         price: float,
-        price_data: pd.DataFrame
+        price_data: pd.DataFrame,
     ) -> Optional[Dict]:
-        """
-        Simulate finding a spread opportunity.
-        
-        In real backtesting, you'd need historical options data.
-        This is a simplified simulation.
-        """
-        # Simulate a bull put spread (most common)
-        # Use technical analysis to decide direction
-
-        # Get recent data for indicators
+        """Find a bull put spread opportunity."""
         recent_data = price_data.loc[:date].tail(50)
 
         if len(recent_data) < 20:
             return None
 
-        # Simple trend check
         ma20 = recent_data['Close'].rolling(20).mean().iloc[-1]
 
         if price < ma20:
-            # Price below MA, skip
             return None
 
-        # Simulate a bull put spread
-        # Short strike at ~10 delta (roughly 10% below current price)
-        short_strike = price * BACKTEST_SHORT_STRIKE_OTM_FRACTION
-        long_strike = short_strike - self.strategy_params['spread_width']
+        # Expiration: 35 DTE
+        expiration = date + timedelta(days=35)
+        date_str = date.strftime("%Y-%m-%d")
+        spread_width = self.strategy_params['spread_width']
 
-        # Estimate credit (simplified)
-        # Typically 30-40% of spread width for high prob spreads
-        credit = self.strategy_params['spread_width'] * BACKTEST_CREDIT_FRACTION
+        if self._use_real_data:
+            return self._find_real_spread(
+                ticker, date, date_str, price, expiration,
+                spread_width, option_type="P",
+            )
+        else:
+            return self._find_heuristic_spread(
+                ticker, date, price, expiration, spread_width, spread_type="bull_put_spread",
+            )
 
-        # Apply slippage and commissions
+    def _find_bear_call_opportunity(
+        self,
+        ticker: str,
+        date: datetime,
+        price: float,
+        price_data: pd.DataFrame,
+    ) -> Optional[Dict]:
+        """Find a bear call spread opportunity (bearish/neutral trend)."""
+        recent_data = price_data.loc[:date].tail(50)
+
+        if len(recent_data) < 20:
+            return None
+
+        ma20 = recent_data['Close'].rolling(20).mean().iloc[-1]
+
+        if price > ma20:
+            # Price above MA — bullish, skip bear calls
+            return None
+
+        expiration = date + timedelta(days=35)
+        date_str = date.strftime("%Y-%m-%d")
+        spread_width = self.strategy_params['spread_width']
+
+        if self._use_real_data:
+            return self._find_real_spread(
+                ticker, date, date_str, price, expiration,
+                spread_width, option_type="C",
+            )
+        else:
+            return self._find_heuristic_spread(
+                ticker, date, price, expiration, spread_width, spread_type="bear_call_spread",
+            )
+
+    def _find_real_spread(
+        self,
+        ticker: str,
+        date: datetime,
+        date_str: str,
+        price: float,
+        expiration: datetime,
+        spread_width: float,
+        option_type: str,
+    ) -> Optional[Dict]:
+        """Find a spread using real historical option prices from Polygon."""
+        exp_str = expiration.strftime("%Y-%m-%d")
+        ot = option_type[0].upper()
+
+        # Discover available strikes
+        strikes = self.historical_data.get_available_strikes(
+            ticker, exp_str, date_str, option_type=ot,
+        )
+
+        if not strikes:
+            logger.debug("No strikes available for %s exp %s on %s", ticker, exp_str, date_str)
+            return None
+
+        # Pick short strike ~5% OTM
+        if ot == "P":
+            target_short = price * 0.95  # 5% below for puts
+            # Find closest strike <= target
+            candidates = [s for s in strikes if s <= target_short]
+            if not candidates:
+                return None
+            short_strike = max(candidates)  # Closest to target from below
+            long_strike = short_strike - spread_width
+            spread_type = "bull_put_spread"
+        else:
+            target_short = price * 1.05  # 5% above for calls
+            candidates = [s for s in strikes if s >= target_short]
+            if not candidates:
+                return None
+            short_strike = min(candidates)  # Closest to target from above
+            long_strike = short_strike + spread_width
+            spread_type = "bear_call_spread"
+
+        # Get real prices
+        prices = self.historical_data.get_spread_prices(
+            ticker, expiration, short_strike, long_strike, ot, date_str,
+        )
+
+        if prices is None:
+            # Try adjacent strikes (+/- $1)
+            for offset in [1, -1, 2, -2]:
+                alt_short = short_strike + offset
+                if ot == "P":
+                    alt_long = alt_short - spread_width
+                else:
+                    alt_long = alt_short + spread_width
+                prices = self.historical_data.get_spread_prices(
+                    ticker, expiration, alt_short, alt_long, ot, date_str,
+                )
+                if prices is not None:
+                    short_strike = alt_short
+                    long_strike = alt_long
+                    break
+
+        if prices is None:
+            logger.debug("No price data for spread %s %s/%s on %s", ticker, short_strike, long_strike, date_str)
+            return None
+
+        credit = prices["spread_value"]
+
+        # Minimum credit filter: skip if credit < 20% of spread width
+        min_credit = spread_width * 0.20
+        if credit < min_credit:
+            logger.debug("Credit $%.2f below minimum $%.2f, skipping", credit, min_credit)
+            return None
+
+        # Negative credit shouldn't happen but guard against it
+        if credit <= 0:
+            return None
+
+        # Apply slippage
         credit -= self.slippage
+        if credit <= 0:
+            return None
+
         commission_cost = self.commission * 2  # Two legs
 
-        max_loss = self.strategy_params['spread_width'] - credit
+        max_loss = spread_width - credit
 
         # Calculate contracts based on risk
         risk_per_spread = max_loss * 100
+        if risk_per_spread <= 0:
+            return None
         max_risk = self.capital * (self.risk_params['max_risk_per_trade'] / 100)
         contracts = max(1, int(max_risk / risk_per_spread))
 
-        # Expiration: 35 DTE (middle of range)
-        expiration = date + timedelta(days=35)
-
         position = {
             'ticker': ticker,
-            'type': 'bull_put_spread',
+            'type': spread_type,
             'entry_date': date,
             'expiration': expiration,
             'short_strike': short_strike,
@@ -213,54 +346,139 @@ class Backtester:
             'commission': commission_cost,
             'status': 'open',
             'current_value': credit * contracts * 100,
+            'option_type': ot,
         }
 
-        # Deduct entry commissions
         self.capital -= commission_cost
 
-        logger.debug(f"Opened position: {ticker} bull put spread @ ${short_strike:.2f}")
+        logger.debug(
+            "Opened %s: %s %s/%s credit=$%.2f (%d contracts)",
+            spread_type, ticker, short_strike, long_strike, credit, contracts,
+        )
 
         return position
+
+    def _find_heuristic_spread(
+        self,
+        ticker: str,
+        date: datetime,
+        price: float,
+        expiration: datetime,
+        spread_width: float,
+        spread_type: str,
+    ) -> Optional[Dict]:
+        """Legacy heuristic spread finding (no real options data)."""
+        from shared.constants import BACKTEST_SHORT_STRIKE_OTM_FRACTION, BACKTEST_CREDIT_FRACTION
+
+        if spread_type == "bull_put_spread":
+            short_strike = price * BACKTEST_SHORT_STRIKE_OTM_FRACTION
+            long_strike = short_strike - spread_width
+            ot = "P"
+        else:
+            short_strike = price * (2 - BACKTEST_SHORT_STRIKE_OTM_FRACTION)  # ~1.10
+            long_strike = short_strike + spread_width
+            ot = "C"
+
+        credit = spread_width * BACKTEST_CREDIT_FRACTION
+        credit -= self.slippage
+        commission_cost = self.commission * 2
+
+        max_loss = spread_width - credit
+
+        risk_per_spread = max_loss * 100
+        max_risk = self.capital * (self.risk_params['max_risk_per_trade'] / 100)
+        contracts = max(1, int(max_risk / risk_per_spread))
+
+        position = {
+            'ticker': ticker,
+            'type': spread_type,
+            'entry_date': date,
+            'expiration': expiration,
+            'short_strike': short_strike,
+            'long_strike': long_strike,
+            'credit': credit,
+            'contracts': contracts,
+            'max_loss': max_loss,
+            'profit_target': credit * 0.5,
+            'stop_loss': credit * self.risk_params['stop_loss_multiplier'],
+            'commission': commission_cost,
+            'status': 'open',
+            'current_value': credit * contracts * 100,
+            'option_type': ot,
+        }
+
+        self.capital -= commission_cost
+
+        logger.debug(f"Opened position: {ticker} {spread_type} @ ${short_strike:.2f}")
+
+        return position
+
+    # ------------------------------------------------------------------
+    # Position management
+    # ------------------------------------------------------------------
 
     def _manage_positions(
         self,
         positions: List[Dict],
         current_date: datetime,
-        current_price: float
+        current_price: float,
+        ticker: str = "",
     ) -> List[Dict]:
-        """
-        Manage open positions - check for exits.
-        """
+        """Manage open positions — check for exits."""
         remaining_positions = []
 
         for pos in positions:
             # Check if expired
             if current_date >= pos['expiration']:
-                # Simulate expiration P&L
-                if current_price > pos['short_strike']:
-                    # Spread expires worthless (max profit)
-                    self._close_position(pos, current_date, current_price, 'expiration_profit')
+                if self._use_real_data:
+                    self._close_at_expiration_real(pos, current_date)
                 else:
-                    # Spread in the money (max loss)
-                    self._close_position(pos, current_date, current_price, 'expiration_loss')
+                    if current_price > pos['short_strike']:
+                        self._close_position(pos, current_date, current_price, 'expiration_profit')
+                    else:
+                        self._close_position(pos, current_date, current_price, 'expiration_loss')
                 continue
 
-            # Check profit target (50% of credit)
-            # Simulate current spread value
-            dte = (pos['expiration'] - current_date).days
-            current_spread_value = self._estimate_spread_value(pos, current_price, dte)
+            # Check spread value
+            date_str = current_date.strftime("%Y-%m-%d")
 
-            # Profit = credit received - current value
+            if self._use_real_data:
+                ot = pos.get('option_type', 'P')
+                prices = self.historical_data.get_spread_prices(
+                    pos['ticker'], pos['expiration'],
+                    pos['short_strike'], pos['long_strike'],
+                    ot, date_str,
+                )
+
+                if prices is None:
+                    # No data for today — keep position, don't mark
+                    remaining_positions.append(pos)
+                    continue
+
+                current_spread_value = prices["spread_value"]
+            else:
+                dte = (pos['expiration'] - current_date).days
+                current_spread_value = self._estimate_spread_value(pos, current_price, dte)
+
+            # P&L check: profit = credit - current spread value
             profit = pos['credit'] - current_spread_value
 
             if profit >= pos['profit_target']:
-                self._close_position(pos, current_date, current_price, 'profit_target')
+                if self._use_real_data:
+                    # Real exit debit = current spread value
+                    pnl = (pos['credit'] - current_spread_value) * pos['contracts'] * 100 - pos['commission']
+                    self._record_close(pos, current_date, pnl, 'profit_target')
+                else:
+                    self._close_position(pos, current_date, current_price, 'profit_target')
                 continue
 
-            # Check stop loss
             loss = current_spread_value - pos['credit']
             if loss >= pos['stop_loss']:
-                self._close_position(pos, current_date, current_price, 'stop_loss')
+                if self._use_real_data:
+                    pnl = (pos['credit'] - current_spread_value) * pos['contracts'] * 100 - pos['commission']
+                    self._record_close(pos, current_date, pnl, 'stop_loss')
+                else:
+                    self._close_position(pos, current_date, current_price, 'stop_loss')
                 continue
 
             # Update current value
@@ -270,39 +488,101 @@ class Backtester:
 
         return remaining_positions
 
+    def _close_at_expiration_real(self, pos: Dict, expiration_date: datetime):
+        """Close a position at expiration using real prices."""
+        date_str = expiration_date.strftime("%Y-%m-%d")
+        ot = pos.get('option_type', 'P')
+        prices = self.historical_data.get_spread_prices(
+            pos['ticker'], pos['expiration'],
+            pos['short_strike'], pos['long_strike'],
+            ot, date_str,
+        )
+
+        if prices is not None:
+            closing_spread_value = prices["spread_value"]
+            # If short leg still has value > 0.05, it's a loss scenario
+            if closing_spread_value > 0.05:
+                pnl = (pos['credit'] - closing_spread_value) * pos['contracts'] * 100 - pos['commission']
+                reason = 'expiration_loss' if pnl < 0 else 'expiration_profit'
+            else:
+                # Expired worthless — max profit
+                pnl = pos['credit'] * pos['contracts'] * 100 - pos['commission']
+                reason = 'expiration_profit'
+        else:
+            # No data at expiration — assume expired worthless
+            pnl = pos['credit'] * pos['contracts'] * 100 - pos['commission']
+            reason = 'expiration_profit'
+
+        self._record_close(pos, expiration_date, pnl, reason)
+
+    def _record_close(self, pos: Dict, exit_date: datetime, pnl: float, reason: str):
+        """Record a closed position (used by real-data mode)."""
+        self.capital += pnl
+
+        max_risk = pos['max_loss'] * pos['contracts'] * 100
+        trade = {
+            'ticker': pos['ticker'],
+            'type': pos['type'],
+            'entry_date': pos['entry_date'],
+            'exit_date': exit_date,
+            'exit_reason': reason,
+            'short_strike': pos['short_strike'],
+            'long_strike': pos['long_strike'],
+            'credit': pos['credit'],
+            'contracts': pos['contracts'],
+            'pnl': pnl,
+            'return_pct': (pnl / max_risk) * 100 if max_risk != 0 else 0,
+        }
+
+        self.trades.append(trade)
+        logger.debug("Closed position: %s, P&L: $%.2f", reason, pnl)
+
+    # ------------------------------------------------------------------
+    # Legacy heuristic methods (used when historical_data is None)
+    # ------------------------------------------------------------------
+
     def _estimate_spread_value(
         self,
         position: Dict,
         current_price: float,
-        dte: int
+        dte: int,
     ) -> float:
-        """
-        Estimate current value of spread (simplified).
-        
-        Real implementation would use options pricing models.
+        """Estimate current value of spread (simplified heuristic).
+
+        Only used in legacy mode when no real options data is available.
         """
         short_strike = position['short_strike']
         spread_width = position['short_strike'] - position['long_strike']
 
-        # Pricing heuristic thresholds
-        OTM_BUFFER = 0.05        # 5% above short strike = "well OTM"
-        ITM_BUFFER = 0.05        # 5% below short strike = "at risk"
-        TYPICAL_DTE = 35         # Typical DTE at entry for normalising time decay
-        ITM_EXTRINSIC_FRAC = 0.3 # Fraction of credit retained when deep OTM
-        NTM_EXTRINSIC_FRAC = 0.7 # Fraction of credit retained near the money
-        ITM_DISTANCE_MULT = 2    # How fast ITM distance maps to full spread value
+        # For bear call spreads, spread_width is negative — use absolute
+        spread_width = abs(spread_width)
 
-        # If far OTM, value decays toward zero
-        if current_price > short_strike * (1 + OTM_BUFFER):
-            # Well above short strike - rapid decay
+        OTM_BUFFER = 0.05
+        ITM_BUFFER = 0.05
+        TYPICAL_DTE = 35
+        ITM_EXTRINSIC_FRAC = 0.3
+        NTM_EXTRINSIC_FRAC = 0.7
+        ITM_DISTANCE_MULT = 2
+
+        is_put = position.get('type', 'bull_put_spread') == 'bull_put_spread'
+
+        if is_put:
+            otm = current_price > short_strike * (1 + OTM_BUFFER)
+            itm = current_price < short_strike * (1 - ITM_BUFFER)
+        else:
+            otm = current_price < short_strike * (1 - OTM_BUFFER)
+            itm = current_price > short_strike * (1 + ITM_BUFFER)
+
+        if otm:
             decay_factor = max(0, dte / TYPICAL_DTE)
             value = position['credit'] * decay_factor * ITM_EXTRINSIC_FRAC
-        elif current_price < short_strike * (1 - ITM_BUFFER):
-            # Below short strike - at risk
-            distance = (short_strike - current_price) / short_strike
+        elif itm:
+            if is_put:
+                distance = (short_strike - current_price) / short_strike
+            else:
+                distance = (current_price - short_strike) / short_strike
             value = spread_width * min(1.0, distance * ITM_DISTANCE_MULT)
         else:
-            # Near the money - moderate value
             time_factor = dte / TYPICAL_DTE
             value = position['credit'] * NTM_EXTRINSIC_FRAC * time_factor
 
@@ -313,35 +593,24 @@ class Backtester:
         position: Dict,
         exit_date: datetime,
         exit_price: float,
-        exit_reason: str
+        exit_reason: str,
     ):
-        """
-        Close a position and record trade.
-        """
-        # Calculate P&L
+        """Close a position and record trade (legacy heuristic mode)."""
         if exit_reason == 'expiration_profit':
-            # Kept full credit
             pnl = position['credit'] * position['contracts'] * 100
         elif exit_reason == 'expiration_loss':
-            # Max loss
             pnl = -position['max_loss'] * position['contracts'] * 100
         elif exit_reason == 'profit_target':
-            # Closed at 50% profit
             pnl = position['profit_target'] * position['contracts'] * 100
         elif exit_reason == 'stop_loss':
-            # Stopped out
             pnl = -position['stop_loss'] * position['contracts'] * 100
         else:
-            # Other
             pnl = 0
 
-        # Deduct exit commissions
         pnl -= position['commission']
 
-        # Update capital
         self.capital += pnl
 
-        # Record trade
         trade = {
             'ticker': position['ticker'],
             'type': position['type'],
@@ -360,10 +629,12 @@ class Backtester:
 
         logger.debug(f"Closed position: {exit_reason}, P&L: ${pnl:.2f}")
 
+    # ------------------------------------------------------------------
+    # Results
+    # ------------------------------------------------------------------
+
     def _calculate_results(self) -> Dict:
-        """
-        Calculate backtest performance metrics.
-        """
+        """Calculate backtest performance metrics."""
         if not self.trades:
             return {
                 'total_trades': 0,
@@ -381,6 +652,10 @@ class Backtester:
                 'return_pct': 0,
                 'trades': [],
                 'equity_curve': [],
+                'bull_put_trades': 0,
+                'bear_call_trades': 0,
+                'bull_put_win_rate': 0,
+                'bear_call_win_rate': 0,
             }
 
         trades_df = pd.DataFrame(self.trades)
@@ -395,6 +670,16 @@ class Backtester:
         total_pnl = trades_df['pnl'].sum()
         avg_win = winners['pnl'].mean() if len(winners) > 0 else 0
         avg_loss = abs(losers['pnl'].mean()) if len(losers) > 0 else 0
+
+        # Per-strategy breakdown
+        bull_puts = trades_df[trades_df['type'] == 'bull_put_spread']
+        bear_calls = trades_df[trades_df['type'] == 'bear_call_spread']
+
+        bull_put_winners = bull_puts[bull_puts['pnl'] > 0] if len(bull_puts) > 0 else pd.DataFrame()
+        bear_call_winners = bear_calls[bear_calls['pnl'] > 0] if len(bear_calls) > 0 else pd.DataFrame()
+
+        bull_put_wr = (len(bull_put_winners) / len(bull_puts)) * 100 if len(bull_puts) > 0 else 0
+        bear_call_wr = (len(bear_call_winners) / len(bear_calls)) * 100 if len(bear_calls) > 0 else 0
 
         # Equity curve analysis
         equity_df = pd.DataFrame(self.equity_curve, columns=['date', 'equity'])
@@ -412,7 +697,7 @@ class Backtester:
         else:
             sharpe = 0
 
-        # Profit factor: guard against zero denominators
+        # Profit factor
         winning_total = winners['pnl'].sum() if len(winners) > 0 else 0
         losing_total = losers['pnl'].sum() if len(losers) > 0 else 0
         if losing_total != 0:
@@ -422,7 +707,7 @@ class Backtester:
         else:
             profit_factor = 0
 
-        # Return percentage: guard against zero starting capital
+        # Return percentage
         if self.starting_capital != 0:
             return_pct = round(((self.capital - self.starting_capital) / self.starting_capital) * 100, 2)
         else:
@@ -444,6 +729,10 @@ class Backtester:
             'return_pct': return_pct,
             'trades': trades_df.to_dict('records'),
             'equity_curve': equity_df.to_dict('records'),
+            'bull_put_trades': len(bull_puts),
+            'bear_call_trades': len(bear_calls),
+            'bull_put_win_rate': round(bull_put_wr, 2),
+            'bear_call_win_rate': round(bear_call_wr, 2),
         }
 
         return results

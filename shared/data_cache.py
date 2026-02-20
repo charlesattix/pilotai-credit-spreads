@@ -48,11 +48,23 @@ class DataCache:
 
         metrics.inc('cache_misses')
 
-        # Download full 1y outside lock
+        # Download full 1y outside lock.
+        # Use Ticker.history() instead of yf.download() — the latter has a
+        # known thread-safety issue where concurrent calls can return data
+        # for the wrong ticker (caused the .47 same-price bug).
         try:
-            data = yf.download(ticker, period='1y', progress=False)
+            data = yf.Ticker(ticker).history(period='1y')
             if hasattr(data.columns, 'nlevels') and data.columns.nlevels > 1:
-                data.columns = data.columns.get_level_values(0)
+                # Find the level containing price names (e.g. 'Close'), not ticker names
+                for lvl in range(data.columns.nlevels):
+                    vals = data.columns.get_level_values(lvl)
+                    if 'Close' in vals:
+                        data.columns = vals
+                        break
+                else:
+                    data.columns = data.columns.get_level_values(0)
+                # Drop duplicate columns created by flattening
+                data = data.loc[:, ~data.columns.duplicated()]
             with self._lock:
                 self._cache[key] = (data, time.time())
             return self._slice_to_period(data, period).copy()

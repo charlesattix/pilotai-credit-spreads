@@ -157,6 +157,53 @@ export interface Trade {
   dte_exit?: number
 }
 
+// ---------------------------------------------------------------------------
+// Interactive Backtest Runner types
+// ---------------------------------------------------------------------------
+
+export interface BacktestTradeRecord {
+  ticker: string;
+  type: string;  // 'bull_put_spread' | 'bear_call_spread'
+  entry_date: string;
+  exit_date: string;
+  exit_reason: string;
+  short_strike: number;
+  long_strike: number;
+  credit: number;
+  contracts: number;
+  pnl: number;
+  return_pct: number;
+}
+
+export interface BacktestRunResult {
+  total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
+  win_rate: number;
+  total_pnl: number;
+  avg_win: number;
+  avg_loss: number;
+  profit_factor: number;
+  sharpe_ratio: number;
+  max_drawdown: number;
+  starting_capital: number;
+  ending_capital: number;
+  return_pct: number;
+  bull_put_trades: number;
+  bear_call_trades: number;
+  bull_put_win_rate: number;
+  bear_call_win_rate: number;
+  trades: BacktestTradeRecord[];
+  equity_curve: Array<{ date: string; equity: number }>;
+}
+
+export interface BacktestJobStatus {
+  jobId: string;
+  status: 'running' | 'completed' | 'failed';
+  result?: BacktestRunResult;
+  error?: string;
+}
+
 export interface Config {
   tickers: string[]
   strategy: {

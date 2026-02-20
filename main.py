@@ -35,7 +35,7 @@ except Exception as e:
 from utils import load_config, setup_logging, validate_config
 from strategy import CreditSpreadStrategy, TechnicalAnalyzer, OptionsAnalyzer
 from alerts import AlertGenerator, TelegramBot
-from backtest import Backtester, PerformanceMetrics
+from backtest import Backtester, HistoricalOptionsData, PerformanceMetrics
 from tracker import TradeTracker, PnLDashboard
 from paper_trader import PaperTrader
 from shared.data_cache import DataCache
@@ -172,7 +172,7 @@ class CreditSpreadSystem:
             try:
                 hist = self.data_cache.get_history(ticker, period='1y')
                 if not hist.empty:
-                    current_prices[ticker] = hist['Close'].iloc[-1]
+                    current_prices[ticker] = float(hist['Close'].iloc[-1])
             except Exception as e:
                 logger.warning(f"Failed to fetch price for {ticker}: {e}")
 
@@ -203,7 +203,7 @@ class CreditSpreadSystem:
                 logger.warning(f"No price data for {ticker}")
                 return []
 
-            current_price = price_data['Close'].iloc[-1]
+            current_price = float(price_data['Close'].iloc[-1])
 
             # Get options chain
             options_chain = self.options_analyzer.get_options_chain(ticker)
@@ -292,33 +292,66 @@ class CreditSpreadSystem:
             sent = self.telegram_bot.send_alerts(top_opportunities, self.alert_generator)
             logger.info(f"Sent {sent} Telegram alerts")
 
-    def run_backtest(self, ticker: str = 'SPY', lookback_days: int = 365):
+    def run_backtest(self, ticker: str = 'SPY', lookback_days: int = 365, clear_cache: bool = False):
         """
         Run backtest on historical data.
 
         Args:
             ticker: Ticker to backtest
             lookback_days: Days of history to test
+            clear_cache: If True, clear the options price cache before running
         """
         logger.info(f"Starting backtest for {ticker}")
 
         end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=lookback_days)
 
-        backtester = Backtester(self.config)
+        # Build HistoricalOptionsData if Polygon API key is available
+        historical_data = None
+        polygon_key = os.environ.get('POLYGON_API_KEY', '')
+        if not polygon_key:
+            polygon_cfg = self.config.get('data', {}).get('polygon', {})
+            polygon_key = polygon_cfg.get('api_key', '')
+            # Resolve env var references like "${POLYGON_API_KEY}"
+            if polygon_key.startswith('${') and polygon_key.endswith('}'):
+                polygon_key = os.environ.get(polygon_key[2:-1], '')
+
+        if polygon_key:
+            historical_data = HistoricalOptionsData(polygon_key)
+            if clear_cache:
+                historical_data.clear_cache()
+            logger.info("Using real Polygon historical options data")
+        else:
+            logger.warning("No POLYGON_API_KEY — falling back to heuristic backtester")
+
+        backtester = Backtester(self.config, historical_data=historical_data)
         results = backtester.run_backtest(ticker, start_date, end_date)
+
+        if historical_data:
+            historical_data.close()
 
         if not results:
             logger.error("Backtest failed")
             return
 
         # Display results
-        metrics = PerformanceMetrics(self.config)
-        metrics.print_summary(results)
+        perf = PerformanceMetrics(self.config)
+        perf.print_summary(results)
 
         # Generate report
-        report_file = metrics.generate_report(results)
+        report_file = perf.generate_report(results)
         logger.info(f"Backtest report saved to: {report_file}")
+
+        # Write to canonical path for web dashboard API
+        import json
+        from shared.constants import OUTPUT_DIR
+        canonical_path = os.path.join(OUTPUT_DIR, 'backtest_results.json')
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        try:
+            with open(canonical_path, 'w') as f:
+                json.dump(results, f, indent=2, default=str)
+        except OSError as e:
+            logger.warning(f"Failed to write canonical backtest results: {e}")
 
         return results
 
@@ -409,6 +442,13 @@ Examples:
     )
 
     parser.add_argument(
+        '--clear-cache',
+        action='store_true',
+        default=False,
+        help='Clear options price cache before backtesting'
+    )
+
+    parser.add_argument(
         '--config',
         default='config.yaml',
         help='Config file path (default: config.yaml)'
@@ -457,7 +497,7 @@ Examples:
             scheduler.run_forever()
 
         elif args.command == 'backtest':
-            system.run_backtest(ticker=args.ticker, lookback_days=args.days)
+            system.run_backtest(ticker=args.ticker, lookback_days=args.days, clear_cache=args.clear_cache)
 
         elif args.command == 'dashboard':
             system.show_dashboard()
