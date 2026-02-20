@@ -19,13 +19,15 @@ export function AlertCard({ alert, isNew = false, onPaperTrade }: AlertCardProps
   const [trading, setTrading] = useState(false)
   const [traded, setTraded] = useState(false)
 
-  const isBullish = alert.type.includes('put')
-  const isBearish = alert.type.includes('call')
+  const isCondor = alert.type.includes('condor')
+  const isBullish = !isCondor && alert.type.includes('put')
+  const isBearish = !isCondor && alert.type.includes('call')
 
-  const typeLabel = isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral'
-  const typeIcon = isBullish ? '▲' : isBearish ? '▼' : '◆'
-  const typeColor = isBullish ? 'bg-profit-light text-profit border-profit/30' : 
-                    isBearish ? 'bg-loss-light text-loss border-loss/30' : 
+  const typeLabel = isCondor ? 'Neutral' : isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral'
+  const typeIcon = isCondor ? '◆' : isBullish ? '▲' : isBearish ? '▼' : '◆'
+  const typeColor = isCondor ? 'bg-neutral-light text-neutral border-neutral/30' :
+                    isBullish ? 'bg-profit-light text-profit border-profit/30' :
+                    isBearish ? 'bg-loss-light text-loss border-loss/30' :
                     'bg-neutral-light text-neutral border-neutral/30'
 
   const confidenceLevel = alert.score >= 70 ? 'High' : alert.score >= 60 ? 'Medium' : 'Low'
@@ -155,20 +157,56 @@ export function AlertCard({ alert, isNew = false, onPaperTrade }: AlertCardProps
             <div>
               <h4 className="text-sm font-semibold mb-2">Trade Legs</h4>
               <div className="space-y-2">
-                <div className="flex items-center justify-between p-2 bg-white rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 bg-loss-light text-loss text-xs font-medium rounded">Sell</span>
-                    <span className="text-sm font-medium">${alert.short_strike} Strike</span>
-                  </div>
-                  <span className="text-sm text-muted-foreground">Delta: {alert.short_delta.toFixed(3)}</span>
-                </div>
-                <div className="flex items-center justify-between p-2 bg-white rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 bg-profit-light text-profit text-xs font-medium rounded">Buy</span>
-                    <span className="text-sm font-medium">${alert.long_strike} Strike</span>
-                  </div>
-                  <span className="text-sm text-muted-foreground">Width: ${alert.spread_width}</span>
-                </div>
+                {isCondor ? (
+                  <>
+                    <div className="text-xs font-medium text-muted-foreground mb-1">Bull Put Wing</div>
+                    <div className="flex items-center justify-between p-2 bg-white rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 bg-loss-light text-loss text-xs font-medium rounded">Sell</span>
+                        <span className="text-sm font-medium">${alert.short_strike} Put</span>
+                      </div>
+                      <span className="text-sm text-muted-foreground">{alert.put_credit ? `$${alert.put_credit}` : ''}</span>
+                    </div>
+                    <div className="flex items-center justify-between p-2 bg-white rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 bg-profit-light text-profit text-xs font-medium rounded">Buy</span>
+                        <span className="text-sm font-medium">${alert.long_strike} Put</span>
+                      </div>
+                    </div>
+                    <div className="text-xs font-medium text-muted-foreground mb-1 mt-3">Bear Call Wing</div>
+                    <div className="flex items-center justify-between p-2 bg-white rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 bg-loss-light text-loss text-xs font-medium rounded">Sell</span>
+                        <span className="text-sm font-medium">${alert.call_short_strike} Call</span>
+                      </div>
+                      <span className="text-sm text-muted-foreground">{alert.call_credit ? `$${alert.call_credit}` : ''}</span>
+                    </div>
+                    <div className="flex items-center justify-between p-2 bg-white rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 bg-profit-light text-profit text-xs font-medium rounded">Buy</span>
+                        <span className="text-sm font-medium">${alert.call_long_strike} Call</span>
+                      </div>
+                      <span className="text-sm text-muted-foreground">Width: ${alert.spread_width}</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between p-2 bg-white rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 bg-loss-light text-loss text-xs font-medium rounded">Sell</span>
+                        <span className="text-sm font-medium">${alert.short_strike} Strike</span>
+                      </div>
+                      <span className="text-sm text-muted-foreground">Delta: {alert.short_delta.toFixed(3)}</span>
+                    </div>
+                    <div className="flex items-center justify-between p-2 bg-white rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 bg-profit-light text-profit text-xs font-medium rounded">Buy</span>
+                        <span className="text-sm font-medium">${alert.long_strike} Strike</span>
+                      </div>
+                      <span className="text-sm text-muted-foreground">Width: ${alert.spread_width}</span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 

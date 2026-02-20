@@ -5,7 +5,7 @@
 **Path:** `/Users/charlesbot/projects/pilotai-credit-spreads`  
 **Status:** 🟢 ACTIVE DEVELOPMENT  
 **Created:** 2026-02-19  
-**Last Updated:** 2026-02-19 06:30 PM ET
+**Last Updated:** 2026-02-20 3:40 PM ET
 
 ---
 
@@ -68,7 +68,7 @@ Use ML/AI to generate high-probability trade alerts that:
 - ✅ Telegram bot alerts (actionable signals)
 
 **Quality & Infrastructure:**
-- ✅ 296 Python tests - all passing
+- ✅ 325 Python tests - all passing
 - ✅ 130 web tests - all passing
 - ✅ 7-panel code review complete (all 9/10 scores)
 - ✅ Docker deployment ready (Railway production)
@@ -77,6 +77,11 @@ Use ML/AI to generate high-probability trade alerts that:
 - ✅ Anti-suicide-loop circuit breakers (Feb 19)
 
 **Recent Milestones (Feb 2026):**
+- ✅ **Feb 20 AM: P0 Backtester rewrite COMPLETE** (commit dcac405) — real Polygon historical options data replaces heuristics
+- ✅ Feb 20 AM: Backtest web UI built and integrated into dashboard (interactive form, stat cards, TradingView chart, trade table)
+- ✅ Feb 20 AM: Price logging bug fixed — yfinance thread-safety fix (Ticker.history) + MultiIndex column regression resolved
+- ✅ Feb 20 AM: 10:30 AM scan verified all fixes working (3 tickers, correct prices, no Series/float errors)
+- ✅ Feb 20 AM: 325 Python tests + 130 web tests all passing
 - ✅ Feb 19 PM: Anti-suicide-loop circuit breakers deployed (ee6b5cd, 9c7e623)
 - ✅ Feb 19 PM: Fixed Railway deployment (VOLUME directive conflict)
 - ✅ Feb 19 PM: Trade data synced to Railway dashboard (10 trades)
@@ -97,63 +102,117 @@ Use ML/AI to generate high-probability trade alerts that:
 
 ## What We Need to Do
 
-### 🚨 CRITICAL: Backtest Validation (Carlos's Instruction - Feb 19, 11:00 AM)
+### ✅ RESOLVED: Backtest Validation (Carlos's Instruction - Feb 19, 11:00 AM)
 
-**Current Status: BLOCKER IDENTIFIED**
+**Status: COMPLETE — P0 BLOCKER RESOLVED (commit dcac405, Feb 20)**
 
-Claude Code completed comprehensive backtest (Feb 19, 11:00 AM) and revealed **the results are meaningless**:
+The backtester was rewritten to use real historical options data from Polygon.io:
 
-**Backtest Results (Sep 2023 → Feb 2026):**
-- SPY: 87 trades, 100% win rate, +$51,737 (+51.62%)
-- QQQ: 85 trades, 100% win rate, +$50,210 (+50.10%)
-- IWM: 74 trades, 100% win rate, +$42,574 (+42.48%)
+**What Was Wrong (old backtester):**
+1. ~~No real options data: Used heuristic pricing (35% of spread width)~~
+2. ~~Unrealistic spreads: Credit always $1.75 on $5 spread~~
+3. ~~Only bull puts: Never tested bear call spreads~~
 
-**Why These Numbers Are Meaningless:**
-1. ❌ **No real options data:** Uses heuristic pricing (35% of spread width), not historical chains
-2. ❌ **Survivorship bias:** Only tested during bull market (Sep 2023→Feb 2026); missed 2022 bear (-19%), 2020 crash (-34%), 2018 Q4 (-20%)
-3. ❌ **Unrealistic spreads:** Credit always $1.75 on $5 spread; real credit varies with IV/delta/DTE
-4. ❌ **Only bull puts:** Never tests bear call spreads even when strategy recommends them
+**What Was Built (commit dcac405):**
+1. ✅ **HistoricalOptionsData class** (`backtest/historical_data.py`) — fetches real daily option OHLCV from Polygon, caches in SQLite (`data/options_cache.db`)
+2. ✅ **Real pricing throughout** — entry credits, daily marks, and exit P&L all from actual contract prices
+3. ✅ **Bear call spreads** — backtester now tests both bull puts AND bear calls based on trend
+4. ✅ **OCC symbol construction** — proper `O:SPY250321P00450000` format for Polygon API
+5. ✅ **Smart caching** — first run ~200-500 API calls, subsequent runs 0 calls (all from SQLite cache)
+6. ✅ **Missing data handling** — tries adjacent strikes, skips if no data (never falls back to heuristics)
+7. ✅ **Web UI** — interactive backtest runner in dashboard (form, stats, TradingView chart, trade table)
+8. ✅ **325 tests passing** (29 new backtest tests)
 
-**What's Needed for Credible Backtest:**
-- Historical options chain data (CBOE, OptionMetrics, or Polygon historical)
-- Test across multiple market regimes (2018-2026 minimum, include bear markets)
-- Realistic fill simulation (slippage, bid/ask crossing)
-- Include actual ML scoring/filtering, not just "price > MA20"
-
-**Carlos's Instruction (Feb 19, 11:00 AM):**
-> "fix the backtester to use real historical options data instead of heuristics"
-
-**Priority:** 🔥 P0 - This blocks all validation. Cannot make trading decisions on toy data.
-
-**Claude Code Status:** Idle at prompt, awaiting acceptance to start work on this task.
+**Also Fixed (same commit):**
+- Price logging bug: `yf.download()` thread-safety issue causing all tickers to show same price (.47)
+- yfinance MultiIndex column regression: smart level detection + `float()` defensive casts
+- 10:30 AM scan verified all fixes working
 
 ---
 
-### 🎯 Immediate (This Week)
+## 🚨 CRITICAL ISSUE: Low Trading Activity (Feb 20)
 
-**1. Fix Backtester (P0 - IN PROGRESS)**
-- [ ] Research historical options data sources (Polygon, CBOE, OptionMetrics)
-- [ ] Implement historical options chain retrieval
-- [ ] Replace heuristic pricing with real historical bid/ask
-- [ ] Extend test period to include bear markets (2018-2026)
-- [ ] Add realistic fill simulation (slippage, bid/ask crossing)
-- [ ] Test both bull puts AND bear calls
-- [ ] Run new backtest and get honest performance metrics
+**Problem:** System is too conservative - no trades opening despite all-day scanning
+- Scanner runs every 30 minutes during market hours (14 scans/day)
+- Opportunities found, but scores consistently 30-40 (below 60 threshold)
+- Result: $0 trading activity, capital sitting idle
 
-**2. Update MASTERPLAN**
-- [x] Document backtest findings (Feb 19, 11:00 AM)
-- [x] Add Carlos's instruction to fix backtester
-- [ ] Track progress on historical data implementation
-- [ ] Keep decisions and rationale current
+**Root Cause:** Limited strategy diversity
+- Only 2 spread types (bull put, bear call) = narrow opportunity set
+- Current mean-reverting market (99.6% confidence) penalizes directional spreads (-15pt)
+- System designed for trending markets, struggling in current regime
 
-**3. Validate Strategy Edge (AFTER Backtest Fix)**
-- [ ] Run credible backtest across multiple market regimes
-- [ ] Measure real win rate, Sharpe, max drawdown
+**Solution:** Strategy Expansion (Carlos's Directive - Feb 20)
+Add 5 new option strategy types to increase trading frequency:
+1. **Iron Condors** (Priority 1 - IN PROGRESS) — neutral strategy, perfect for mean-reverting markets
+2. Calendar Spreads — time decay plays
+3. Diagonal Spreads — directional + time plays
+4. Debit Spreads — directional with defined risk
+5. Strangles/Straddles — volatility plays
+
+**Implementation Status:**
+- ✅ Planning phase complete (`~/.claude/plans/sunny-finding-axolotl.md`)
+- ✅ Claude Code deep codebase analysis (3 agents, 60k+ tokens, 5+ files reviewed)
+- 🔄 **Iron Condors implementation IN PROGRESS** (started 3:40 PM ET, Feb 20)
+- ⏳ Other 4 strategies: After Iron Condors proven
+
+**Why Iron Condors First:**
+- Combines bull put + bear call spreads (reuses existing infrastructure)
+- Neutral strategy — thrives in sideways/range-bound markets (current regime)
+- 4-leg structure provides better risk/reward in low-volatility environments
+- Expected to generate scores >60 in current market conditions
+
+---
+
+### 🎯 Immediate (This Week) - UPDATED PRIORITIES
+
+**1. 🔄 Iron Condor Implementation (P0 - IN PROGRESS)**
+**Status:** Claude Code executing now (started 3:40 PM ET, Feb 20)
+**Files Being Modified:**
+- `strategy/spread_strategy.py` — add `find_iron_condors()` + scoring logic (~120 lines)
+- `paper_trader.py` — 4-leg P&L tracking + open trade support (~40 lines)
+- `alerts/alert_generator.py` — condor alert formatting (~30 lines)
+- `shared/types.py` — add `IronCondorOpportunity` dataclass (~10 lines)
+- `web/lib/types.ts` — TypeScript types for condor fields (~5 lines)
+- `web/app/page.tsx` — 4-leg UI display (~20 lines)
+- `config.yaml` — iron_condor configuration (~6 lines)
+- `tests/test_iron_condor.py` — NEW: 9 strategy tests (~150 lines)
+- `tests/test_paper_trader.py` — MODIFY: 5 condor P&L tests (~80 lines)
+
+**Tasks:**
+- [x] Draft comprehensive implementation plan
+- [x] Claude Code deep codebase analysis + refined plan
+- [x] Approve plan and begin implementation
+- [ ] Implement `find_iron_condors()` in spread_strategy.py
+- [ ] Add Iron Condor scoring to ML model
+- [ ] Update paper trader for 4-leg tracking
+- [ ] Update alerts and web UI for condor display
+- [ ] Write comprehensive tests (9 strategy + 5 P&L tests)
+- [ ] Run test suite (expect 327+ → 341+ tests)
+- [ ] Manual scan verification (expect condor opportunities for SPY/QQQ/IWM)
+- [ ] Verify web dashboard displays 4-leg condors correctly
+- [ ] Monitor first paper trades (if scores >= 60)
+
+**Expected Outcome:** Trading activity increases significantly as neutral strategies score >60
+
+**2. ✅ Fix Backtester (P0 - COMPLETE, commit dcac405)**
+- [x] Research historical options data sources → Polygon.io (already integrated, API key active)
+- [x] Implement historical options chain retrieval (`backtest/historical_data.py`)
+- [x] Replace heuristic pricing with real historical prices (real entry/mark/exit)
+- [x] Test both bull puts AND bear calls
+- [x] Build backtest web UI (interactive dashboard page)
+- [x] Fix price logging bug (yfinance thread-safety + MultiIndex regression)
+- [ ] Extend test period to include bear markets (2018-2026) — requires running backtest with `--days 2000`
+- [ ] Add realistic fill simulation (slippage, bid/ask crossing) — future enhancement
+
+**3. ⏸️ Validate Strategy Edge (PAUSED - waiting for Iron Condors)**
+- [ ] Run credible backtest across multiple market regimes (`python3 main.py backtest --ticker SPY --days 2000`)
+- [ ] Measure real win rate, Sharpe, max drawdown for ALL strategies (spreads + condors)
 - [ ] Compare to buy-and-hold baseline
-- [ ] Determine if strategy has statistical edge
+- [ ] Determine if expanded strategy set has statistical edge
 - [ ] Document findings and decide: proceed to paper trading OR pivot strategy
 
-**4. Technical Debt (from Code Review) - DEPRIORITIZED**
+**4. ⏸️ Technical Debt (from Code Review) - DEPRIORITIZED**
 - [ ] Fix dual persistence issue (PaperTrader + TradeTracker both write trades.json)
 - [ ] Formalize data provider interfaces (add Protocol/ABC)
 - [ ] Refactor yfinance usage to go through DataCache
@@ -161,12 +220,15 @@ Claude Code completed comprehensive backtest (Feb 19, 11:00 AM) and revealed **t
 
 ### 📊 Short-Term (Next 2-4 Weeks)
 
-**1. Options Expansion**
-- [ ] Add more tickers (individual stocks: AAPL, TSLA, NVDA, etc.)
-- [ ] Iron condors (sell both sides)
-- [ ] Calendar spreads (different expirations)
-- [ ] Butterfly spreads (3-leg)
-- [ ] Ratio spreads (unbalanced legs)
+**1. Options Strategy Expansion (IN PROGRESS)**
+- [x] **Iron Condors** — 4-leg neutral strategy (PRIORITY 1, implementing now)
+- [ ] **Calendar Spreads** — different expirations (PRIORITY 2, after condors proven)
+- [ ] **Diagonal Spreads** — directional + time plays (PRIORITY 3)
+- [ ] **Debit Spreads** — directional with defined risk (PRIORITY 4)
+- [ ] **Strangles/Straddles** — volatility expansion plays (PRIORITY 5)
+- [ ] Add more tickers (individual stocks: AAPL, TSLA, NVDA, etc.) — after strategy expansion complete
+- [ ] Butterfly spreads (3-leg) — future consideration
+- [ ] Ratio spreads (unbalanced legs) — future consideration
 
 **2. Enhanced ML**
 - [ ] Collect real trade results (features + outcomes)
@@ -333,6 +395,25 @@ Web App + Mobile Apps
 
 ## Key Decisions & Rationale
 
+### 2026-02-20: Strategy Expansion to Fix Low Trading Activity
+**Decision:** Add 5 new option strategy types (Iron Condors, Calendar/Diagonal/Debit Spreads, Strangles/Straddles)
+**Rationale:** System too conservative - no trades opening despite all-day scanning. Scores consistently 30-40 (below 60 threshold). Current mean-reverting market (99.6% confidence) penalizes directional spreads (-15pt). Limited strategy diversity (only bull puts & bear calls) creates narrow opportunity set. Capital sitting idle with $0 trading activity.
+**Implementation:** Prioritize Iron Condors first (neutral strategy perfect for sideways markets), then add remaining 4 strategies sequentially. Reuse existing `SpreadStrategy` class infrastructure. Each strategy requires: opportunity detection, ML scoring, scanner integration, paper trading support, comprehensive tests.
+**Expected Outcome:** Trading activity increases significantly as neutral strategies score >60 in current market regime.
+**Status:** Iron Condors IN PROGRESS (Claude Code executing, started 3:40 PM ET) 🔄
+
+### 2026-02-20: Historical Backtest Engine + Web UI (P0 Resolved)
+**Decision:** Rewrite backtester to use real Polygon historical options data, add backtest web UI
+**Rationale:** Old backtester used hardcoded heuristics (35% credit, 10% OTM) producing meaningless
+100% win rates. Results were unusable for strategy validation — marked P0 blocker.
+**Implementation:** New `HistoricalOptionsData` class fetches real daily option OHLCV from Polygon,
+caches in SQLite. Backtester uses real prices for entry/mark/exit. Bear call spreads added.
+Interactive web UI with form, stat cards, TradingView chart, sortable trade table.
+Also fixed yfinance thread-safety bug (same-price logging) and MultiIndex column regression.
+**Commit:** dcac405 (15 files, +1987/-215 lines, 325 tests passing)
+**Verification:** 10:30 AM scan confirmed all fixes working in production.
+**Status:** Complete ✅
+
 ### 2026-02-19: Anti-Suicide-Loop Circuit Breakers
 **Decision:** Add multi-layer trade blocking after consecutive losses
 **Rationale:** System opened identical QQQ bear call 7 times in a row, losing $10,209.
@@ -422,8 +503,9 @@ railway.toml. All deploys after this directive was added failed within 14 second
   - Web dashboard: https://pilotai-credit-spreads-production.up.railway.app
   - Import endpoint: /api/import-trades (working)
   - 10 trades synced with correct PnL
-- **Local scheduler:** ✅ RUNNING (PID 63086, next scan 2026-02-20 09:15 ET)
+- **Local scheduler:** ✅ RUNNING (PID 74741, restarted Feb 20 10:30 AM with backtest+yfinance fixes)
   - Circuit breakers ACTIVE
+  - 10:30 AM scan verified working (correct prices, no regressions)
   - Will auto-scan 14x/day during market hours
 
 ---
@@ -490,7 +572,7 @@ Original 13 trades intact locally + 10 trades synced to Railway dashboard.
 - **STATUS**: Claude Code fixing NOW (P0)
 
 ### 📋 DEFERRED (After Code Review Fixes)
-- Fix backtester with real historical data
+- ~~Fix backtester with real historical data~~ ✅ DONE (dcac405)
 - Expand ticker coverage
 - Add scheduled scans automation
 - Strategy optimization (after 30 days data)
@@ -502,12 +584,12 @@ Original 13 trades intact locally + 10 trades synced to Railway dashboard.
 - **Code Review:** `CODE_REVIEW-7panel.md` (comprehensive audit, all panels 9/10)
 - **README:** `README.md` (user documentation)
 - **Config:** `config.yaml` (system configuration)
-- **Tests:** `tests/` (279 Python tests, 69% coverage)
+- **Tests:** `tests/` (325 Python tests, 130 web tests)
 - **Web Dashboard:** `web/` (Next.js app)
 - **Project Repository:** `https://github.com/charlesattix/pilotai-credit-spreads`
 
 ---
 
-*Last Updated: 2026-02-19 11:26 AM ET by Charles*  
-*Next Review: After daily market close or when positions close*  
-*Status: Phase 1 (Credit Spreads) - FORWARD TESTING LIVE: 6 positions, collecting real performance data*
+*Last Updated: 2026-02-20 10:30 AM ET by Charles*
+*Next Review: After daily market close or when positions close*
+*Status: Phase 1 (Credit Spreads) - P0 backtest blocker RESOLVED, forward testing live, strategy validation now unblocked*

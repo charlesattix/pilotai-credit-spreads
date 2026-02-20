@@ -60,6 +60,11 @@ export interface Alert {
   pop: number
   risk_reward: number
   score: number
+  // Iron condor fields
+  call_short_strike?: number
+  call_long_strike?: number
+  put_credit?: number
+  call_credit?: number
 }
 
 export interface BacktestResult {

@@ -1187,3 +1187,178 @@ class TestTradeOutcomeLogging:
         pt._close_trade(trade, pnl=150.0, reason='profit_target')
 
         assert len(pt._recent_losses[("SPY", "bullish")]) == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests for iron condor support
+# ---------------------------------------------------------------------------
+
+def _make_condor_opportunity(
+    ticker='SPY',
+    put_short=440, put_long=435,
+    call_short=460, call_long=465,
+    put_credit=1.00, call_credit=1.20,
+    score=75, dte=35,
+):
+    """Build an iron condor opportunity dict."""
+    credit = round(put_credit + call_credit, 2)
+    spread_width = 5
+    max_loss = round(spread_width - credit, 2)
+    return {
+        'ticker': ticker,
+        'type': 'iron_condor',
+        'short_strike': put_short,
+        'long_strike': put_long,
+        'call_short_strike': call_short,
+        'call_long_strike': call_long,
+        'put_credit': put_credit,
+        'call_credit': call_credit,
+        'credit': credit,
+        'max_loss': max_loss,
+        'max_profit': credit,
+        'expiration': '2026-06-20',
+        'score': score,
+        'dte': dte,
+        'current_price': 450,
+        'pop': 75,
+        'short_delta': 0.12,
+        'spread_width': spread_width,
+    }
+
+
+def _make_condor_trade(
+    put_short=440, put_long=435,
+    call_short=460, call_long=465,
+    credit_per_spread=2.20,
+    contracts=2,
+    dte_at_entry=35,
+    profit_target_pct=0.50,
+    stop_loss_mult=2.5,
+):
+    """Build an iron condor trade dict as produced by _open_trade."""
+    spread_width = 5
+    total_credit = round(credit_per_spread * contracts * 100, 2)
+    max_loss_per_spread = spread_width - credit_per_spread
+    total_max_loss = round(max_loss_per_spread * contracts * 100, 2)
+    return {
+        'id': 'PT-condor-001',
+        'status': 'open',
+        'ticker': 'SPY',
+        'type': 'iron_condor',
+        'short_strike': put_short,
+        'long_strike': put_long,
+        'call_short_strike': call_short,
+        'call_long_strike': call_long,
+        'put_credit': 1.00,
+        'call_credit': 1.20,
+        'contracts': contracts,
+        'credit_per_spread': credit_per_spread,
+        'credit': credit_per_spread,
+        'total_credit': total_credit,
+        'max_loss_per_spread': max_loss_per_spread,
+        'total_max_loss': total_max_loss,
+        'profit_target': round(total_credit * profit_target_pct, 2),
+        'stop_loss_amount': round(total_credit * stop_loss_mult, 2),
+        'entry_price': 450,
+        'dte_at_entry': dte_at_entry,
+        'current_pnl': 0,
+    }
+
+
+class TestIronCondorPaperTrader:
+    """Tests for iron condor support in PaperTrader."""
+
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_open_iron_condor(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
+        """execute_signals with iron_condor opp should open a trade with 4 strikes."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+        mock_paper_log.parent = tmp_path
+
+        pt = PaperTrader(_make_config(tmp_path))
+        pt._save_trades = MagicMock()
+        pt.alpaca = _mock_alpaca()
+
+        opp = _make_condor_opportunity()
+        new_trades = pt.execute_signals([opp])
+
+        assert len(new_trades) == 1
+        trade = new_trades[0]
+        assert trade['type'] == 'iron_condor'
+        assert trade['short_strike'] == 440
+        assert trade['long_strike'] == 435
+        assert trade['call_short_strike'] == 460
+        assert trade['call_long_strike'] == 465
+        assert trade['put_credit'] == 1.00
+        assert trade['call_credit'] == 1.20
+
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_condor_pnl_put_side_threatened(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
+        """Price drops near put short strike → negative P&L."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+
+        pt = PaperTrader(_make_config(tmp_path))
+        trade = _make_condor_trade()
+        # Price drops below put short strike (440) → ITM on put side
+        pnl, reason = pt._evaluate_position(trade, current_price=430, dte=20)
+        assert pnl < 0, "Put side ITM should produce negative P&L"
+
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_condor_pnl_call_side_threatened(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
+        """Price rises near call short strike → negative P&L."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+
+        pt = PaperTrader(_make_config(tmp_path))
+        trade = _make_condor_trade()
+        # Price rises above call short strike (460) → ITM on call side
+        pnl, reason = pt._evaluate_position(trade, current_price=470, dte=20)
+        assert pnl < 0, "Call side ITM should produce negative P&L"
+
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_condor_pnl_in_range(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
+        """Price stays between strikes → positive P&L (time decay)."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+
+        pt = PaperTrader(_make_config(tmp_path))
+        trade = _make_condor_trade()
+        # Price in the middle of the condor (between 440 and 460) with time passed
+        pnl, reason = pt._evaluate_position(trade, current_price=450, dte=10)
+        assert pnl > 0, "OTM condor with time passed should show positive P&L"
+
+    def test_condor_direction_neutral(self):
+        """_trade_direction returns 'neutral' for iron condors."""
+        trade = {'type': 'iron_condor'}
+        assert PaperTrader._trade_direction(trade) == "neutral"
+
+    def test_condor_direction_not_confused_with_call(self):
+        """iron_condor should not be classified as bearish (it contains no 'call' match)."""
+        trade = {'type': 'iron_condor'}
+        assert PaperTrader._trade_direction(trade) != "bearish"
+
+    def test_condor_direction_not_confused_with_put(self):
+        """iron_condor should not be classified as bullish."""
+        trade = {'type': 'iron_condor'}
+        assert PaperTrader._trade_direction(trade) != "bullish"

@@ -175,8 +175,10 @@ class PaperTrader:
 
     @staticmethod
     def _trade_direction(trade: Dict) -> str:
-        """Extract direction (bullish/bearish) from trade type."""
+        """Extract direction (bullish/bearish/neutral) from trade type."""
         t = (trade.get("type") or trade.get("strategy_type") or "").lower()
+        if "condor" in t:
+            return "neutral"
         if "put" in t:
             return "bullish"
         if "call" in t:
@@ -355,7 +357,13 @@ class PaperTrader:
 
             # Anti-suicide-loop: check circuit breakers
             ticker = opp.get("ticker", "")
-            direction = "bullish" if "put" in (opp.get("type") or "").lower() else "bearish"
+            opp_type = (opp.get("type") or "").lower()
+            if "condor" in opp_type:
+                direction = "neutral"
+            elif "put" in opp_type:
+                direction = "bullish"
+            else:
+                direction = "bearish"
 
             # Check 1: Consecutive losses on same ticker+direction
             cb_reason = self._check_loss_circuit_breaker(ticker, direction)
@@ -425,6 +433,13 @@ class PaperTrader:
                 "exit_pnl": None,
                 "consecutive_loss_count": self._consecutive_loss_count(ticker, direction),
             }
+
+            # Store iron condor call-side fields (go into metadata JSON column)
+            if "condor" in opp_type:
+                trade["call_short_strike"] = opp.get("call_short_strike")
+                trade["call_long_strike"] = opp.get("call_long_strike")
+                trade["put_credit"] = opp.get("put_credit")
+                trade["call_credit"] = opp.get("call_credit")
 
             # Optionally submit to Alpaca broker for real paper execution
             if self.alpaca:
@@ -531,7 +546,13 @@ class PaperTrader:
         spread_type = trade.get("type", "")
 
         # Determine if in danger
-        if "call" in spread_type.lower():
+        if "condor" in spread_type.lower():
+            # Iron condor: evaluate BOTH wings, take worst case
+            put_intrinsic = max(0, short_strike - current_price)
+            call_short = trade.get("call_short_strike", 0)
+            call_intrinsic = max(0, current_price - call_short) if call_short else 0
+            intrinsic = max(put_intrinsic, call_intrinsic)
+        elif "call" in spread_type.lower():
             # Bear call spread: bad if price goes above short strike
             intrinsic = max(0, current_price - short_strike)
         else:

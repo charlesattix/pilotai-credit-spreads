@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Dict, List
 import pandas as pd
 
-from shared.types import ScoredSpreadOpportunity, SpreadOpportunity
+from shared.types import IronCondorOpportunity, ScoredSpreadOpportunity, SpreadOpportunity
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,10 @@ SCORING_WEIGHTS = {
     "tech_support_resistance": 5,  # Bonus for near support/resistance
     "iv_max": 10,               # Max points for IV component
     "iv_divisor": 10,           # Divisor applied to iv_rank
+    # Iron condor specific
+    "condor_tech_neutral": 10,  # Points for neutral trend alignment
+    "condor_tech_regime": 5,    # Points for mean-reverting regime
+    "condor_tech_rsi_range": 5, # Points for RSI in 40-60 range
 }
 
 
@@ -90,6 +94,14 @@ class CreditSpreadStrategy:
                     ticker, exp_chain, current_price, expiration
                 )
                 opportunities.extend(bear_calls)
+
+        # Find iron condor opportunities (both legs on same expiration)
+        condor_config = self.strategy_params.get('iron_condor', {})
+        if condor_config.get('enabled', True):
+            condors = self.find_iron_condors(
+                ticker, option_chain, current_price, technical_signals, iv_data
+            )
+            opportunities.extend(condors)
 
         # Score and rank opportunities
         scored_opportunities = self._score_opportunities(
@@ -198,6 +210,116 @@ class CreditSpreadStrategy:
     ) -> List[Dict]:
         """Find bear call spread opportunities (thin wrapper)."""
         return self._find_spreads(ticker, option_chain, current_price, expiration, 'bear_call')
+
+    def find_iron_condors(
+        self,
+        ticker: str,
+        option_chain: pd.DataFrame,
+        current_price: float,
+        technical_signals: Dict,
+        iv_data: Dict,
+    ) -> List[IronCondorOpportunity]:
+        """Find iron condor opportunities (bull put + bear call on same expiration).
+
+        Iron condors work in neutral/range-bound markets. We reuse the existing
+        _find_spreads() logic for each wing, then pair them.
+        """
+        condor_config = self.strategy_params.get('iron_condor', {})
+        rsi_min = condor_config.get('rsi_min', 35)
+        rsi_max = condor_config.get('rsi_max', 65)
+        min_combined_credit_pct = condor_config.get('min_combined_credit_pct', 30)
+
+        # Check conditions: IV must be elevated
+        iv_check = (
+            iv_data.get('iv_rank', 0) >= self.strategy_params['min_iv_rank'] or
+            iv_data.get('iv_percentile', 0) >= self.strategy_params['min_iv_percentile']
+        )
+        if not iv_check:
+            return []
+
+        # Trend must be neutral for condors
+        trend = technical_signals.get('trend', '')
+        if trend not in ('neutral',):
+            return []
+
+        # RSI must be in range-bound zone
+        rsi = technical_signals.get('rsi', 50)
+        if not (rsi_min <= rsi <= rsi_max):
+            return []
+
+        condors: List[IronCondorOpportunity] = []
+        valid_expirations = self._filter_by_dte(option_chain)
+        spread_width = self.strategy_params['spread_width']
+
+        for expiration in valid_expirations:
+            exp_chain = option_chain[option_chain['expiration'] == expiration]
+
+            # Find both wings — _find_spreads works regardless of trend
+            bull_puts = self._find_spreads(ticker, exp_chain, current_price, expiration, 'bull_put')
+            bear_calls = self._find_spreads(ticker, exp_chain, current_price, expiration, 'bear_call')
+
+            if not bull_puts or not bear_calls:
+                continue
+
+            # Pair best bull put with best bear call on this expiration
+            for bp in bull_puts:
+                for bc in bear_calls:
+                    # Validate non-overlapping: put short strike < call short strike
+                    if bp['short_strike'] >= bc['short_strike']:
+                        continue
+
+                    combined_credit = round(bp['credit'] + bc['credit'], 2)
+                    # Max loss = width of one wing - total credit (only one side can lose)
+                    max_loss = round(spread_width - combined_credit, 2)
+
+                    if max_loss <= 0:
+                        continue
+
+                    # Check minimum combined credit
+                    if (combined_credit / spread_width) * 100 < min_combined_credit_pct:
+                        continue
+
+                    # Combined POP: probability that NEITHER wing is breached
+                    # P(profit) ≈ 1 - P(put breach) - P(call breach)
+                    put_breach_prob = (100 - bp['pop']) / 100
+                    call_breach_prob = (100 - bc['pop']) / 100
+                    combined_pop = round((1 - put_breach_prob - call_breach_prob) * 100, 2)
+                    combined_pop = max(combined_pop, 0)
+
+                    distance_to_put_short = abs(current_price - bp['short_strike'])
+                    distance_to_call_short = abs(bc['short_strike'] - current_price)
+
+                    condor = {
+                        'ticker': ticker,
+                        'type': 'iron_condor',
+                        'expiration': expiration,
+                        'dte': bp['dte'],
+                        # Put side (reuse existing fields)
+                        'short_strike': bp['short_strike'],
+                        'long_strike': bp['long_strike'],
+                        'put_credit': bp['credit'],
+                        # Call side
+                        'call_short_strike': bc['short_strike'],
+                        'call_long_strike': bc['long_strike'],
+                        'call_credit': bc['credit'],
+                        # Combined
+                        'credit': combined_credit,
+                        'max_loss': max_loss,
+                        'max_profit': combined_credit,
+                        'profit_target': round(combined_credit * self.risk_params['profit_target'] / 100, 2),
+                        'stop_loss': round(combined_credit * self.risk_params['stop_loss_multiplier'], 2),
+                        'spread_width': spread_width,
+                        'current_price': current_price,
+                        'distance_to_put_short': distance_to_put_short,
+                        'distance_to_call_short': distance_to_call_short,
+                        'distance_to_short': min(distance_to_put_short, distance_to_call_short),
+                        'short_delta': round((bp['short_delta'] + bc['short_delta']) / 2, 4),
+                        'pop': combined_pop,
+                        'risk_reward': round(combined_credit / max_loss, 2) if max_loss > 0 else 0,
+                    }
+                    condors.append(condor)
+
+        return condors
 
     def _find_spreads(
         self,
@@ -356,7 +478,16 @@ class CreditSpreadStrategy:
 
             # Technical alignment (0-technical_max points)
             tech_score = 0
-            if opp['type'] == 'bull_put_spread':
+            if opp['type'] == 'iron_condor':
+                # Iron condors thrive in neutral markets
+                if technical_signals.get('trend') == 'neutral':
+                    tech_score += w["condor_tech_neutral"]
+                if technical_signals.get('regime') == 'mean_reverting':
+                    tech_score += w["condor_tech_regime"]
+                rsi = technical_signals.get('rsi', 50)
+                if 40 <= rsi <= 60:
+                    tech_score += w["condor_tech_rsi_range"]
+            elif opp['type'] == 'bull_put_spread':
                 if technical_signals.get('trend') == 'bullish':
                     tech_score += w["tech_strong_signal"]
                 elif technical_signals.get('trend') == 'neutral':
@@ -367,11 +498,12 @@ class CreditSpreadStrategy:
                 elif technical_signals.get('trend') == 'neutral':
                     tech_score += w["tech_neutral_signal"]
 
-            # Support/resistance alignment
-            if technical_signals.get('near_support') and opp['type'] == 'bull_put_spread':
-                tech_score += w["tech_support_resistance"]
-            if technical_signals.get('near_resistance') and opp['type'] == 'bear_call_spread':
-                tech_score += w["tech_support_resistance"]
+            # Support/resistance alignment (not applicable to condors)
+            if opp['type'] != 'iron_condor':
+                if technical_signals.get('near_support') and opp['type'] == 'bull_put_spread':
+                    tech_score += w["tech_support_resistance"]
+                if technical_signals.get('near_resistance') and opp['type'] == 'bear_call_spread':
+                    tech_score += w["tech_support_resistance"]
 
             score += min(tech_score, w["technical_max"])
 

@@ -45,9 +45,9 @@ export default function HomePage() {
 
   const filteredAlerts = useMemo(() => alerts.filter(alert => {
     const t = (alert.type || '').toLowerCase()
-    if (filter === 'bullish') return t.includes('put')
-    if (filter === 'bearish') return t.includes('call')
-    if (filter === 'neutral') return !t.includes('put') && !t.includes('call')
+    if (filter === 'bullish') return t.includes('put') && !t.includes('condor')
+    if (filter === 'bearish') return t.includes('call') && !t.includes('condor')
+    if (filter === 'neutral') return t.includes('condor')
     if (filter === 'high-prob') return (alert.pop || 0) >= 70
     return true
   }), [alerts, filter])
@@ -133,14 +133,20 @@ export default function HomePage() {
                 >
                   Bullish
                 </FilterPill>
-                <FilterPill 
-                  active={filter === 'bearish'} 
+                <FilterPill
+                  active={filter === 'bearish'}
                   onClick={() => setFilter('bearish')}
                 >
                   Bearish
                 </FilterPill>
-                <FilterPill 
-                  active={filter === 'high-prob'} 
+                <FilterPill
+                  active={filter === 'neutral'}
+                  onClick={() => setFilter('neutral')}
+                >
+                  Neutral
+                </FilterPill>
+                <FilterPill
+                  active={filter === 'high-prob'}
                   onClick={() => setFilter('high-prob')}
                 >
                   High Prob

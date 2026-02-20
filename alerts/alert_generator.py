@@ -113,7 +113,15 @@ class AlertGenerator:
             lines.append("")
 
             lines.append("TRADE SETUP:")
-            if opp['type'] == 'bull_put_spread':
+            if opp['type'] == 'iron_condor':
+                lines.append(f"  Sell ${opp['short_strike']:.2f} Put / Buy ${opp['long_strike']:.2f} Put  (Bull Put Wing)")
+                lines.append(f"  Sell ${opp['call_short_strike']:.2f} Call / Buy ${opp['call_long_strike']:.2f} Call (Bear Call Wing)")
+                lines.append(f"  Combined Credit: ${opp['credit']:.2f}")
+                # Breakevens
+                put_breakeven = opp['short_strike'] - opp['credit']
+                call_breakeven = opp['call_short_strike'] + opp['credit']
+                lines.append(f"  Breakevens: ${put_breakeven:.2f} / ${call_breakeven:.2f}")
+            elif opp['type'] == 'bull_put_spread':
                 lines.append(f"  Sell ${opp['short_strike']:.2f} Put")
                 lines.append(f"  Buy  ${opp['long_strike']:.2f} Put")
             else:  # bear_call_spread
@@ -121,7 +129,8 @@ class AlertGenerator:
                 lines.append(f"  Buy  ${opp['long_strike']:.2f} Call")
 
             lines.append(f"  Spread Width: ${opp['spread_width']}")
-            lines.append(f"  Credit Target: ${opp['credit']:.2f} per spread")
+            if opp['type'] != 'iron_condor':
+                lines.append(f"  Credit Target: ${opp['credit']:.2f} per spread")
             lines.append("")
 
             lines.append("RISK/REWARD:")
@@ -212,14 +221,22 @@ class AlertGenerator:
         msg_lines = []
 
         # Header with emoji
-        emoji = "\U0001f535" if opportunity['type'] == 'bull_put_spread' else "\U0001f534"
+        if opportunity['type'] == 'iron_condor':
+            emoji = "\U0001f7e1"  # yellow circle for neutral
+        elif opportunity['type'] == 'bull_put_spread':
+            emoji = "\U0001f535"
+        else:
+            emoji = "\U0001f534"
         msg_lines.append(f"{emoji} <b>{opportunity['ticker']} {opportunity['type'].replace('_', ' ').upper()}</b>")
         msg_lines.append(f"Score: {opportunity['score']:.1f}/100 \u2b50")
         msg_lines.append("")
 
         # Trade setup
         msg_lines.append("\U0001f4cb <b>TRADE:</b>")
-        if opportunity['type'] == 'bull_put_spread':
+        if opportunity['type'] == 'iron_condor':
+            msg_lines.append(f"  Sell ${opportunity['short_strike']:.2f} Put / Buy ${opportunity['long_strike']:.2f} Put")
+            msg_lines.append(f"  Sell ${opportunity['call_short_strike']:.2f} Call / Buy ${opportunity['call_long_strike']:.2f} Call")
+        elif opportunity['type'] == 'bull_put_spread':
             msg_lines.append(f"  Sell ${opportunity['short_strike']:.2f} Put")
             msg_lines.append(f"  Buy  ${opportunity['long_strike']:.2f} Put")
         else:

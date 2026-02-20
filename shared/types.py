@@ -53,6 +53,16 @@ class SpreadOpportunity(TypedDict):
     risk_reward: float
 
 
+class IronCondorOpportunity(SpreadOpportunity):
+    """An iron condor opportunity (bull put + bear call on same expiration)."""
+    call_short_strike: float
+    call_long_strike: float
+    put_credit: float
+    call_credit: float
+    distance_to_put_short: float
+    distance_to_call_short: float
+
+
 class ScoredSpreadOpportunity(SpreadOpportunity):
     """SpreadOpportunity after scoring by _score_opportunities."""
     score: float
