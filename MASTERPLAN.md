@@ -5,7 +5,7 @@
 **Path:** `/Users/charlesbot/projects/pilotai-credit-spreads`  
 **Status:** 🟢 ACTIVE DEVELOPMENT  
 **Created:** 2026-02-19  
-**Last Updated:** 2026-02-20 3:40 PM ET
+**Last Updated:** 2026-02-20 4:40 PM ET
 
 ---
 
@@ -77,6 +77,9 @@ Use ML/AI to generate high-probability trade alerts that:
 - ✅ Anti-suicide-loop circuit breakers (Feb 19)
 
 **Recent Milestones (Feb 2026):**
+- ✅ **Feb 20 PM: Iron Condor strategy COMPLETE** (commit f31b339) — 4-leg neutral strategy for mean-reverting markets
+- ✅ Feb 20 PM: 347 tests passing (+20 new iron condor tests), scheduler restarted with new strategy
+- ✅ Feb 20 PM: Strategy expansion initiative launched — adding 5 new option strategies to fix low trading activity
 - ✅ **Feb 20 AM: P0 Backtester rewrite COMPLETE** (commit dcac405) — real Polygon historical options data replaces heuristics
 - ✅ Feb 20 AM: Backtest web UI built and integrated into dashboard (interactive form, stat cards, TradingView chart, trade table)
 - ✅ Feb 20 AM: Price logging bug fixed — yfinance thread-safety fix (Ticker.history) + MultiIndex column regression resolved
@@ -166,32 +169,38 @@ Add 5 new option strategy types to increase trading frequency:
 
 ### 🎯 Immediate (This Week) - UPDATED PRIORITIES
 
-**1. 🔄 Iron Condor Implementation (P0 - IN PROGRESS)**
-**Status:** Claude Code executing now (started 3:40 PM ET, Feb 20)
-**Files Being Modified:**
-- `strategy/spread_strategy.py` — add `find_iron_condors()` + scoring logic (~120 lines)
-- `paper_trader.py` — 4-leg P&L tracking + open trade support (~40 lines)
-- `alerts/alert_generator.py` — condor alert formatting (~30 lines)
-- `shared/types.py` — add `IronCondorOpportunity` dataclass (~10 lines)
-- `web/lib/types.ts` — TypeScript types for condor fields (~5 lines)
-- `web/app/page.tsx` — 4-leg UI display (~20 lines)
-- `config.yaml` — iron_condor configuration (~6 lines)
-- `tests/test_iron_condor.py` — NEW: 9 strategy tests (~150 lines)
-- `tests/test_paper_trader.py` — MODIFY: 5 condor P&L tests (~80 lines)
+**1. ✅ Iron Condor Implementation (P0 - COMPLETE)**
+**Status:** DONE — commit f31b339 (Feb 20, 4:40 PM ET)
+**Implementation Details:**
+- ✅ `strategy/spread_strategy.py` — `find_iron_condors()` with bull put + bear call pairing
+- ✅ `paper_trader.py` — 4-leg P&L evaluation (worst-case of both wings)
+- ✅ `alerts/alert_generator.py` — 4-leg condor formatting with breakevens
+- ✅ `shared/types.py` — `IronCondorOpportunity` TypedDict with call-side fields
+- ✅ `web/lib/types.ts` — TypeScript types for condor fields
+- ✅ `web/app/page.tsx` — "Neutral" filter pill for condors
+- ✅ `web/components/alerts/alert-card.tsx` — 4-leg UI display (bull put + bear call wings)
+- ✅ `config.yaml` — iron_condor config (enabled, min_combined_credit_pct, max_wing_width, rsi range)
+- ✅ `tests/test_iron_condor.py` — NEW: 13 comprehensive tests (all passing)
+- ✅ `tests/test_paper_trader.py` — ADDED: 7 condor P&L tests (52 total passing)
 
-**Tasks:**
-- [x] Draft comprehensive implementation plan
-- [x] Claude Code deep codebase analysis + refined plan
-- [x] Approve plan and begin implementation
-- [ ] Implement `find_iron_condors()` in spread_strategy.py
-- [ ] Add Iron Condor scoring to ML model
-- [ ] Update paper trader for 4-leg tracking
-- [ ] Update alerts and web UI for condor display
-- [ ] Write comprehensive tests (9 strategy + 5 P&L tests)
-- [ ] Run test suite (expect 327+ → 341+ tests)
-- [ ] Manual scan verification (expect condor opportunities for SPY/QQQ/IWM)
-- [ ] Verify web dashboard displays 4-leg condors correctly
-- [ ] Monitor first paper trades (if scores >= 60)
+**Commit:** f31b339 — "feat: Add iron condor strategy (bull put + bear call on same expiration)"
+**Changes:** 10 files changed, 880 insertions(+), 99 deletions(-)
+**Tests:** 347 passing (up from 327 baseline, +20 new tests)
+**Verification:** All tests pass, scheduler restarted (PID 80427, 4:40 PM ET)
+
+**What Was Built:**
+- Iron condor detection in `find_iron_condors()` — finds non-overlapping bull put + bear call pairs
+- Scoring adjustments for neutral regime (+5), RSI 40-60 range (+5)
+- P&L evaluation for 4-leg positions (worst-case logic for both wings)
+- 4-leg alert formatting showing both wings with individual credits
+- Web UI "Neutral" filter to capture condors
+- Config validation: min 1.5% combined credit, max $5 wing width, RSI 35-65 range
+
+**Next Steps:**
+- [ ] Monday 9:15 AM ET scan: First iron condor opportunities (if neutral regime continues)
+- [ ] Verify condor alerts generated with score >= 60
+- [ ] Monitor first condor paper trades
+- [ ] Validate scoring improvement vs current 30-40 range
 
 **Expected Outcome:** Trading activity increases significantly as neutral strategies score >60
 
@@ -503,9 +512,11 @@ railway.toml. All deploys after this directive was added failed within 14 second
   - Web dashboard: https://pilotai-credit-spreads-production.up.railway.app
   - Import endpoint: /api/import-trades (working)
   - 10 trades synced with correct PnL
-- **Local scheduler:** ✅ RUNNING (PID 74741, restarted Feb 20 10:30 AM with backtest+yfinance fixes)
+- **Local scheduler:** ✅ RUNNING (PID 80427, restarted Feb 20 4:40 PM with Iron Condor strategy)
   - Circuit breakers ACTIVE
-  - 10:30 AM scan verified working (correct prices, no regressions)
+  - Iron Condor detection enabled
+  - 347 tests passing (up from 327)
+  - Next scan: Monday Feb 23, 9:15 AM ET
   - Will auto-scan 14x/day during market hours
 
 ---
