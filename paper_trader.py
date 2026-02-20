@@ -287,8 +287,10 @@ class PaperTrader:
             logger.info(f"Max positions reached ({self.max_positions}), skipping new entries")
             return []
 
-        # Sort by score, take best available
-        sorted_opps = sorted(opportunities, key=lambda x: x.get("score", 0), reverse=True)
+        # Only trade opportunities that meet the alert-quality threshold (score >= 60)
+        # to ensure paper trades and alerts stay in sync
+        sorted_opps = [o for o in opportunities if o.get("score", 0) >= 60]
+        sorted_opps.sort(key=lambda x: x.get("score", 0), reverse=True)
 
         # Filter out exact duplicate positions (same ticker + same short strike + same expiration)
         open_keys = {

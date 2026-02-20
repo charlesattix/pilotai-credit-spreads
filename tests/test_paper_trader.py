@@ -107,6 +107,46 @@ class TestPaperTrader:
     @patch('paper_trader.init_db')
     @patch('paper_trader.PAPER_LOG')
     @patch('paper_trader.DATA_DIR')
+    def test_low_score_filtered_out(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
+        """Opportunities with score < 60 should not open paper trades (matches alert threshold)."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+        mock_paper_log.parent = tmp_path
+
+        pt = PaperTrader(_make_config(tmp_path))
+        pt._save_trades = MagicMock()
+        pt.alpaca = _mock_alpaca()
+
+        opp = _make_opportunity(score=45)
+        new_trades = pt.execute_signals([opp])
+        assert len(new_trades) == 0
+
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_score_threshold_boundary(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
+        """Score of exactly 60 should be accepted (>= 60 threshold)."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+        mock_paper_log.parent = tmp_path
+
+        pt = PaperTrader(_make_config(tmp_path))
+        pt._save_trades = MagicMock()
+        pt.alpaca = _mock_alpaca()
+
+        opp = _make_opportunity(score=60)
+        new_trades = pt.execute_signals([opp])
+        assert len(new_trades) == 1
+
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
     def test_duplicate_prevention(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
         """The same ticker+strike+expiration should not be opened twice."""
         mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
