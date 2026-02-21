@@ -52,10 +52,10 @@ class AlertGenerator:
             logger.info("No opportunities to generate alerts for")
             return {}
 
-        # Filter top opportunities (top 5 or score > 60)
+        # Filter top opportunities (top 5 or score > 40)
         top_opportunities = [
             opp for opp in opportunities
-            if opp.get('score', 0) >= 60
+            if opp.get('score', 0) >= 40
         ][:5]
 
         if not top_opportunities:
