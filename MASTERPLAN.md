@@ -5,7 +5,7 @@
 **Path:** `/Users/charlesbot/projects/pilotai-credit-spreads`  
 **Status:** 🟢 ACTIVE DEVELOPMENT  
 **Created:** 2026-02-19  
-**Last Updated:** 2026-02-20 4:40 PM ET
+**Last Updated:** 2026-02-21 9:25 AM ET
 
 ---
 
@@ -133,35 +133,54 @@ The backtester was rewritten to use real historical options data from Polygon.io
 
 ---
 
-## 🚨 CRITICAL ISSUE: Low Trading Activity (Feb 20)
+## 🚨 P0: STRATEGIC SHIFT - Conservative → Active Trading (Feb 21)
 
-**Problem:** System is too conservative - no trades opening despite all-day scanning
-- Scanner runs every 30 minutes during market hours (14 scans/day)
-- Opportunities found, but scores consistently 30-40 (below 60 threshold)
-- Result: $0 trading activity, capital sitting idle
+**Carlos's Directive (Feb 21, 9:25 AM):** "Fix the strategy so we aim for multiple trades per day and still win"
 
-**Root Cause:** Limited strategy diversity
-- Only 2 spread types (bull put, bear call) = narrow opportunity set
-- Current mean-reverting market (99.6% confidence) penalizes directional spreads (-15pt)
-- System designed for trending markets, struggling in current regime
+**Current State: TOO CONSERVATIVE**
+- Backtests show **0 trades over 365 days** (unacceptable)
+- Even with threshold lowered to 40, filters are too strict
+- Scanner runs every 30 minutes but finds nothing
+- Result: Capital sitting idle, no trading activity
 
-**Solution:** Strategy Expansion (Carlos's Directive - Feb 20)
-Add 5 new option strategy types to increase trading frequency:
-1. **Iron Condors** (Priority 1 - IN PROGRESS) — neutral strategy, perfect for mean-reverting markets
-2. Calendar Spreads — time decay plays
-3. Diagonal Spreads — directional + time plays
-4. Debit Spreads — directional with defined risk
-5. Strangles/Straddles — volatility plays
+**Root Cause: Ultra-Conservative Filters**
+- ❌ IV rank minimum 25% (only trades high vol)
+- ❌ Only 2 spread types (bull put, bear call) = narrow opportunity set  
+- ❌ Score threshold too high (was 60, now 40, still blocking trades)
+- ❌ Too many technical filters stacked (trend + RSI + support/resistance + more)
+- ❌ Event risk filtering eliminates opportunities
+- ❌ Current mean-reverting market (99.6% confidence) penalizes directional spreads (-15pt)
+
+**NEW TARGET: Active Trading Strategy**
+- **Goal:** 3-5 trades per day across SPY/QQQ/IWM
+- **Win Rate:** 65%+ (realistic for higher volume, down from 90% ultra-conservative target)
+- **Activity:** Multiple opportunities daily, not zero trades over months
+
+**Required Changes (Priority Order):**
+
+**1. RELAX FILTERS (CRITICAL)** 🔥
+- ✅ Lower IV rank minimum: 25% → **10-15%** (trade in normal vol, not just spikes)
+- ✅ Lower score threshold: 40 → **25-30** (more opportunities pass)
+- ✅ Simplify technical filters: Keep trend + RSI, **remove some stacked filters**
+- ✅ Relax event risk: **Allow trades around earnings** (can create opportunity, not just risk)
+- ✅ Adjust regime penalties: Mean-reverting shouldn't block trades, should favor condors
+
+**2. EXPAND STRATEGY TYPES** (Already Started)
+- ✅ **Iron Condors COMPLETE** (commit f31b339) — neutral strategy for sideways markets
+- 🔄 **Calendar Spreads** — time decay plays, work in any market
+- 🔄 **Diagonal Spreads** — directional + time decay combination
+- 🔄 **Debit Spreads** — directional with defined risk, complement to credits
+- 🔄 **Strangles/Straddles** — volatility expansion plays
+
+**3. OPTIMIZE FOR VOLUME**
+- Multiple expirations (weeklies + monthlies) = more opportunities
+- Lower position minimums to enable smaller trades
+- Scan more frequently (every 15 min instead of 30 min)
 
 **Implementation Status:**
-- ✅ Planning phase complete (`~/.claude/plans/sunny-finding-axolotl.md`)
-- ✅ Claude Code deep codebase analysis (3 agents, 60k+ tokens, 5+ files reviewed)
-- 🔄 **Iron Condors implementation IN PROGRESS** (started 3:40 PM ET, Feb 20)
-- ⏳ Other 4 strategies: After Iron Condors proven
-
-**Why Iron Condors First:**
-- Combines bull put + bear call spreads (reuses existing infrastructure)
-- Neutral strategy — thrives in sideways/range-bound markets (current regime)
+- 🔄 **Filter relaxation IN PROGRESS** (started Feb 21, 9:25 AM)
+- ✅ Iron Condors deployed (f31b339)
+- ⏳ Other 4 strategies: After filter tuning validated
 - 4-leg structure provides better risk/reward in low-volatility environments
 - Expected to generate scores >60 in current market conditions
 
