@@ -52,10 +52,11 @@ class AlertGenerator:
             logger.info("No opportunities to generate alerts for")
             return {}
 
-        # Filter top opportunities (top 5 or score > 40)
+        # Filter top opportunities (top 5 or score > 28)
+        # Lowered to generate more trading activity (Carlos directive Feb 21)
         top_opportunities = [
             opp for opp in opportunities
-            if opp.get('score', 0) >= 40
+            if opp.get('score', 0) >= 28
         ][:5]
 
         if not top_opportunities:
