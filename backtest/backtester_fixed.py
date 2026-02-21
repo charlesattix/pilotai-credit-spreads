@@ -147,9 +147,16 @@ class BacktesterFixed:
 
             current_date += timedelta(days=1)
 
-        # Close remaining positions
+        # Close remaining positions with actual underlying price
+        try:
+            final_price_row = price_data.loc[price_data.index <= end_date].iloc[-1]
+            final_price = float(final_price_row['Close'])
+        except (IndexError, KeyError):
+            final_price = None
+
         for pos in open_positions:
-            self._close_position(pos, end_date, "backtest_end")
+            self._close_position(pos, end_date, "backtest_end",
+                                 underlying_price=final_price)
 
         # Calculate results
         results = self._calculate_results()
@@ -355,35 +362,150 @@ class BacktesterFixed:
 
     def _manage_positions(self, positions: List[Dict], current_date: datetime,
                          price_data: pd.DataFrame, ticker: str) -> List[Dict]:
-        """Manage open positions."""
+        """
+        Manage open positions with intra-position exit logic.
+
+        Checks daily:
+        - Expiration: close with actual P&L based on underlying price
+        - 50% profit target: if current spread value drops to 50% of credit received
+        - 2x stop loss: if current spread value rises to 3x credit (loss = 2x credit)
+        """
         remaining = []
-        
+
+        # Get current underlying price
+        try:
+            price_row = price_data.loc[price_data.index <= current_date].iloc[-1]
+            current_price = float(price_row['Close'])
+        except (IndexError, KeyError):
+            # No price data for this date, keep all positions
+            return positions
+
         for pos in positions:
-            # Check expiration
+            credit = pos['credit']
+            short_strike = pos['short_strike']
+            long_strike = pos['long_strike']
+            spread_type = pos['type']
+
+            # Check expiration first
             if current_date >= pos['expiration']:
-                self._close_position(pos, current_date, "expired")
+                self._close_position(pos, current_date, "expired",
+                                     underlying_price=current_price)
                 continue
-            
-            # TODO: Add profit target / stop loss checks
+
+            # Estimate current spread intrinsic value to check profit/stop targets
+            if 'put' in spread_type.lower():
+                # Bull put spread
+                if current_price >= short_strike:
+                    current_spread_cost = 0.0  # Both OTM, spread worthless = full profit
+                elif current_price <= long_strike:
+                    current_spread_cost = abs(short_strike - long_strike)  # Max loss
+                else:
+                    current_spread_cost = short_strike - current_price  # Partial
+            else:
+                # Bear call spread
+                if current_price <= short_strike:
+                    current_spread_cost = 0.0  # Both OTM, spread worthless = full profit
+                elif current_price >= long_strike:
+                    current_spread_cost = abs(long_strike - short_strike)  # Max loss
+                else:
+                    current_spread_cost = current_price - short_strike  # Partial
+
+            # Current P&L per contract = credit received - current cost to close
+            current_pnl_per_contract = credit - current_spread_cost
+
+            # 50% profit target: if we've captured >= 50% of credit
+            if current_pnl_per_contract >= credit * 0.50:
+                self._close_position(pos, current_date, "profit_target",
+                                     underlying_price=current_price)
+                logger.info(f"  Profit target hit: {pos['ticker']} {spread_type} @ ${current_price:.2f}")
+                continue
+
+            # 2x credit stop loss: if loss >= 2x the credit received
+            if current_pnl_per_contract <= -(credit * 2.0):
+                self._close_position(pos, current_date, "stop_loss",
+                                     underlying_price=current_price)
+                logger.info(f"  Stop loss hit: {pos['ticker']} {spread_type} @ ${current_price:.2f}")
+                continue
+
+            # Update position's tracked value
+            pos['current_value'] = current_pnl_per_contract * pos['contracts'] * 100
             remaining.append(pos)
-        
+
         return remaining
 
-    def _close_position(self, position: Dict, close_date: datetime, reason: str):
-        """Close a position."""
-        # Simplified P&L - assume max loss or full profit
-        # TODO: Use real historical options pricing if available
-        if reason == "expired":
-            pnl = -position['max_loss'] * position['contracts'] * 100
+    def _close_position(self, position: Dict, close_date: datetime, reason: str,
+                        underlying_price: float = None):
+        """
+        Close a position with ACTUAL P&L calculation.
+
+        For expiring positions, P&L depends on where the underlying price is
+        relative to the spread strikes:
+
+        Bull put spread (short put above long put):
+            price >= short_strike → full profit (keep entire credit)
+            price <= long_strike  → max loss (credit - spread_width)
+            between              → partial loss (credit - (short_strike - price))
+
+        Bear call spread (short call below long call):
+            price <= short_strike → full profit (keep entire credit)
+            price >= long_strike  → max loss (credit - spread_width)
+            between              → partial loss (credit - (price - short_strike))
+        """
+        credit = position['credit']
+        contracts = position['contracts']
+        short_strike = position['short_strike']
+        long_strike = position['long_strike']
+        spread_width = abs(short_strike - long_strike)
+
+        if reason == "profit_target":
+            # Closed early at 50% profit
+            pnl_per_contract = credit * 0.50
+        elif reason == "stop_loss":
+            # Closed early at 2x credit loss
+            pnl_per_contract = -(credit * 2.0)
+        elif reason in ("expired", "backtest_end") and underlying_price is not None:
+            # Calculate actual P&L based on underlying price at expiration
+            spread_type = position['type']
+
+            if 'put' in spread_type.lower():
+                # Bull put spread: short_strike > long_strike
+                if underlying_price >= short_strike:
+                    # Both puts expire OTM → keep full credit
+                    pnl_per_contract = credit
+                elif underlying_price <= long_strike:
+                    # Both puts ITM → max loss
+                    pnl_per_contract = credit - spread_width
+                else:
+                    # Short put ITM, long put OTM → partial loss
+                    intrinsic = short_strike - underlying_price
+                    pnl_per_contract = credit - intrinsic
+            else:
+                # Bear call spread: short_strike < long_strike
+                if underlying_price <= short_strike:
+                    # Both calls expire OTM → keep full credit
+                    pnl_per_contract = credit
+                elif underlying_price >= long_strike:
+                    # Both calls ITM → max loss
+                    pnl_per_contract = credit - spread_width
+                else:
+                    # Short call ITM, long call OTM → partial loss
+                    intrinsic = underlying_price - short_strike
+                    pnl_per_contract = credit - intrinsic
         else:
-            pnl = position['credit'] * position['contracts'] * 100
-        
+            # Fallback: assume full profit (e.g. backtest_end with no price)
+            pnl_per_contract = credit
+
+        pnl = pnl_per_contract * contracts * 100
+        commission = position.get('commission', 0)
+        pnl -= commission  # Subtract commission on close
+
         self.capital += pnl
         position['exit_date'] = close_date
         position['exit_reason'] = reason
+        position['exit_price'] = underlying_price
         position['pnl'] = pnl
         position['status'] = 'closed'
-        
+
         self.trades.append(position)
 
     def _calculate_results(self) -> Dict:
