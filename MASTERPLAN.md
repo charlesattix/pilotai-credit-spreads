@@ -3,9 +3,25 @@
 **Project:** PilotAI - Advanced ML/AI Trade Alerts  
 **Current Implementation:** Credit Spreads (pilotai-credit-spreads)  
 **Path:** `/Users/charlesbot/projects/pilotai-credit-spreads`  
-**Status:** 🟢 ACTIVE DEVELOPMENT  
+**Status:** 🔴 CRITICAL - P0 IN PROGRESS  
 **Created:** 2026-02-19  
-**Last Updated:** 2026-02-21 9:25 AM ET
+**Last Updated:** 2026-02-21 11:32 AM ET
+
+---
+
+## 🔥 P0 CRITICAL PRIORITY (Carlos Directive - Feb 21, 11:32 AM)
+
+**"Top of the MASTERPLAN is to identify alert settings that yield positive trades and P&L every week of the year. This is top critical priority. Without this, the project is a massive failure."**
+
+**Mission:** Find backtest-validated filter settings that deliver **consistent weekly profits** over a full year.
+
+**Approach:**
+1. Use REAL Polygon historical options data (commit dcac405 backtester)
+2. Run systematic backtest matrix across filter combinations
+3. Identify settings that produce positive P&L every week
+4. Deploy winning configuration to production
+
+**Status:** 🔄 IN PROGRESS - Running backtest iterations now
 
 ---
 
