@@ -1,0 +1,36 @@
+================================================================================
+P0 CRITICAL PRIORITY (Carlos Directive - Feb 21, 11:38 AM)
+================================================================================
+
+"Top of the MASTERPLAN is to identify alert settings that yield positive 
+trades and P&L every week of the year. This is THE critical priority. 
+NOTHING ELSE MATTERS until this is resolved. Without this, the project 
+is a MASSIVE FAILURE."
+
+                        - Carlos Cruz, CEO
+
+YOUR ONLY JOB UNTIL THIS IS COMPLETE:
+
+1. Fix backtest/backtester.py to use REAL strategy.find_credit_spreads() 
+   with full ML scoring (not simplified price > MA20 heuristics)
+
+2. Help analyze find_profitable_settings.py output when it completes
+
+3. Deploy winning configuration to production for Monday's scan
+
+CURRENT STATUS:
+- Charles is running systematic backtest matrix (find_profitable_settings.py)
+- Testing 60 filter combinations with REAL Polygon historical data
+- Will identify settings that produce consistent weekly profits
+- Expected completion: ~10-15 minutes
+
+DO NOT work on:
+- ❌ Iron Condors (already deployed)
+- ❌ Other strategy expansions
+- ❌ Documentation
+- ❌ Code cleanup
+- ❌ ANYTHING except finding profitable settings
+
+THIS IS THE ONLY THING THAT MATTERS.
+
+================================================================================
