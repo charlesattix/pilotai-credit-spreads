@@ -5,7 +5,7 @@ Implements bull put spreads and bear call spreads with high probability setups.
 
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List
+from typing import Dict, List, Optional
 import pandas as pd
 
 from shared.types import IronCondorOpportunity, ScoredSpreadOpportunity, SpreadOpportunity
@@ -58,7 +58,8 @@ class CreditSpreadStrategy:
         option_chain: pd.DataFrame,
         technical_signals: Dict,
         iv_data: Dict,
-        current_price: float
+        current_price: float,
+        as_of_date: Optional[datetime] = None
     ) -> List[Dict]:
         """
         Evaluate potential credit spread opportunities.
@@ -69,14 +70,16 @@ class CreditSpreadStrategy:
             technical_signals: Technical analysis signals
             iv_data: IV rank and percentile data
             current_price: Current underlying price
+            as_of_date: Optional date to use for DTE calculation (for backtesting).
+                        Defaults to datetime.now() for live scanning.
             
         Returns:
             List of scored spread opportunities
         """
         opportunities: List[ScoredSpreadOpportunity] = []
 
-        # Filter by DTE
-        valid_expirations = self._filter_by_dte(option_chain)
+        # Filter by DTE (use as_of_date for backtesting, datetime.now() for live)
+        valid_expirations = self._filter_by_dte(option_chain, as_of_date=as_of_date)
 
         for expiration in valid_expirations:
             exp_chain = option_chain[option_chain['expiration'] == expiration]
@@ -99,7 +102,8 @@ class CreditSpreadStrategy:
         condor_config = self.strategy_params.get('iron_condor', {})
         if condor_config.get('enabled', True):
             condors = self.find_iron_condors(
-                ticker, option_chain, current_price, technical_signals, iv_data
+                ticker, option_chain, current_price, technical_signals, iv_data,
+                as_of_date=as_of_date
             )
             opportunities.extend(condors)
 
@@ -110,9 +114,17 @@ class CreditSpreadStrategy:
 
         return scored_opportunities
 
-    def _filter_by_dte(self, option_chain: pd.DataFrame) -> List[datetime]:
-        """Filter expirations by DTE range."""
-        today = datetime.now(timezone.utc)
+    def _filter_by_dte(self, option_chain: pd.DataFrame, as_of_date: Optional[datetime] = None) -> List[datetime]:
+        """Filter expirations by DTE range.
+        
+        Args:
+            option_chain: Options chain DataFrame
+            as_of_date: Date to calculate DTE from. Defaults to now() for live scanning.
+                        Pass the simulated date when backtesting historical data.
+        """
+        today = as_of_date or datetime.now(timezone.utc)
+        if not hasattr(today, 'tzinfo') or today.tzinfo is None:
+            today = today.replace(tzinfo=timezone.utc)
         valid_expirations = []
 
         for exp in option_chain['expiration'].unique():
@@ -218,6 +230,7 @@ class CreditSpreadStrategy:
         current_price: float,
         technical_signals: Dict,
         iv_data: Dict,
+        as_of_date: Optional[datetime] = None,
     ) -> List[IronCondorOpportunity]:
         """Find iron condor opportunities (bull put + bear call on same expiration).
 
@@ -248,7 +261,7 @@ class CreditSpreadStrategy:
             return []
 
         condors: List[IronCondorOpportunity] = []
-        valid_expirations = self._filter_by_dte(option_chain)
+        valid_expirations = self._filter_by_dte(option_chain, as_of_date=as_of_date)
         spread_width = self.strategy_params['spread_width']
 
         for expiration in valid_expirations:

@@ -187,12 +187,14 @@ class BacktesterFixed:
             iv_data = self.options_analyzer.calculate_iv_rank(ticker, current_iv)
 
             # Evaluate spread opportunities (THE REAL STRATEGY CALL)
+            # Pass as_of_date so DTE is calculated from the backtest date, not today
             opportunities = self.strategy.evaluate_spread_opportunity(
                 ticker=ticker,
                 option_chain=options_chain,
                 technical_signals=technical_signals,
                 iv_data=iv_data,
-                current_price=current_price
+                current_price=current_price,
+                as_of_date=date  # ← KEY FIX: Use backtest date for DTE calculation
             )
 
             if not opportunities:
