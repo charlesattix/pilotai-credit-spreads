@@ -50,6 +50,11 @@ class CreditSpreadStrategy:
         self.strategy_params = config['strategy']
         self.risk_params = config['risk']
 
+        # Dynamic spread width thresholds
+        self.spread_width_high_iv = self.strategy_params.get('spread_width_high_iv', 15)
+        self.spread_width_low_iv = self.strategy_params.get('spread_width_low_iv', 10)
+        self.default_spread_width = self.strategy_params.get('spread_width', 10)
+
         logger.info("CreditSpreadStrategy initialized")
 
     def evaluate_spread_opportunity(
@@ -87,14 +92,14 @@ class CreditSpreadStrategy:
             # Evaluate bull put spreads (bullish/neutral)
             if self._check_bullish_conditions(technical_signals, iv_data):
                 bull_puts = self._find_bull_put_spreads(
-                    ticker, exp_chain, current_price, expiration
+                    ticker, exp_chain, current_price, expiration, iv_data
                 )
                 opportunities.extend(bull_puts)
 
             # Evaluate bear call spreads (bearish/neutral)
             if self._check_bearish_conditions(technical_signals, iv_data):
                 bear_calls = self._find_bear_call_spreads(
-                    ticker, exp_chain, current_price, expiration
+                    ticker, exp_chain, current_price, expiration, iv_data
                 )
                 opportunities.extend(bear_calls)
 
@@ -105,6 +110,15 @@ class CreditSpreadStrategy:
                 ticker, option_chain, current_price, technical_signals, iv_data,
                 as_of_date=as_of_date
             )
+
+            # In low IV, prefer condors over single-direction spreads
+            iv_rank = iv_data.get('iv_rank', 0)
+            low_iv_threshold = condor_config.get('low_iv_threshold', 30)
+            if condor_config.get('prefer_in_low_iv', True) and iv_rank < low_iv_threshold and condors:
+                # Low IV: return only condors (they collect from both sides)
+                scored = self._score_opportunities(condors, technical_signals, iv_data)
+                return scored
+
             opportunities.extend(condors)
 
         # Score and rank opportunities
@@ -113,6 +127,16 @@ class CreditSpreadStrategy:
         )
 
         return scored_opportunities
+
+    def _select_spread_width(self, iv_data: Dict) -> int:
+        """Select spread width based on IV environment."""
+        iv_rank = iv_data.get('iv_rank', 0)
+        if iv_rank >= 50:
+            return self.spread_width_high_iv
+        elif iv_rank >= 25:
+            return self.spread_width_low_iv
+        else:
+            return self.default_spread_width
 
     def _filter_by_dte(self, option_chain: pd.DataFrame, as_of_date: Optional[datetime] = None) -> List[datetime]:
         """Filter expirations by DTE range.
@@ -208,20 +232,22 @@ class CreditSpreadStrategy:
         ticker: str,
         option_chain: pd.DataFrame,
         current_price: float,
-        expiration: datetime
+        expiration: datetime,
+        iv_data: Optional[Dict] = None,
     ) -> List[Dict]:
         """Find bull put spread opportunities (thin wrapper)."""
-        return self._find_spreads(ticker, option_chain, current_price, expiration, 'bull_put')
+        return self._find_spreads(ticker, option_chain, current_price, expiration, 'bull_put', iv_data=iv_data)
 
     def _find_bear_call_spreads(
         self,
         ticker: str,
         option_chain: pd.DataFrame,
         current_price: float,
-        expiration: datetime
+        expiration: datetime,
+        iv_data: Optional[Dict] = None,
     ) -> List[Dict]:
         """Find bear call spread opportunities (thin wrapper)."""
-        return self._find_spreads(ticker, option_chain, current_price, expiration, 'bear_call')
+        return self._find_spreads(ticker, option_chain, current_price, expiration, 'bear_call', iv_data=iv_data)
 
     def find_iron_condors(
         self,
@@ -238,22 +264,31 @@ class CreditSpreadStrategy:
         _find_spreads() logic for each wing, then pair them.
         """
         condor_config = self.strategy_params.get('iron_condor', {})
-        rsi_min = condor_config.get('rsi_min', 35)
-        rsi_max = condor_config.get('rsi_max', 65)
-        min_combined_credit_pct = condor_config.get('min_combined_credit_pct', 30)
+        rsi_min = condor_config.get('rsi_min', 30)
+        rsi_max = condor_config.get('rsi_max', 70)
+        min_combined_credit_pct = condor_config.get('min_combined_credit_pct', 25)
+        prefer_in_low_iv = condor_config.get('prefer_in_low_iv', True)
+        low_iv_threshold = condor_config.get('low_iv_threshold', 30)
 
-        # Check conditions: IV must be elevated
+        iv_rank = iv_data.get('iv_rank', 0)
+
+        # Check conditions: IV must meet minimum
         iv_check = (
-            iv_data.get('iv_rank', 0) >= self.strategy_params['min_iv_rank'] or
+            iv_rank >= self.strategy_params['min_iv_rank'] or
             iv_data.get('iv_percentile', 0) >= self.strategy_params['min_iv_percentile']
         )
         if not iv_check:
             return []
 
-        # Trend must be neutral for condors
+        # In low IV: relax trend filter — condors work in any trend
+        # In normal/high IV: require neutral trend
         trend = technical_signals.get('trend', '')
-        if trend not in ('neutral',):
-            return []
+        if prefer_in_low_iv and iv_rank < low_iv_threshold:
+            # Low IV: allow condors in any non-extreme trend
+            pass  # No trend filter
+        else:
+            if trend not in ('neutral',):
+                return []
 
         # RSI must be in range-bound zone
         rsi = technical_signals.get('rsi', 50)
@@ -262,14 +297,14 @@ class CreditSpreadStrategy:
 
         condors: List[IronCondorOpportunity] = []
         valid_expirations = self._filter_by_dte(option_chain, as_of_date=as_of_date)
-        spread_width = self.strategy_params['spread_width']
+        spread_width = self._select_spread_width(iv_data)
 
         for expiration in valid_expirations:
             exp_chain = option_chain[option_chain['expiration'] == expiration]
 
             # Find both wings — _find_spreads works regardless of trend
-            bull_puts = self._find_spreads(ticker, exp_chain, current_price, expiration, 'bull_put')
-            bear_calls = self._find_spreads(ticker, exp_chain, current_price, expiration, 'bear_call')
+            bull_puts = self._find_spreads(ticker, exp_chain, current_price, expiration, 'bull_put', iv_data=iv_data)
+            bear_calls = self._find_spreads(ticker, exp_chain, current_price, expiration, 'bear_call', iv_data=iv_data)
 
             if not bull_puts or not bear_calls:
                 continue
@@ -341,6 +376,7 @@ class CreditSpreadStrategy:
         current_price: float,
         expiration: datetime,
         spread_type: str,
+        iv_data: Optional[Dict] = None,
     ) -> List[SpreadOpportunity]:
         """
         Find credit spread opportunities.
@@ -351,6 +387,7 @@ class CreditSpreadStrategy:
             current_price: Current underlying price
             expiration: Option expiration date
             spread_type: 'bull_put' or 'bear_call'
+            iv_data: IV rank/percentile data for dynamic width selection
 
         Returns:
             List of spread opportunity dicts
@@ -387,7 +424,11 @@ class CreditSpreadStrategy:
                 (legs['delta'] <= target_delta_max)
             ]
 
-        spread_width = self.strategy_params['spread_width']
+        # Dynamic spread width based on IV environment
+        if iv_data:
+            spread_width = self._select_spread_width(iv_data)
+        else:
+            spread_width = self.strategy_params['spread_width']
 
         for _, short_leg in short_candidates.iterrows():
             short_strike = short_leg['strike']

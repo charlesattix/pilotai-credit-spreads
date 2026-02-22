@@ -84,7 +84,7 @@ class IVAnalyzer:
                 'signals': signals,
             }
 
-            logger.info(
+            logger.debug(
                 f"{ticker} IV Analysis: "
                 f"Skew={skew_metrics.get('put_call_skew_ratio', 1.0):.3f}, "
                 f"IV_Rank={iv_rank_percentile.get('iv_rank', 50):.1f}%, "
@@ -107,11 +107,10 @@ class IVAnalyzer:
         """
         try:
             # Filter for options with good liquidity
-            chain = options_chain[
-                (options_chain['bid'] > 0) &
-                (options_chain['ask'] > 0) &
-                (options_chain['volume'] > 10)
-            ].copy()
+            mask = (options_chain['bid'] > 0) & (options_chain['ask'] > 0)
+            if 'volume' in options_chain.columns:
+                mask = mask & (options_chain['volume'] > 10)
+            chain = options_chain[mask].copy()
 
             if chain.empty or 'iv' not in chain.columns:
                 return {'available': False}
@@ -193,7 +192,10 @@ class IVAnalyzer:
             # Calculate DTE for each option (copy to avoid mutating caller's DataFrame)
             now = datetime.now(timezone.utc)
             options_chain = options_chain.copy()
-            options_chain['dte'] = (options_chain['expiration'] - now).dt.days
+            exp_col = pd.to_datetime(options_chain['expiration'])
+            if exp_col.dt.tz is None:
+                exp_col = exp_col.dt.tz_localize('UTC')
+            options_chain['dte'] = (exp_col - now).dt.days
 
             # Filter ATM options
             atm_options = options_chain[

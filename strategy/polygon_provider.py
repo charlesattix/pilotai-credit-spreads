@@ -6,6 +6,7 @@ Base URL: https://api.polygon.io
 
 import logging
 import os
+import time
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -35,6 +36,8 @@ class PolygonProvider:
         retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504], backoff_jitter=0.25)
         self.session.mount("https://", HTTPAdapter(max_retries=retry))
         self._circuit_breaker = CircuitBreaker(failure_threshold=5, reset_timeout=60)
+        self._last_call_time = 0.0
+        self._min_call_interval = 0.2  # 5 calls/sec max
         logger.info("PolygonProvider initialized")
 
     def __del__(self):
@@ -44,9 +47,18 @@ class PolygonProvider:
         except Exception:
             pass
 
+    def _rate_limit(self):
+        """Enforce max 5 calls/sec rate limit."""
+        now = time.monotonic()
+        elapsed = now - self._last_call_time
+        if elapsed < self._min_call_interval:
+            time.sleep(self._min_call_interval - elapsed)
+        self._last_call_time = time.monotonic()
+
     def _get(self, path: str, params: Optional[Dict] = None, timeout: int = 10) -> Dict:
-        """Make authenticated GET request."""
+        """Make authenticated GET request with rate limiting."""
         def _do_request():
+            self._rate_limit()
             p = (params or {}).copy()
             p["apiKey"] = self.api_key
             url = f"{self.base_url}{path}"
@@ -307,6 +319,88 @@ class PolygonProvider:
         except Exception as e:
             logger.error(f"Error calculating IV rank for {ticker}: {e}", exc_info=True)
             return {"iv_rank": 0, "iv_percentile": 0, "current_iv": current_iv}
+
+
+    @staticmethod
+    def build_option_ticker(underlying: str, expiration: datetime, option_type: str, strike: float) -> str:
+        """
+        Build Polygon option contract ticker.
+
+        Format: O:{UNDERLYING}{YYMMDD}{C|P}{strike*1000 zero-padded to 8 digits}
+        Example: O:SPY240119P00450000 = SPY put, $450 strike, expiring 2024-01-19
+        """
+        date_str = expiration.strftime("%y%m%d")
+        type_char = "C" if "call" in option_type.lower() else "P"
+        strike_int = int(round(strike * 1000))
+        strike_str = f"{strike_int:08d}"
+        return f"O:{underlying}{date_str}{type_char}{strike_str}"
+
+    def get_historical_option_prices(self, option_ticker: str,
+                                     start_date: datetime, end_date: datetime) -> pd.DataFrame:
+        """
+        Fetch historical daily OHLCV bars for a specific option contract.
+
+        Uses /v2/aggs/ticker/{option_ticker}/range/1/day/{from}/{to}
+
+        Returns:
+            DataFrame with columns: date, open, high, low, close, volume
+            Empty DataFrame if no data available.
+        """
+        from_str = start_date.strftime("%Y-%m-%d")
+        to_str = end_date.strftime("%Y-%m-%d")
+        try:
+            data = self._get(
+                f"/v2/aggs/ticker/{option_ticker}/range/1/day/{from_str}/{to_str}",
+                params={"adjusted": "true", "sort": "asc", "limit": 5000},
+            )
+        except ProviderError as e:
+            logger.debug(f"No data for {option_ticker}: {e}")
+            return pd.DataFrame()
+
+        results = data.get("results", [])
+        if not results:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(results)
+        df = df.rename(columns={"o": "open", "h": "high", "l": "low", "c": "close", "v": "volume", "t": "timestamp"})
+        df["date"] = pd.to_datetime(df["timestamp"], unit="ms").dt.normalize()
+        df = df.set_index("date")
+        return df[["open", "high", "low", "close", "volume"]]
+
+    def get_spread_historical_prices(self, underlying: str, expiration: datetime,
+                                     short_strike: float, long_strike: float,
+                                     option_type: str, start_date: datetime,
+                                     end_date: datetime) -> Optional[pd.DataFrame]:
+        """
+        Fetch historical prices for both legs of a spread and compute spread value.
+
+        Returns:
+            DataFrame with columns: short_close, long_close, spread_value
+            spread_value = short_close - long_close (net credit spread value)
+            None if either leg has no data.
+        """
+        short_ticker = self.build_option_ticker(underlying, expiration, option_type, short_strike)
+        long_ticker = self.build_option_ticker(underlying, expiration, option_type, long_strike)
+
+        short_prices = self.get_historical_option_prices(short_ticker, start_date, end_date)
+        long_prices = self.get_historical_option_prices(long_ticker, start_date, end_date)
+
+        if short_prices.empty or long_prices.empty:
+            logger.debug(f"Missing data: short={short_ticker} ({len(short_prices)}), long={long_ticker} ({len(long_prices)})")
+            return None
+
+        # Merge on date
+        merged = short_prices[["close"]].rename(columns={"close": "short_close"}).join(
+            long_prices[["close"]].rename(columns={"close": "long_close"}),
+            how="inner",
+        )
+
+        if merged.empty:
+            return None
+
+        # Spread value = short leg - long leg (for credit spreads, entry credit = this value)
+        merged["spread_value"] = merged["short_close"] - merged["long_close"]
+        return merged
 
 
 if __name__ == "__main__":
