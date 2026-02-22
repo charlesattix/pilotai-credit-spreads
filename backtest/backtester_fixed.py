@@ -21,6 +21,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 import yfinance as yf
+from scipy.stats import norm as _norm
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,80 @@ class BacktesterFixed:
         mode = "real strategy" if strategy else "simplified"
         logger.info(f"BacktesterFixed initialized ({mode} mode, {pricing} pricing)")
 
+    # ------------------------------------------------------------------
+    # Black-Scholes helpers for realistic spread valuation
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _bs_option_price(S: float, K: float, T: float, sigma: float,
+                         option_type: str, r: float = 0.045) -> float:
+        """
+        Standard Black-Scholes option price.
+
+        Args:
+            S: underlying price
+            K: strike price
+            T: time to expiration in years (must be > 0)
+            sigma: implied volatility (decimal, e.g. 0.25 for 25%)
+            option_type: 'put' or 'call'
+            r: risk-free rate (default 4.5%)
+
+        Returns:
+            Theoretical option price
+        """
+        if T <= 0:
+            # At expiration: intrinsic only
+            if option_type == 'put':
+                return max(0.0, K - S)
+            return max(0.0, S - K)
+
+        sqrt_t = math.sqrt(T)
+        d1 = (math.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * sqrt_t)
+        d2 = d1 - sigma * sqrt_t
+
+        if option_type == 'put':
+            return K * math.exp(-r * T) * _norm.cdf(-d2) - S * _norm.cdf(-d1)
+        return S * _norm.cdf(d1) - K * math.exp(-r * T) * _norm.cdf(d2)
+
+    def _bs_spread_value(self, short_strike: float, long_strike: float,
+                         option_type: str, current_price: float,
+                         days_to_exp: float, sigma: float) -> float:
+        """
+        Value a credit spread using Black-Scholes.
+
+        Returns the cost-to-close (what you'd pay to buy back the spread).
+        For OTM spreads far from expiry this is roughly the entry credit;
+        for expired OTM spreads this is 0.
+        """
+        T = max(days_to_exp, 0) / 365.0
+        short_px = self._bs_option_price(current_price, short_strike, T, sigma, option_type)
+        long_px = self._bs_option_price(current_price, long_strike, T, sigma, option_type)
+        # Cost to close = buy short leg - sell long leg
+        spread_val = short_px - long_px
+        # Clamp between 0 and spread width
+        width = abs(short_strike - long_strike)
+        return max(0.0, min(spread_val, width))
+
+    @staticmethod
+    def _realized_vol(price_data: pd.DataFrame, as_of_date: datetime,
+                      window: int = 20) -> float:
+        """
+        Calculate annualised realized volatility from price history.
+
+        Returns IV as a decimal (e.g. 0.22 for 22%).  Falls back to 0.20
+        if not enough data.
+        """
+        try:
+            prices = price_data.loc[price_data.index <= as_of_date, 'Close']
+            if len(prices) < window + 5:
+                return 0.20
+            log_ret = np.log(prices / prices.shift(1)).dropna()
+            rv = log_ret.iloc[-window:].std() * math.sqrt(252)
+            # Clamp to sane range
+            return float(max(0.10, min(rv, 0.80)))
+        except Exception:
+            return 0.20
+
     def run_backtest(self, ticker, start_date: datetime, end_date: datetime) -> Dict:
         """
         Run backtest using REAL strategy logic across one or more tickers.
@@ -141,6 +216,11 @@ class BacktesterFixed:
         opportunities_found = 0
 
         while current_date <= end_date:
+            # Compute per-ticker realized vol (used for BS valuation)
+            ticker_vol: Dict[str, float] = {}
+            for t, pdata in all_price_data.items():
+                ticker_vol[t] = self._realized_vol(pdata, current_date)
+
             # Check if scan day (Mon/Wed/Fri by default)
             if current_date.weekday() in scan_days:
                 scans_performed += 1
@@ -173,6 +253,8 @@ class BacktesterFixed:
                         opportunities_found += 1
                         position = self._opportunity_to_position(opportunity, current_date)
                         if position and self._check_portfolio_limits(position, open_positions):
+                            # Store entry IV for BS valuation during management
+                            position['entry_iv'] = ticker_vol.get(scan_ticker, 0.20)
                             open_positions.append(position)
                             logger.info(
                                 f"Opened {position['ticker']} {position['type']} "
@@ -188,7 +270,8 @@ class BacktesterFixed:
                 if price_data is None:
                     remaining.append(pos)
                     continue
-                managed = self._manage_positions([pos], current_date, price_data, pos_ticker)
+                vol = ticker_vol.get(pos_ticker, pos.get('entry_iv', 0.20))
+                managed = self._manage_positions([pos], current_date, price_data, pos_ticker, vol)
                 remaining.extend(managed)
             open_positions = remaining
 
@@ -212,7 +295,8 @@ class BacktesterFixed:
                     pass
 
             if final_price is not None:
-                spread_val = self._get_current_spread_value(pos, end_date, final_price)
+                pos_iv = pos.get('entry_iv', 0.20)
+                spread_val = self._get_current_spread_value(pos, end_date, final_price, pos_iv)
                 pnl_pc = pos['credit'] - spread_val
             else:
                 pnl_pc = None
@@ -304,12 +388,9 @@ class BacktesterFixed:
             # Get technical signals (same as live)
             technical_signals = self.technical_analyzer.analyze(ticker, price_data.loc[:date])
 
-            # Get options chain (synthetic for now, or real if historical_data available)
-            if self.historical_data:
-                # TODO: Implement real historical options data lookup
-                options_chain = self._get_synthetic_options_chain(ticker, date, current_price)
-            else:
-                options_chain = self._get_synthetic_options_chain(ticker, date, current_price)
+            # Get options chain (synthetic with realized vol from price history)
+            rv = self._realized_vol(price_data, date)
+            options_chain = self._get_synthetic_options_chain(ticker, date, current_price, sigma=rv)
 
             if options_chain.empty:
                 return None
@@ -395,68 +476,64 @@ class BacktesterFixed:
             return dt + timedelta(days=days_until_friday)  # Snap forward
         return dt - timedelta(days=(7 - days_until_friday))  # Snap backward
 
-    def _get_synthetic_options_chain(self, ticker: str, date: datetime, current_price: float) -> pd.DataFrame:
+    def _get_synthetic_options_chain(self, ticker: str, date: datetime,
+                                     current_price: float, sigma: float = 0.20) -> pd.DataFrame:
         """
-        Generate synthetic options chain for backtesting.
-        Uses enhanced pricing model (4.5x time value multiplier).
-        Expiration dates are snapped to Fridays for Polygon compatibility.
-        """
-        from scipy.stats import norm
+        Generate synthetic options chain using standard Black-Scholes pricing.
 
+        Uses realized volatility from price data (passed as sigma) instead of
+        a fixed IV.  Bid/ask spread is 6% wide (3% each side of mid), which
+        is realistic for liquid index ETF options.
+        """
         chain_data = []
         dte_values = [21, 30, 35, 45]
+        r = 0.045  # risk-free rate
 
         for dte in dte_values:
             exp_date = self._snap_to_friday(date + timedelta(days=dte))
-            iv = 0.25
             t = dte / 365.0
             sqrt_t = math.sqrt(t)
-            
-            # Generate strikes
-            strike_range = int(current_price * 0.20)
+
+            # Generate strikes around current price
+            strike_range = int(current_price * 0.15)
             strikes = range(
                 int(current_price - strike_range),
                 int(current_price + strike_range),
                 1
             )
-            
+
             for strike in strikes:
-                # Black-Scholes delta
-                moneyness = math.log(current_price / strike)
-                d1 = (moneyness + 0.5 * iv**2 * t) / (iv * sqrt_t)
-                
-                # Put
-                put_delta = norm.cdf(d1) - 1
+                # Standard BS d1 for delta calculation
+                d1 = (math.log(current_price / strike) + (r + 0.5 * sigma ** 2) * t) / (sigma * sqrt_t)
+
+                # --- Put ---
+                put_price = self._bs_option_price(current_price, strike, t, sigma, 'put', r)
+                put_delta = _norm.cdf(d1) - 1
                 put_delta = max(-0.99, min(-0.01, put_delta))
-                intrinsic_put = max(0, strike - current_price)
-                time_value = current_price * iv * sqrt_t * 4.5 * abs(put_delta)
-                put_price = intrinsic_put + time_value
-                
+
                 chain_data.append({
                     'type': 'put',
                     'strike': float(strike),
                     'expiration': exp_date,
                     'bid': max(0.01, put_price * 0.97),
-                    'ask': put_price * 1.03,
+                    'ask': max(0.02, put_price * 1.03),
                     'delta': put_delta,
-                    'iv': iv,
+                    'iv': sigma,
                 })
-                
-                # Call
-                call_delta = norm.cdf(d1)
+
+                # --- Call ---
+                call_price = self._bs_option_price(current_price, strike, t, sigma, 'call', r)
+                call_delta = _norm.cdf(d1)
                 call_delta = max(0.01, min(0.99, call_delta))
-                intrinsic_call = max(0, current_price - strike)
-                time_value = current_price * iv * sqrt_t * 4.5 * call_delta
-                call_price = intrinsic_call + time_value
-                
+
                 chain_data.append({
                     'type': 'call',
                     'strike': float(strike),
                     'expiration': exp_date,
                     'bid': max(0.01, call_price * 0.97),
-                    'ask': call_price * 1.03,
+                    'ask': max(0.02, call_price * 1.03),
                     'delta': call_delta,
-                    'iv': iv,
+                    'iv': sigma,
                 })
         
         return pd.DataFrame(chain_data)
@@ -597,22 +674,28 @@ class BacktesterFixed:
                     pricing_source = 'synthetic'
                     logger.debug(f"  No Polygon data for {opp['type']}, using synthetic credit=${credit:.2f}")
 
+        # Apply slippage: entry fills worse than mid (reduces credit received)
+        credit = round(credit - self.slippage, 2)
+        if credit <= 0:
+            return None
+
         spread_width = opp.get('spread_width', abs(opp['short_strike'] - opp['long_strike']))
+        max_loss = spread_width - credit
+
+        if max_loss <= 0:
+            return None
+
         risk_per_spread = max_loss * 100
         max_risk = self.capital * (self.risk_params['max_risk_per_trade'] / 100)
         min_contracts = self.risk_params.get('min_contracts', 1)
         max_contracts = self.risk_params.get('max_contracts', 20)
         contracts = max(min_contracts, min(max_contracts, int(max_risk / risk_per_spread)))
 
-        # Log scaling effect
-        base_contracts = max(min_contracts, min(max_contracts, int(
-            self.starting_capital * (self.risk_params['max_risk_per_trade'] / 100) / risk_per_spread
-        )))
-        if contracts != base_contracts:
-            logger.info(
-                f"  Scaling: {contracts} contracts (base would be {base_contracts}, "
-                f"capital=${self.capital:,.0f})"
-            )
+        # Commission is per-contract, per-leg (entry + exit)
+        legs = 4 if is_condor else 2
+        entry_commission = self.commission * legs * contracts
+        exit_commission = self.commission * legs * contracts
+        total_commission = entry_commission + exit_commission
 
         position = {
             'ticker': opp['ticker'],
@@ -627,8 +710,8 @@ class BacktesterFixed:
             'spread_width': spread_width,
             'score': opp.get('score', 0),
             'status': 'open',
-            'current_value': credit * contracts * 100,
-            'commission': commission_cost,
+            'current_value': 0,
+            'commission': total_commission,
             'pricing_source': pricing_source,
         }
 
@@ -645,13 +728,21 @@ class BacktesterFixed:
             call_cache_key = (opp['call_short_strike'], opp['call_long_strike'], opp['expiration'].isoformat())
             self._spread_price_cache[call_cache_key] = call_spread_prices
 
-        self.capital -= commission_cost
+        # Deduct entry commission from capital
+        self.capital -= entry_commission
         return position
 
     def _get_single_wing_value(self, short_strike: float, long_strike: float,
                                option_type: str, current_date: datetime,
-                               current_price: float, expiration_iso: str) -> float:
-        """Get current value of a single spread wing (put or call side)."""
+                               current_price: float, expiration_iso: str,
+                               sigma: float = 0.20, expiration_dt: datetime = None) -> float:
+        """
+        Get current value of a single spread wing (put or call side).
+
+        Priority:
+        1. Real Polygon cached prices (if available)
+        2. Black-Scholes model with realized vol (proper time-value decay)
+        """
         cache_key = (short_strike, long_strike, expiration_iso)
         spread_prices = self._spread_price_cache.get(cache_key)
 
@@ -661,24 +752,22 @@ class BacktesterFixed:
             if mask.any():
                 return spread_prices[mask].iloc[-1]['spread_value']
 
-        # Fallback: intrinsic value estimation
-        if option_type == 'put':
-            if current_price >= short_strike:
-                return 0.0
-            elif current_price <= long_strike:
-                return abs(short_strike - long_strike)
-            else:
-                return short_strike - current_price
+        # Fallback: Black-Scholes spread valuation (accounts for time value)
+        if expiration_dt is not None:
+            dte = max((expiration_dt - current_date).days, 0)
         else:
-            if current_price <= short_strike:
-                return 0.0
-            elif current_price >= long_strike:
-                return abs(long_strike - short_strike)
-            else:
-                return current_price - short_strike
+            # Parse from ISO string
+            try:
+                exp = datetime.fromisoformat(expiration_iso)
+                dte = max((exp - current_date).days, 0)
+            except (ValueError, TypeError):
+                dte = 0
+
+        return self._bs_spread_value(short_strike, long_strike, option_type,
+                                     current_price, dte, sigma)
 
     def _get_current_spread_value(self, pos: Dict, current_date: datetime,
-                                  current_price: float) -> float:
+                                  current_price: float, sigma: float = 0.20) -> float:
         """
         Get current spread cost-to-close.
 
@@ -686,15 +775,17 @@ class BacktesterFixed:
         ITM at a time, but we sum both for total cost-to-close).
         """
         exp_iso = pos['expiration'].isoformat()
+        exp_dt = pos['expiration']
+        iv = sigma
 
         if pos['type'] == 'iron_condor':
             put_val = self._get_single_wing_value(
                 pos['short_strike'], pos['long_strike'], 'put',
-                current_date, current_price, exp_iso
+                current_date, current_price, exp_iso, iv, exp_dt
             )
             call_val = self._get_single_wing_value(
                 pos['call_short_strike'], pos['call_long_strike'], 'call',
-                current_date, current_price, exp_iso
+                current_date, current_price, exp_iso, iv, exp_dt
             )
             return put_val + call_val
 
@@ -702,7 +793,7 @@ class BacktesterFixed:
         option_type = 'put' if 'put' in pos['type'].lower() else 'call'
         return self._get_single_wing_value(
             pos['short_strike'], pos['long_strike'], option_type,
-            current_date, current_price, exp_iso
+            current_date, current_price, exp_iso, iv, exp_dt
         )
 
     def _get_profit_target_pct(self, pos: Dict, current_date: datetime) -> float:
@@ -771,7 +862,8 @@ class BacktesterFixed:
         spread_width = pos.get('spread_width', abs(pos['short_strike'] - pos['long_strike']))
 
         # Cost to close the current losing position
-        cost_to_close = self._get_current_spread_value(pos, current_date, current_price)
+        pos_iv = pos.get('entry_iv', 0.20)
+        cost_to_close = self._get_current_spread_value(pos, current_date, current_price, pos_iv)
 
         # Find new expiration ~30 DTE from now
         new_expiration = self._snap_to_friday(current_date + timedelta(days=30))
@@ -822,6 +914,10 @@ class BacktesterFixed:
         old_total_credit = pos['credit']
         total_credit = round(old_total_credit + net_roll_credit, 2)
 
+        # Reject if total credit goes negative (no point running a "credit" spread at a net debit)
+        if total_credit <= 0:
+            return None
+
         is_condor = pos['type'] == 'iron_condor'
         leg_count = 4 if is_condor else 2
 
@@ -844,6 +940,7 @@ class BacktesterFixed:
             'rolls': rolls_done + 1,
             'roll_date': current_date,
             'original_credit': pos.get('original_credit', old_total_credit),
+            'entry_iv': pos.get('entry_iv', 0.20),
         }
 
         # Carry over iron condor call-side strikes
@@ -878,11 +975,12 @@ class BacktesterFixed:
         return rolled_pos
 
     def _manage_positions(self, positions: List[Dict], current_date: datetime,
-                         price_data: pd.DataFrame, ticker: str) -> List[Dict]:
+                         price_data: pd.DataFrame, ticker: str,
+                         sigma: float = 0.20) -> List[Dict]:
         """
         Manage open positions with intra-position exit logic.
 
-        Checks daily using real option prices (Polygon) or intrinsic estimation:
+        Checks daily using real option prices (Polygon) or BS estimation:
         - Expiration: close with actual P&L
         - Time-based profit target
         - Rolling: attempt roll before stop loss
@@ -901,17 +999,20 @@ class BacktesterFixed:
             credit = pos['credit']
             spread_type = pos['type']
 
+            # Use higher of current realized vol or entry IV (vol spikes hurt spreads)
+            pos_iv = max(sigma, pos.get('entry_iv', 0.20))
+
             # Check expiration first
             if current_date >= pos['expiration']:
-                current_spread_value = self._get_current_spread_value(pos, current_date, current_price)
+                current_spread_value = self._get_current_spread_value(pos, current_date, current_price, pos_iv)
                 pnl_per_contract = credit - current_spread_value
                 self._close_position(pos, current_date, "expired",
                                      underlying_price=current_price,
                                      real_pnl_per_contract=pnl_per_contract)
                 continue
 
-            # Get current spread value (real or estimated)
-            current_spread_value = self._get_current_spread_value(pos, current_date, current_price)
+            # Get current spread value (real Polygon or BS model)
+            current_spread_value = self._get_current_spread_value(pos, current_date, current_price, pos_iv)
             current_pnl_per_contract = credit - current_spread_value
 
             # Time-based profit target (takes less profit as DTE decreases)
@@ -957,28 +1058,29 @@ class BacktesterFixed:
         Close a position with P&L calculation.
 
         If real_pnl_per_contract is provided (from real Polygon option prices or
-        daily management), use it directly. Otherwise fall back to intrinsic
-        value estimation from the underlying price.
+        daily management), use it directly. Otherwise fall back to BS estimation.
+
+        Slippage is added to the cost-to-close (buying back costs more than mid).
+        Commission (entry + exit) was pre-computed at position creation.
         """
         credit = position['credit']
         contracts = position['contracts']
-        short_strike = position['short_strike']
-        long_strike = position['long_strike']
-        spread_width = abs(short_strike - long_strike)
 
         if real_pnl_per_contract is not None:
-            # Use the real P&L passed from management (based on real option prices or intrinsic)
-            pnl_per_contract = real_pnl_per_contract
+            # Apply exit slippage: closing costs more than theoretical value
+            pnl_per_contract = real_pnl_per_contract - self.slippage
         elif reason in ("expired", "backtest_end") and underlying_price is not None:
-            # Fallback: use _get_current_spread_value which handles condors too
-            spread_val = self._get_current_spread_value(position, close_date, underlying_price)
-            pnl_per_contract = credit - spread_val
+            pos_iv = position.get('entry_iv', 0.20)
+            spread_val = self._get_current_spread_value(position, close_date, underlying_price, pos_iv)
+            pnl_per_contract = credit - spread_val - self.slippage
         else:
             pnl_per_contract = credit
 
         pnl = pnl_per_contract * contracts * 100
-        commission = position.get('commission', 0)
-        pnl -= commission
+
+        # Deduct exit commission (total_commission = entry + exit; entry already deducted)
+        exit_commission = position.get('commission', 0) / 2  # half is exit
+        pnl -= exit_commission
 
         self.capital += pnl
         position['exit_date'] = close_date
