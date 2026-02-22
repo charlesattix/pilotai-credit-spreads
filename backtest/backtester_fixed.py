@@ -271,7 +271,7 @@ class BacktesterFixed:
             logger.debug(f"Same-expiration limit ({same_exp_count} >= {max_same_exp})")
             return False
 
-        # Check correlation group limits
+        # Check correlation group limits (position count based)
         corr_groups = self.risk_params.get('correlation_groups', {})
         new_ticker = new_pos['ticker']
         for group_name, group_cfg in corr_groups.items():
@@ -279,15 +279,14 @@ class BacktesterFixed:
             if new_ticker not in group_tickers:
                 continue
 
-            max_group_pct = group_cfg.get('max_group_risk_pct', 18)
-            group_risk = sum(
-                p['max_loss'] * p['contracts'] * 100
-                for p in open_positions if p['ticker'] in group_tickers
+            max_corr_positions = group_cfg.get('max_correlated_positions', 3)
+            group_count = sum(
+                1 for p in open_positions if p['ticker'] in group_tickers
             )
-            if (group_risk + new_risk) / self.capital > max_group_pct / 100:
+            if group_count >= max_corr_positions:
                 logger.debug(
                     f"Correlation group '{group_name}' limit: "
-                    f"{(group_risk + new_risk)/self.capital:.1%} > {max_group_pct}%"
+                    f"{group_count} positions >= {max_corr_positions} max"
                 )
                 return False
 
@@ -358,11 +357,24 @@ class BacktesterFixed:
                     except Exception as e:
                         logger.warning(f"ML scoring failed, using rules-based: {e}")
 
+            # Log opportunity types for diagnostics
+            type_counts = {}
+            for o in opportunities:
+                t = o.get('type', 'unknown')
+                type_counts[t] = type_counts.get(t, 0) + 1
+            if type_counts:
+                logger.debug(f"  {ticker} {date.date()} opportunities: {type_counts}")
+
             # Filter by score threshold
             valid_opps = [o for o in opportunities if o.get('score', 0) >= self.score_threshold]
-            
+
             if not valid_opps:
                 return None
+
+            # Prefer iron condors when available (they collect from both sides)
+            condors = [o for o in valid_opps if o['type'] == 'iron_condor']
+            if condors:
+                return max(condors, key=lambda x: x.get('score', 0))
 
             # Return top opportunity
             return max(valid_opps, key=lambda x: x.get('score', 0))
@@ -468,61 +480,124 @@ class BacktesterFixed:
             logger.error(f"Failed to get historical data for {ticker}: {e}")
             return pd.DataFrame()
 
+    def _fetch_leg_prices(self, ticker: str, expiration, short_strike: float,
+                          long_strike: float, option_type: str,
+                          entry_date: datetime) -> Optional[pd.DataFrame]:
+        """Fetch spread price history for a single leg pair from Polygon."""
+        if not self.polygon_provider:
+            return None
+        return self.polygon_provider.get_spread_historical_prices(
+            underlying=ticker,
+            expiration=expiration,
+            short_strike=short_strike,
+            long_strike=long_strike,
+            option_type=option_type,
+            start_date=entry_date - timedelta(days=1),
+            end_date=expiration + timedelta(days=1),
+        )
+
+    def _get_entry_credit(self, spread_prices: Optional[pd.DataFrame],
+                          entry_date: datetime) -> Optional[float]:
+        """Extract credit from spread price data on entry date."""
+        if spread_prices is None or spread_prices.empty:
+            return None
+        entry_mask = spread_prices.index >= pd.Timestamp(entry_date).normalize()
+        if not entry_mask.any():
+            return None
+        val = spread_prices[entry_mask].iloc[0]['spread_value']
+        return val if val > 0 else None
+
     def _opportunity_to_position(self, opp: Dict, entry_date: datetime) -> Optional[Dict]:
         """
-        Convert opportunity to position using real Polygon prices.
+        Convert opportunity to position using real Polygon prices when available,
+        falling back to synthetic pricing when Polygon data is missing.
 
-        If polygon_provider is set, trades WITHOUT real Polygon pricing data
-        are SKIPPED entirely (no synthetic fallback).
+        Handles both single spreads (bull_put, bear_call) and iron condors
+        (4 legs = put wing + call wing). For condors, fetches both wings
+        from Polygon independently and uses synthetic for any missing wing.
         """
-        commission_cost = self.commission * 2
+        is_condor = opp['type'] == 'iron_condor'
+        # Condors have 4 legs (2 commissions per wing)
+        commission_cost = self.commission * (4 if is_condor else 2)
         max_loss = opp.get('max_loss', 0)
 
         if max_loss <= 0:
             return None
 
         credit = opp['credit']
-        spread_prices = None
+        pricing_source = 'synthetic'
+        put_spread_prices = None
+        call_spread_prices = None
 
-        # If Polygon provider available, fetch real option prices for both legs
         if self.polygon_provider:
             ticker = opp['ticker']
             expiration = opp['expiration']
-            short_strike = opp['short_strike']
-            long_strike = opp['long_strike']
-            option_type = 'put' if 'put' in opp['type'].lower() else 'call'
 
-            spread_prices = self.polygon_provider.get_spread_historical_prices(
-                underlying=ticker,
-                expiration=expiration,
-                short_strike=short_strike,
-                long_strike=long_strike,
-                option_type=option_type,
-                start_date=entry_date - timedelta(days=1),
-                end_date=expiration + timedelta(days=1),
-            )
+            if is_condor:
+                # Iron condor: fetch both put wing and call wing
+                put_spread_prices = self._fetch_leg_prices(
+                    ticker, expiration,
+                    opp['short_strike'], opp['long_strike'], 'put', entry_date
+                )
+                call_spread_prices = self._fetch_leg_prices(
+                    ticker, expiration,
+                    opp['call_short_strike'], opp['call_long_strike'], 'call', entry_date
+                )
 
-            if spread_prices is not None and not spread_prices.empty:
-                # Find entry date price (closest date on or after entry)
-                entry_mask = spread_prices.index >= pd.Timestamp(entry_date).normalize()
-                if entry_mask.any():
-                    entry_row = spread_prices[entry_mask].iloc[0]
-                    real_credit = entry_row['spread_value']
-                    if real_credit > 0:
-                        credit = real_credit
-                        max_loss = abs(short_strike - long_strike) - credit
-                        logger.info(f"  Real entry credit: ${credit:.2f} (synthetic was ${opp['credit']:.2f})")
-                    else:
-                        logger.debug(f"  Real credit non-positive ({real_credit:.2f}), skipping trade")
-                        return None
+                put_credit = self._get_entry_credit(put_spread_prices, entry_date)
+                call_credit = self._get_entry_credit(call_spread_prices, entry_date)
+
+                if put_credit is not None and call_credit is not None:
+                    # Both wings have real data
+                    credit = round(put_credit + call_credit, 2)
+                    spread_width = opp['spread_width']
+                    max_loss = spread_width - credit
+                    pricing_source = 'polygon'
+                    logger.info(f"  Real condor credit: ${credit:.2f} (put=${put_credit:.2f} + call=${call_credit:.2f})")
+                elif put_credit is not None:
+                    # Only put wing has real data — use real put + synthetic call
+                    syn_call_credit = opp.get('call_credit', opp['credit'] / 2)
+                    credit = round(put_credit + syn_call_credit, 2)
+                    spread_width = opp['spread_width']
+                    max_loss = spread_width - credit
+                    pricing_source = 'partial_polygon'
+                    put_spread_prices = put_spread_prices  # keep for cache
+                    call_spread_prices = None
+                    logger.info(f"  Partial condor: real put=${put_credit:.2f} + synthetic call=${syn_call_credit:.2f}")
+                elif call_credit is not None:
+                    # Only call wing has real data — use synthetic put + real call
+                    syn_put_credit = opp.get('put_credit', opp['credit'] / 2)
+                    credit = round(syn_put_credit + call_credit, 2)
+                    spread_width = opp['spread_width']
+                    max_loss = spread_width - credit
+                    pricing_source = 'partial_polygon'
+                    put_spread_prices = None
+                    call_spread_prices = call_spread_prices  # keep for cache
+                    logger.info(f"  Partial condor: synthetic put=${syn_put_credit:.2f} + real call=${call_credit:.2f}")
                 else:
-                    logger.debug(f"  No real price data on entry date {entry_date.date()}, skipping trade")
-                    return None
+                    # No Polygon data for either wing — use full synthetic credit
+                    pricing_source = 'synthetic'
+                    logger.debug(f"  No Polygon data for condor wings, using synthetic credit=${credit:.2f}")
             else:
-                logger.debug(f"  No Polygon data for {opp['type']} {short_strike}/{long_strike}, skipping trade")
-                return None
+                # Single spread
+                option_type = 'put' if 'put' in opp['type'].lower() else 'call'
+                put_spread_prices = self._fetch_leg_prices(
+                    ticker, expiration,
+                    opp['short_strike'], opp['long_strike'], option_type, entry_date
+                )
+                real_credit = self._get_entry_credit(put_spread_prices, entry_date)
 
-        spread_width = abs(opp['short_strike'] - opp['long_strike'])
+                if real_credit is not None:
+                    credit = real_credit
+                    max_loss = abs(opp['short_strike'] - opp['long_strike']) - credit
+                    pricing_source = 'polygon'
+                    logger.info(f"  Real entry credit: ${credit:.2f} (synthetic was ${opp['credit']:.2f})")
+                else:
+                    # Fall back to synthetic credit instead of skipping
+                    pricing_source = 'synthetic'
+                    logger.debug(f"  No Polygon data for {opp['type']}, using synthetic credit=${credit:.2f}")
+
+        spread_width = opp.get('spread_width', abs(opp['short_strike'] - opp['long_strike']))
         risk_per_spread = max_loss * 100
         max_risk = self.capital * (self.risk_params['max_risk_per_trade'] / 100)
         min_contracts = self.risk_params.get('min_contracts', 1)
@@ -554,41 +629,40 @@ class BacktesterFixed:
             'status': 'open',
             'current_value': credit * contracts * 100,
             'commission': commission_cost,
-            'pricing_source': 'polygon',
+            'pricing_source': pricing_source,
         }
 
-        # Cache the spread prices for daily management
+        # Iron condor: store call side strikes
+        if is_condor:
+            position['call_short_strike'] = opp['call_short_strike']
+            position['call_long_strike'] = opp['call_long_strike']
+
+        # Cache spread prices for daily management
         cache_key = (opp['short_strike'], opp['long_strike'], opp['expiration'].isoformat())
-        self._spread_price_cache[cache_key] = spread_prices
+        self._spread_price_cache[cache_key] = put_spread_prices
+
+        if is_condor and call_spread_prices is not None:
+            call_cache_key = (opp['call_short_strike'], opp['call_long_strike'], opp['expiration'].isoformat())
+            self._spread_price_cache[call_cache_key] = call_spread_prices
 
         self.capital -= commission_cost
         return position
 
-    def _get_current_spread_value(self, pos: Dict, current_date: datetime,
-                                  current_price: float) -> float:
-        """
-        Get current spread cost-to-close.
-
-        Uses real Polygon option prices if cached, otherwise falls back to
-        intrinsic value estimation from underlying price.
-        """
-        cache_key = (pos['short_strike'], pos['long_strike'], pos['expiration'].isoformat())
+    def _get_single_wing_value(self, short_strike: float, long_strike: float,
+                               option_type: str, current_date: datetime,
+                               current_price: float, expiration_iso: str) -> float:
+        """Get current value of a single spread wing (put or call side)."""
+        cache_key = (short_strike, long_strike, expiration_iso)
         spread_prices = self._spread_price_cache.get(cache_key)
 
         if spread_prices is not None:
-            # Use real option prices
             date_ts = pd.Timestamp(current_date).normalize()
             mask = spread_prices.index <= date_ts
             if mask.any():
-                row = spread_prices[mask].iloc[-1]
-                return row['spread_value']
+                return spread_prices[mask].iloc[-1]['spread_value']
 
-        # Fallback: estimate from underlying price (intrinsic value only)
-        short_strike = pos['short_strike']
-        long_strike = pos['long_strike']
-        spread_type = pos['type']
-
-        if 'put' in spread_type.lower():
+        # Fallback: intrinsic value estimation
+        if option_type == 'put':
             if current_price >= short_strike:
                 return 0.0
             elif current_price <= long_strike:
@@ -602,6 +676,34 @@ class BacktesterFixed:
                 return abs(long_strike - short_strike)
             else:
                 return current_price - short_strike
+
+    def _get_current_spread_value(self, pos: Dict, current_date: datetime,
+                                  current_price: float) -> float:
+        """
+        Get current spread cost-to-close.
+
+        For iron condors, values both wings independently (only one can be
+        ITM at a time, but we sum both for total cost-to-close).
+        """
+        exp_iso = pos['expiration'].isoformat()
+
+        if pos['type'] == 'iron_condor':
+            put_val = self._get_single_wing_value(
+                pos['short_strike'], pos['long_strike'], 'put',
+                current_date, current_price, exp_iso
+            )
+            call_val = self._get_single_wing_value(
+                pos['call_short_strike'], pos['call_long_strike'], 'call',
+                current_date, current_price, exp_iso
+            )
+            return put_val + call_val
+
+        # Single spread
+        option_type = 'put' if 'put' in pos['type'].lower() else 'call'
+        return self._get_single_wing_value(
+            pos['short_strike'], pos['long_strike'], option_type,
+            current_date, current_price, exp_iso
+        )
 
     def _get_profit_target_pct(self, pos: Dict, current_date: datetime) -> float:
         """
@@ -678,7 +780,7 @@ class BacktesterFixed:
         new_credit = None
         new_spread_prices = None
 
-        if self.polygon_provider:
+        if self.polygon_provider and pos['type'] != 'iron_condor':
             option_type = 'put' if 'put' in pos['type'].lower() else 'call'
             new_spread_prices = self.polygon_provider.get_spread_historical_prices(
                 underlying=pos['ticker'],
@@ -720,6 +822,9 @@ class BacktesterFixed:
         old_total_credit = pos['credit']
         total_credit = round(old_total_credit + net_roll_credit, 2)
 
+        is_condor = pos['type'] == 'iron_condor'
+        leg_count = 4 if is_condor else 2
+
         rolled_pos = {
             'ticker': pos['ticker'],
             'type': pos['type'],
@@ -734,12 +839,17 @@ class BacktesterFixed:
             'score': pos.get('score', 0),
             'status': 'open',
             'current_value': 0,
-            'commission': pos.get('commission', 0) + self.commission * 2,
+            'commission': pos.get('commission', 0) + self.commission * leg_count,
             'pricing_source': pos.get('pricing_source', 'polygon'),
             'rolls': rolls_done + 1,
             'roll_date': current_date,
             'original_credit': pos.get('original_credit', old_total_credit),
         }
+
+        # Carry over iron condor call-side strikes
+        if is_condor:
+            rolled_pos['call_short_strike'] = pos['call_short_strike']
+            rolled_pos['call_long_strike'] = pos['call_long_strike']
 
         # Cache new spread prices if we have real data
         if new_spread_prices is not None:
@@ -750,8 +860,13 @@ class BacktesterFixed:
         old_cache_key = (pos['short_strike'], pos['long_strike'], pos['expiration'].isoformat())
         self._spread_price_cache.pop(old_cache_key, None)
 
-        # Pay commission for the roll (close + open = 4 legs)
-        roll_commission = self.commission * 4 * pos['contracts']
+        # Clean up condor call-side cache
+        if is_condor:
+            old_call_key = (pos.get('call_short_strike'), pos.get('call_long_strike'), pos['expiration'].isoformat())
+            self._spread_price_cache.pop(old_call_key, None)
+
+        # Pay commission for the roll (close + open = double the legs)
+        roll_commission = self.commission * (leg_count * 2) * pos['contracts']
         self.capital -= roll_commission
 
         logger.info(
@@ -855,25 +970,9 @@ class BacktesterFixed:
             # Use the real P&L passed from management (based on real option prices or intrinsic)
             pnl_per_contract = real_pnl_per_contract
         elif reason in ("expired", "backtest_end") and underlying_price is not None:
-            # Fallback: calculate from underlying price vs strikes
-            spread_type = position['type']
-
-            if 'put' in spread_type.lower():
-                if underlying_price >= short_strike:
-                    pnl_per_contract = credit
-                elif underlying_price <= long_strike:
-                    pnl_per_contract = credit - spread_width
-                else:
-                    intrinsic = short_strike - underlying_price
-                    pnl_per_contract = credit - intrinsic
-            else:
-                if underlying_price <= short_strike:
-                    pnl_per_contract = credit
-                elif underlying_price >= long_strike:
-                    pnl_per_contract = credit - spread_width
-                else:
-                    intrinsic = underlying_price - short_strike
-                    pnl_per_contract = credit - intrinsic
+            # Fallback: use _get_current_spread_value which handles condors too
+            spread_val = self._get_current_spread_value(position, close_date, underlying_price)
+            pnl_per_contract = credit - spread_val
         else:
             pnl_per_contract = credit
 
@@ -891,8 +990,12 @@ class BacktesterFixed:
         self.trades.append(position)
 
         # Clean up cached spread prices
-        cache_key = (position['short_strike'], position['long_strike'], position['expiration'].isoformat())
+        exp_iso = position['expiration'].isoformat()
+        cache_key = (position['short_strike'], position['long_strike'], exp_iso)
         self._spread_price_cache.pop(cache_key, None)
+        if position['type'] == 'iron_condor':
+            call_key = (position.get('call_short_strike'), position.get('call_long_strike'), exp_iso)
+            self._spread_price_cache.pop(call_key, None)
 
     def _calculate_results(self) -> Dict:
         """Calculate backtest results."""

@@ -280,15 +280,12 @@ class CreditSpreadStrategy:
         if not iv_check:
             return []
 
-        # In low IV: relax trend filter — condors work in any trend
-        # In normal/high IV: require neutral trend
-        trend = technical_signals.get('trend', '')
-        if prefer_in_low_iv and iv_rank < low_iv_threshold:
-            # Low IV: allow condors in any non-extreme trend
-            pass  # No trend filter
-        else:
-            if trend not in ('neutral',):
-                return []
+        # Trend filter for condors:
+        # - Low IV (< threshold): allow any trend (condors are the primary strategy)
+        # - High IV: allow any trend too — the RSI filter (30-70) already ensures
+        #   range-bound conditions, and high IV means rich premium on both sides.
+        #   No need to also require neutral trend, which is too restrictive.
+        # The RSI filter below is the real guard against directional markets.
 
         # RSI must be in range-bound zone
         rsi = technical_signals.get('rsi', 50)
@@ -302,9 +299,9 @@ class CreditSpreadStrategy:
         for expiration in valid_expirations:
             exp_chain = option_chain[option_chain['expiration'] == expiration]
 
-            # Find both wings — _find_spreads works regardless of trend
-            bull_puts = self._find_spreads(ticker, exp_chain, current_price, expiration, 'bull_put', iv_data=iv_data)
-            bear_calls = self._find_spreads(ticker, exp_chain, current_price, expiration, 'bear_call', iv_data=iv_data)
+            # Find both wings — relaxed credit filter for individual legs
+            bull_puts = self._find_spreads(ticker, exp_chain, current_price, expiration, 'bull_put', iv_data=iv_data, for_condor=True)
+            bear_calls = self._find_spreads(ticker, exp_chain, current_price, expiration, 'bear_call', iv_data=iv_data, for_condor=True)
 
             if not bull_puts or not bear_calls:
                 continue
@@ -317,6 +314,14 @@ class CreditSpreadStrategy:
                         continue
 
                     combined_credit = round(bp['credit'] + bc['credit'], 2)
+
+                    # Synthetic pricing can overestimate individual wing credits.
+                    # In reality, combined condor credit is typically 20-50% of
+                    # one wing's width. Cap at 50% so max_loss stays positive.
+                    # Real Polygon prices replace this in the backtester anyway.
+                    if combined_credit > spread_width * 0.50:
+                        combined_credit = round(spread_width * 0.35, 2)
+
                     # Max loss = width of one wing - total credit (only one side can lose)
                     max_loss = round(spread_width - combined_credit, 2)
 
@@ -345,11 +350,11 @@ class CreditSpreadStrategy:
                         # Put side (reuse existing fields)
                         'short_strike': bp['short_strike'],
                         'long_strike': bp['long_strike'],
-                        'put_credit': bp['credit'],
+                        'put_credit': min(bp['credit'], spread_width * 0.25),
                         # Call side
                         'call_short_strike': bc['short_strike'],
                         'call_long_strike': bc['long_strike'],
-                        'call_credit': bc['credit'],
+                        'call_credit': min(bc['credit'], spread_width * 0.25),
                         # Combined
                         'credit': combined_credit,
                         'max_loss': max_loss,
@@ -377,6 +382,7 @@ class CreditSpreadStrategy:
         expiration: datetime,
         spread_type: str,
         iv_data: Optional[Dict] = None,
+        for_condor: bool = False,
     ) -> List[SpreadOpportunity]:
         """
         Find credit spread opportunities.
@@ -388,6 +394,7 @@ class CreditSpreadStrategy:
             expiration: Option expiration date
             spread_type: 'bull_put' or 'bear_call'
             iv_data: IV rank/percentile data for dynamic width selection
+            for_condor: If True, relax min credit (combined credit checked later)
 
         Returns:
             List of spread opportunity dicts
@@ -452,9 +459,14 @@ class CreditSpreadStrategy:
             max_loss = spread_width - credit
 
             # Check minimum credit requirement
-            min_credit = spread_width * (self.risk_params['min_credit_pct'] / 100)
-            if credit < min_credit:
-                continue
+            # For condor legs, use a low floor (combined credit checked later)
+            if for_condor:
+                if credit < 0.01:
+                    continue
+            else:
+                min_credit = spread_width * (self.risk_params['min_credit_pct'] / 100)
+                if credit < min_credit:
+                    continue
 
             exp_aware = expiration if expiration.tzinfo else expiration.replace(tzinfo=timezone.utc)
             dte = (exp_aware - datetime.now(timezone.utc)).days
