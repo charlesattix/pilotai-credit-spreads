@@ -225,8 +225,16 @@ class BacktesterFixed:
             if current_date.weekday() in scan_days:
                 scans_performed += 1
 
+                # Drawdown circuit breaker: pause new entries when equity is down > 15%
+                current_dd = (self.capital - self.starting_capital) / self.starting_capital
+                skip_new_entries = current_dd < -0.15
+                if skip_new_entries:
+                    logger.info(f"  Drawdown circuit breaker ({current_dd:.1%}), skipping new entries")
+
                 # Scan each ticker for opportunities
                 for scan_ticker in all_price_data:
+                    if skip_new_entries:
+                        break
                     if len(open_positions) >= max_positions:
                         break
 
@@ -452,12 +460,9 @@ class BacktesterFixed:
             if not valid_opps:
                 return None
 
-            # Prefer iron condors when available (they collect from both sides)
-            condors = [o for o in valid_opps if o['type'] == 'iron_condor']
-            if condors:
-                return max(condors, key=lambda x: x.get('score', 0))
-
-            # Return top opportunity
+            # Select the highest-scoring opportunity.
+            # Iron condors and directional spreads compete on score alone —
+            # the strategy's scoring already factors in trend and IV.
             return max(valid_opps, key=lambda x: x.get('score', 0))
 
         except Exception as e:
@@ -680,6 +685,11 @@ class BacktesterFixed:
             return None
 
         spread_width = opp.get('spread_width', abs(opp['short_strike'] - opp['long_strike']))
+
+        # Cap credit at 95% of spread width (prevent impossible credits)
+        if credit > spread_width * 0.95:
+            credit = round(spread_width * 0.95, 2)
+
         max_loss = spread_width - credit
 
         if max_loss <= 0:
@@ -798,44 +808,36 @@ class BacktesterFixed:
 
     def _get_profit_target_pct(self, pos: Dict, current_date: datetime) -> float:
         """
-        Profit target as fraction of credit, adjusted by time remaining.
+        Profit target as fraction of credit.
 
-        Early in the trade we're patient (40%). As DTE decreases theta
-        accelerates so we take smaller profits to free capital and reduce
-        gamma risk.
-
-        30+ DTE: Take 40% profit
-        20-30 DTE: Take 30% profit
-        <20 DTE: Take 20% profit (and close before expiration week risk)
+        Flat 50% — take half the credit as profit. The old time-based
+        reduction (40% → 30% → 20%) left too much money on the table
+        and resulted in tiny wins vs large losses.
         """
-        dte_remaining = (pos['expiration'] - current_date).days
-
-        if dte_remaining >= 30:
-            return 0.40
-        elif dte_remaining >= 20:
-            return 0.30
-        else:
-            return 0.20
+        return 0.50
 
     def _get_dynamic_stop_value(self, pos: Dict, current_date: datetime) -> float:
         """
         Width-based stop that tightens as DTE decreases (gamma risk increases).
 
         Returns the spread value threshold that triggers a stop loss.
+        Uses a wider base (75% of width) to let positions breathe, since
+        credit spreads have defined max-loss — premature stops lock in
+        losses that would have recovered.
         """
         spread_width = pos.get('spread_width', abs(pos['short_strike'] - pos['long_strike']))
-        base_pct = self.risk_params.get('stop_loss_pct_of_width', 50) / 100
+        base_pct = self.risk_params.get('stop_loss_pct_of_width', 75) / 100
 
         dte_remaining = (pos['expiration'] - current_date).days
 
         if dte_remaining > 21:
-            return spread_width * base_pct         # e.g., 50% of $10 = $5.00
+            return spread_width * base_pct           # e.g., 75% of $10 = $7.50
         elif dte_remaining > 14:
-            return spread_width * (base_pct - 0.10)  # 40% = $4.00
+            return spread_width * (base_pct - 0.05)  # 70% = $7.00
         elif dte_remaining > 7:
-            return spread_width * (base_pct - 0.15)  # 35% = $3.50
+            return spread_width * (base_pct - 0.10)  # 65% = $6.50
         else:
-            return spread_width * (base_pct - 0.20)  # 30% = $3.00
+            return spread_width * (base_pct - 0.15)  # 60% = $6.00
 
     def _attempt_roll(self, pos: Dict, current_date: datetime,
                       current_price: float) -> Optional[Dict]:

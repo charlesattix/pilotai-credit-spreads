@@ -111,14 +111,7 @@ class CreditSpreadStrategy:
                 as_of_date=as_of_date
             )
 
-            # In low IV, prefer condors over single-direction spreads
-            iv_rank = iv_data.get('iv_rank', 0)
-            low_iv_threshold = condor_config.get('low_iv_threshold', 30)
-            if condor_config.get('prefer_in_low_iv', True) and iv_rank < low_iv_threshold and condors:
-                # Low IV: return only condors (they collect from both sides)
-                scored = self._score_opportunities(condors, technical_signals, iv_data)
-                return scored
-
+            # Include condors alongside directional spreads — let scoring decide
             opportunities.extend(condors)
 
         # Score and rank opportunities
