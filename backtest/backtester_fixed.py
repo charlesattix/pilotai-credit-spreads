@@ -607,21 +607,22 @@ class BacktesterFixed:
         """
         Profit target as fraction of credit, adjusted by time remaining.
 
-        >21 DTE: Take 50% profit (normal — theta hasn't kicked in yet)
-        14-21 DTE: Take 40% profit (theta accelerating, capture gains)
-        7-14 DTE: Take 25% profit (gamma risk rising, take what you can)
-        <7 DTE: Take any profit (close before expiration week)
+        Early in the trade we're patient (40%). As DTE decreases theta
+        accelerates so we take smaller profits to free capital and reduce
+        gamma risk.
+
+        30+ DTE: Take 40% profit
+        20-30 DTE: Take 30% profit
+        <20 DTE: Take 20% profit (and close before expiration week risk)
         """
         dte_remaining = (pos['expiration'] - current_date).days
 
-        if dte_remaining > 21:
-            return 0.50
-        elif dte_remaining > 14:
+        if dte_remaining >= 30:
             return 0.40
-        elif dte_remaining > 7:
-            return 0.25
+        elif dte_remaining >= 20:
+            return 0.30
         else:
-            return 0.01  # Take any profit in final week
+            return 0.20
 
     def _get_dynamic_stop_value(self, pos: Dict, current_date: datetime) -> float:
         """
@@ -648,8 +649,13 @@ class BacktesterFixed:
         """
         Attempt to roll a losing position to a later expiration.
 
-        Closes the current position and opens a new one at the same strikes
-        but ~30 DTE out, collecting additional credit to lower cost basis.
+        A roll = close current spread (pay cost_to_close) + open same strikes
+        at new expiration ~30 DTE out (receive new_credit).
+
+        The roll is accepted if the new credit alone is meaningful (>= min_roll_credit),
+        regardless of what we pay to close the current. This is standard practice:
+        the losing position is a sunk cost; what matters is whether the new position
+        has a positive expected value.
 
         Returns new position dict if roll succeeds, None if it should stop out.
         """
@@ -660,11 +666,16 @@ class BacktesterFixed:
         if rolls_done >= self.max_rolls:
             return None
 
+        spread_width = pos.get('spread_width', abs(pos['short_strike'] - pos['long_strike']))
+
+        # Cost to close the current losing position
+        cost_to_close = self._get_current_spread_value(pos, current_date, current_price)
+
         # Find new expiration ~30 DTE from now
         new_expiration = self._snap_to_friday(current_date + timedelta(days=30))
 
         # Try to get real Polygon pricing for the new expiration
-        additional_credit = None
+        new_credit = None
         new_spread_prices = None
 
         if self.polygon_provider:
@@ -682,22 +693,33 @@ class BacktesterFixed:
             if new_spread_prices is not None and not new_spread_prices.empty:
                 entry_mask = new_spread_prices.index >= pd.Timestamp(current_date).normalize()
                 if entry_mask.any():
-                    new_entry_row = new_spread_prices[entry_mask].iloc[0]
-                    new_credit = new_entry_row['spread_value']
+                    new_credit = new_spread_prices[entry_mask].iloc[0]['spread_value']
 
-                    # Current spread value is what we'd pay to close
-                    current_spread_value = self._get_current_spread_value(
-                        pos, current_date, current_price
-                    )
+        # Fallback: estimate new credit from the original credit ratio.
+        # At 30 DTE the same-strike spread typically collects similar credit
+        # to the original entry (both are ~30-45 DTE trades).
+        if new_credit is None:
+            # Estimate: original credit * time-value factor (30 DTE has ~80% of 45 DTE theta)
+            original_credit = pos.get('original_credit', pos['credit'])
+            new_credit = original_credit * 0.80
+            new_spread_prices = None  # No real prices to cache
 
-                    # Additional credit = new credit - cost to close current
-                    additional_credit = new_credit - current_spread_value
-
-        if additional_credit is None or additional_credit < self.min_roll_credit:
+        # Accept the roll if new credit is meaningful
+        if new_credit < self.min_roll_credit:
             return None
 
-        # Execute the roll: create new position with combined credit
-        old_credit = pos['credit']
+        # Net roll credit = new_credit - cost_to_close (can be negative = net debit)
+        net_roll_credit = new_credit - cost_to_close
+
+        # Reject if the roll is too expensive (net debit > 50% of spread width)
+        if net_roll_credit < -(spread_width * 0.50):
+            return None
+
+        # Execute the roll
+        # Total credit for the rolled position = original credit received + net roll credit
+        old_total_credit = pos['credit']
+        total_credit = round(old_total_credit + net_roll_credit, 2)
+
         rolled_pos = {
             'ticker': pos['ticker'],
             'type': pos['type'],
@@ -705,34 +727,37 @@ class BacktesterFixed:
             'expiration': new_expiration,
             'short_strike': pos['short_strike'],
             'long_strike': pos['long_strike'],
-            'credit': round(old_credit + additional_credit, 2),
+            'credit': total_credit,
             'contracts': pos['contracts'],
-            'max_loss': pos.get('spread_width', abs(pos['short_strike'] - pos['long_strike'])) - (old_credit + additional_credit),
+            'max_loss': spread_width - max(total_credit, 0),
+            'spread_width': spread_width,
             'score': pos.get('score', 0),
             'status': 'open',
             'current_value': 0,
             'commission': pos.get('commission', 0) + self.commission * 2,
-            'pricing_source': 'polygon',
+            'pricing_source': pos.get('pricing_source', 'polygon'),
             'rolls': rolls_done + 1,
             'roll_date': current_date,
-            'original_credit': pos.get('original_credit', old_credit),
-            'spread_width': pos.get('spread_width', abs(pos['short_strike'] - pos['long_strike'])),
+            'original_credit': pos.get('original_credit', old_total_credit),
         }
 
-        # Cache new spread prices
-        cache_key = (pos['short_strike'], pos['long_strike'], new_expiration.isoformat())
-        self._spread_price_cache[cache_key] = new_spread_prices
+        # Cache new spread prices if we have real data
+        if new_spread_prices is not None:
+            cache_key = (pos['short_strike'], pos['long_strike'], new_expiration.isoformat())
+            self._spread_price_cache[cache_key] = new_spread_prices
 
         # Clean up old cache
         old_cache_key = (pos['short_strike'], pos['long_strike'], pos['expiration'].isoformat())
         self._spread_price_cache.pop(old_cache_key, None)
 
-        # Pay commission for the roll
-        self.capital -= self.commission * 2
+        # Pay commission for the roll (close + open = 4 legs)
+        roll_commission = self.commission * 4 * pos['contracts']
+        self.capital -= roll_commission
 
         logger.info(
             f"  Rolled {pos['ticker']} {pos['type']} to {new_expiration.date()} "
-            f"(+${additional_credit:.2f} credit, total=${rolled_pos['credit']:.2f})"
+            f"(close=${cost_to_close:.2f}, new=${new_credit:.2f}, "
+            f"net=${net_roll_credit:.2f}, total_credit=${total_credit:.2f})"
         )
 
         return rolled_pos
