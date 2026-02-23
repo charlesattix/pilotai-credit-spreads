@@ -64,6 +64,17 @@ case "$1" in
       echo "WARNING: Web server not healthy after ${MAX_TRIES}s, starting scheduler anyway"
     fi
 
+    # Extra stabilisation delay after healthcheck passes: gives Railway time to
+    # mark the deployment healthy before the CPU-heavy scheduler init begins.
+    echo "Waiting 60s for deployment to stabilise before starting scheduler..."
+    sleep 60
+
+    if [ "${ENABLE_SCHEDULER:-false}" != "true" ]; then
+      echo "ENABLE_SCHEDULER is not 'true' — skipping scheduler (web-only mode)"
+      wait $WEB_PID
+      exit $?
+    fi
+
     echo "Starting scan scheduler..."
     python3 /app/main.py scheduler &
     SCHED_PID=$!
