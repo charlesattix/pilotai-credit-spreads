@@ -15,16 +15,28 @@ strategy:
   # Manage positions at this DTE or earlier
   manage_dte: 21
 
-  # Target delta for short strike (0.10-0.15 recommended)
-  min_delta: 0.10
-  max_delta: 0.15
+  # Target delta for short strike (0.20-0.30 = 3-5% OTM for meaningful credit)
+  min_delta: 0.20
+  max_delta: 0.30
 
-  # Width of spreads in dollars
-  spread_width: 5
+  # Width of spreads in dollars (dynamic based on IV)
+  spread_width: 10            # Default width
+  spread_width_high_iv: 15    # When IV rank > 50
+  spread_width_low_iv: 10     # When IV rank 25-50
 
   # IV Rank filters (enter when IV is elevated)
-  min_iv_rank: 25  # IV Rank minimum (0-100)
-  min_iv_percentile: 25  # IV Percentile minimum (0-100)
+  min_iv_rank: 12  # IV Rank minimum (0-100) - lowered for more opportunities
+  min_iv_percentile: 12  # IV Percentile minimum (0-100) - lowered for more opportunities
+
+  # Iron condor parameters
+  iron_condor:
+    enabled: true
+    prefer_in_low_iv: true       # Default to condors when IV rank < 30
+    low_iv_threshold: 30         # IV rank below this = prefer condors
+    min_combined_credit_pct: 20  # Min combined credit as % of one wing width
+    max_wing_width: 10           # Each wing matches spread_width
+    rsi_min: 30                  # Relaxed from 35
+    rsi_max: 70                  # Relaxed from 65
 
   # Technical filters
   technical:
@@ -47,22 +59,50 @@ risk:
   account_size: 100000
 
   # Max risk per trade as % of account
-  max_risk_per_trade: 2.0  # 2%
+  max_risk_per_trade: 8.0  # 8% — deploy meaningful capital per trade
+
+  # Contract limits
+  min_contracts: 1
+  max_contracts: 25  # Higher cap for high-credit trades
 
   # Max number of concurrent positions
-  max_positions: 7
+  max_positions: 6
+  max_positions_per_ticker: 2  # Allow 2 per ticker for more opportunity
+
+  # Scan days (0=Mon ... 4=Fri) — scan every trading day for maximum opportunity
+  scan_days: [0, 1, 2, 3, 4]
 
   # Profit target (% of credit received)
   profit_target: 50  # Close at 50% profit
 
-  # Stop loss (multiple of credit received)
-  stop_loss_multiplier: 2.5  # Exit if loss = 2.5x credit
+  # Stop loss — width-based (replaces old credit-based multiplier)
+  # Exit when spread value reaches this % of spread width
+  stop_loss_pct_of_width: 75  # Wide stop — let positions breathe (75% of $10 = $7.50)
+  stop_loss_multiplier: 2.5   # DEPRECATED — kept for backward compat
 
   # Delta threshold for early exit
   delta_threshold: 0.30  # Exit if short strike delta exceeds this
 
   # Minimum credit to collect (% of spread width)
-  min_credit_pct: 20  # Collect at least 20% of spread width
+  min_credit_pct: 15  # Collect at least 15% of spread width (realistic with BS pricing)
+
+  # Portfolio-level risk limits
+  portfolio_risk:
+    max_portfolio_risk_pct: 40   # Max 40% of account at risk across all positions
+    max_single_ticker_pct: 16    # Max 16% in any single underlying
+    max_same_expiration: 4       # Max 4 positions expiring same week
+
+  # Correlation groups: tickers in same group share a combined position cap
+  # SPY, QQQ, IWM are all equity indices and highly correlated in drawdowns
+  correlation_groups:
+    equity_indices:
+      tickers: [SPY, QQQ, IWM]
+      max_correlated_positions: 5  # Max 5 positions across all correlated tickers
+
+  # Rolling — disabled: data shows 85-91% of rolled losers still lost
+  enable_rolling: false
+  max_rolls_per_position: 0      # No rolls — accept loss and redeploy capital
+  min_roll_credit: 0.30          # N/A when rolling disabled
 
 # Alert Settings
 alerts:
@@ -78,7 +118,7 @@ alerts:
 
   # Telegram settings
   telegram:
-    enabled: false  # Set to true when configured
+    enabled: true
     bot_token: "${TELEGRAM_BOT_TOKEN}"
     chat_id: "${TELEGRAM_CHAT_ID}"
 
@@ -126,6 +166,9 @@ backtest:
 
   # Slippage (dollars per spread)
   slippage: 0.05
+
+  # Score threshold for backtest opportunities
+  score_threshold: 25
 
   # Generate reports
   generate_reports: true
