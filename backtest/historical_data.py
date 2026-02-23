@@ -1,6 +1,7 @@
 """
 Historical Options Data Provider
 Fetches real historical options prices from Polygon.io and caches locally in SQLite.
+Supports both daily OHLCV bars and intraday 5-min bars for realistic backtesting.
 """
 
 import logging
@@ -8,14 +9,17 @@ import os
 import sqlite3
 import time
 import random
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Dict, List, Optional, Tuple
 
+import pytz
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from shared.constants import DATA_DIR
+
+ET = pytz.timezone("America/New_York")
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +84,21 @@ class HistoricalOptionsData:
                 contract_symbol TEXT NOT NULL,
                 as_of_date      TEXT NOT NULL,
                 PRIMARY KEY (ticker, expiration, strike, option_type)
+            )
+        """)
+        # Intraday 5-min bars: bar_time stored as "HH:MM" in ET.
+        # Sentinel row bar_time="FETCHED" marks a date we already tried (no data).
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS option_intraday (
+                contract_symbol TEXT NOT NULL,
+                date            TEXT NOT NULL,
+                bar_time        TEXT NOT NULL,
+                open            REAL,
+                high            REAL,
+                low             REAL,
+                close           REAL,
+                volume          INTEGER,
+                PRIMARY KEY (contract_symbol, date, bar_time)
             )
         """)
         self._conn.commit()
@@ -330,6 +349,163 @@ class HistoricalOptionsData:
         }
 
     # ------------------------------------------------------------------
+    # Intraday 5-min bar support
+    # ------------------------------------------------------------------
+
+    def get_intraday_bar(
+        self, symbol: str, date_str: str, hour: int, minute: int
+    ) -> Optional[Dict]:
+        """Get the 5-min intraday bar for an option contract at or just before a scan time.
+
+        All times are in ET.  Falls back to the most-recent earlier bar on that
+        date when there is no bar that starts exactly at (hour, minute).
+
+        Args:
+            symbol: OCC symbol (e.g. "O:SPY250321P00450000")
+            date_str: Date string "YYYY-MM-DD"
+            hour: ET hour of the scan (e.g. 9 for 9:15)
+            minute: ET minute of the scan (e.g. 15)
+
+        Returns:
+            Dict with keys open/high/low/close/volume, or None if no data.
+        """
+        time_str = f"{hour:02d}:{minute:02d}"
+        cur = self._conn.cursor()
+
+        # Check whether we've already fetched this contract+date (any row exists)
+        cur.execute(
+            "SELECT 1 FROM option_intraday WHERE contract_symbol = ? AND date = ? LIMIT 1",
+            (symbol, date_str),
+        )
+        if cur.fetchone() is None:
+            self._fetch_and_cache_intraday(symbol, date_str)
+
+        # Return exact match or closest earlier bar (excludes sentinel "FETCHED")
+        cur.execute(
+            "SELECT open, high, low, close, volume FROM option_intraday "
+            "WHERE contract_symbol = ? AND date = ? AND bar_time <= ? AND bar_time != 'FETCHED' "
+            "ORDER BY bar_time DESC LIMIT 1",
+            (symbol, date_str, time_str),
+        )
+        row = cur.fetchone()
+        if row is not None and row[3] is not None:
+            return {"open": row[0], "high": row[1], "low": row[2], "close": row[3], "volume": row[4]}
+
+        return None
+
+    def _fetch_and_cache_intraday(self, symbol: str, date_str: str):
+        """Fetch all 5-min bars for one option contract on a single date.
+
+        Calls /v2/aggs/ticker/{symbol}/range/5/minute/{date}/{date}.
+        Converts UTC millisecond timestamps to ET "HH:MM" strings before caching.
+        Inserts a sentinel row ("FETCHED") when Polygon returns no data so we
+        do not re-fetch the same empty date on subsequent lookups.
+        """
+        data = self._api_get(
+            f"/v2/aggs/ticker/{symbol}/range/5/minute/{date_str}/{date_str}",
+            params={"adjusted": "true", "sort": "asc", "limit": 1000},
+        )
+
+        cur = self._conn.cursor()
+        results = data.get("results", [])
+
+        if not results:
+            # Sentinel: date fetched, no bars available
+            cur.execute(
+                "INSERT OR IGNORE INTO option_intraday (contract_symbol, date, bar_time) "
+                "VALUES (?, ?, 'FETCHED')",
+                (symbol, date_str),
+            )
+            self._conn.commit()
+            logger.debug("No intraday data from Polygon for %s on %s", symbol, date_str)
+            return
+
+        rows = []
+        for bar in results:
+            ts = bar.get("t", 0)
+            dt_utc = datetime.utcfromtimestamp(ts / 1000).replace(tzinfo=timezone.utc)
+            dt_et = dt_utc.astimezone(ET)
+            bar_time = dt_et.strftime("%H:%M")
+            bar_date = dt_et.strftime("%Y-%m-%d")
+            rows.append((
+                symbol,
+                bar_date,
+                bar_time,
+                bar.get("o"),
+                bar.get("h"),
+                bar.get("l"),
+                bar.get("c"),
+                bar.get("v", 0),
+            ))
+
+        cur.executemany(
+            "INSERT OR IGNORE INTO option_intraday "
+            "(contract_symbol, date, bar_time, open, high, low, close, volume) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+        self._conn.commit()
+        logger.debug("Cached %d intraday bars for %s on %s", len(rows), symbol, date_str)
+
+    def get_intraday_spread_prices(
+        self,
+        ticker: str,
+        expiration: datetime,
+        short_strike: float,
+        long_strike: float,
+        option_type: str,
+        date_str: str,
+        hour: int,
+        minute: int,
+    ) -> Optional[Dict]:
+        """Get intraday spread prices at a specific scan time with bid/ask-modeled slippage.
+
+        Slippage is estimated from each leg's intraday bar high-low range:
+          slippage = (short_bar.high - short_bar.low)/2 + (long_bar.high - long_bar.low)/2
+
+        Args:
+            ticker: Underlying ticker
+            expiration: Expiration datetime
+            short_strike: Short leg strike
+            long_strike: Long leg strike
+            option_type: "P" or "C"
+            date_str: Date "YYYY-MM-DD"
+            hour: Scan time hour in ET
+            minute: Scan time minute in ET
+
+        Returns:
+            Dict with spread_value, short_close, long_close, slippage, or None.
+        """
+        short_sym = self.build_occ_symbol(ticker, expiration, short_strike, option_type)
+        long_sym = self.build_occ_symbol(ticker, expiration, long_strike, option_type)
+
+        short_bar = self.get_intraday_bar(short_sym, date_str, hour, minute)
+        long_bar = self.get_intraday_bar(long_sym, date_str, hour, minute)
+
+        if short_bar is None or long_bar is None:
+            return None
+
+        short_close = short_bar["close"]
+        long_close = long_bar["close"]
+
+        if short_close is None or long_close is None:
+            return None
+
+        spread_value = short_close - long_close
+
+        # Model bid/ask slippage from bar high-low range (half-spread per leg)
+        sh_hl = short_bar["high"] - short_bar["low"] if (short_bar["high"] and short_bar["low"]) else 0.0
+        lg_hl = long_bar["high"] - long_bar["low"] if (long_bar["high"] and long_bar["low"]) else 0.0
+        slippage = sh_hl / 2 + lg_hl / 2
+
+        return {
+            "short_close": short_close,
+            "long_close": long_close,
+            "spread_value": spread_value,
+            "slippage": slippage,
+        }
+
+    # ------------------------------------------------------------------
     # Polygon API helpers
     # ------------------------------------------------------------------
 
@@ -382,5 +558,6 @@ class HistoricalOptionsData:
         cur = self._conn.cursor()
         cur.execute("DELETE FROM option_daily")
         cur.execute("DELETE FROM option_contracts")
+        cur.execute("DELETE FROM option_intraday")
         self._conn.commit()
         logger.info("Options cache cleared")

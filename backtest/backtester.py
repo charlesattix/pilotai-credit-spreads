@@ -6,11 +6,13 @@ Tests credit spread strategies against historical data using real option prices.
 import logging
 import math
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
+
+from shared.scheduler import SCAN_TIMES
 
 logger = logging.getLogger(__name__)
 
@@ -110,22 +112,42 @@ class Backtester:
                 open_positions, current_date, current_price, ticker
             )
 
-            # Look for new opportunities (once per week)
-            if current_date.weekday() == 0:  # Monday
-                if len(open_positions) < self.risk_params['max_positions']:
+            # Look for new opportunities.
+            # Real-data mode: simulate all 14 intraday scan times per trading day.
+            # Heuristic mode: one scan per week on Monday (backward compat).
+            if self._use_real_data:
+                for scan_hour, scan_minute in SCAN_TIMES:
+                    if len(open_positions) >= self.risk_params['max_positions']:
+                        break
                     new_position = self._find_backtest_opportunity(
-                        ticker, current_date, current_price, price_data
+                        ticker, current_date, current_price, price_data,
+                        scan_hour=scan_hour, scan_minute=scan_minute,
                     )
                     if new_position:
                         open_positions.append(new_position)
-
-                    # Also look for bear call spread if no bull put was opened
-                    if not new_position and len(open_positions) < self.risk_params['max_positions']:
+                    elif len(open_positions) < self.risk_params['max_positions']:
                         bear_call = self._find_bear_call_opportunity(
-                            ticker, current_date, current_price, price_data
+                            ticker, current_date, current_price, price_data,
+                            scan_hour=scan_hour, scan_minute=scan_minute,
                         )
                         if bear_call:
                             open_positions.append(bear_call)
+            else:
+                # Heuristic mode: one opportunity scan per week on Monday
+                if current_date.weekday() == 0:
+                    if len(open_positions) < self.risk_params['max_positions']:
+                        new_position = self._find_backtest_opportunity(
+                            ticker, current_date, current_price, price_data
+                        )
+                        if new_position:
+                            open_positions.append(new_position)
+
+                        if not new_position and len(open_positions) < self.risk_params['max_positions']:
+                            bear_call = self._find_bear_call_opportunity(
+                                ticker, current_date, current_price, price_data
+                            )
+                            if bear_call:
+                                open_positions.append(bear_call)
 
             # Record equity
             position_value = sum(pos.get('current_value', 0) for pos in open_positions)
@@ -176,6 +198,8 @@ class Backtester:
         date: datetime,
         price: float,
         price_data: pd.DataFrame,
+        scan_hour: Optional[int] = None,
+        scan_minute: Optional[int] = None,
     ) -> Optional[Dict]:
         """Find a bull put spread opportunity."""
         recent_data = price_data.loc[:date].tail(50)
@@ -197,6 +221,7 @@ class Backtester:
             return self._find_real_spread(
                 ticker, date, date_str, price, expiration,
                 spread_width, option_type="P",
+                scan_hour=scan_hour, scan_minute=scan_minute,
             )
         else:
             return self._find_heuristic_spread(
@@ -209,6 +234,8 @@ class Backtester:
         date: datetime,
         price: float,
         price_data: pd.DataFrame,
+        scan_hour: Optional[int] = None,
+        scan_minute: Optional[int] = None,
     ) -> Optional[Dict]:
         """Find a bear call spread opportunity (bearish/neutral trend)."""
         recent_data = price_data.loc[:date].tail(50)
@@ -230,6 +257,7 @@ class Backtester:
             return self._find_real_spread(
                 ticker, date, date_str, price, expiration,
                 spread_width, option_type="C",
+                scan_hour=scan_hour, scan_minute=scan_minute,
             )
         else:
             return self._find_heuristic_spread(
@@ -245,8 +273,16 @@ class Backtester:
         expiration: datetime,
         spread_width: float,
         option_type: str,
+        scan_hour: Optional[int] = None,
+        scan_minute: Optional[int] = None,
     ) -> Optional[Dict]:
-        """Find a spread using real historical option prices from Polygon."""
+        """Find a spread using real historical option prices from Polygon.
+
+        When scan_hour/scan_minute are provided, uses 5-min intraday bars for
+        entry pricing and models slippage from the actual bar bid/ask spread
+        width (bar high - bar low).  Falls back to daily close when no scan
+        time is given (legacy daily mode).
+        """
         exp_str = expiration.strftime("%Y-%m-%d")
         ot = option_type[0].upper()
 
@@ -262,11 +298,10 @@ class Backtester:
         # Pick short strike ~5% OTM
         if ot == "P":
             target_short = price * 0.95  # 5% below for puts
-            # Find closest strike <= target
             candidates = [s for s in strikes if s <= target_short]
             if not candidates:
                 return None
-            short_strike = max(candidates)  # Closest to target from below
+            short_strike = max(candidates)
             long_strike = short_strike - spread_width
             spread_type = "bull_put_spread"
         else:
@@ -274,33 +309,41 @@ class Backtester:
             candidates = [s for s in strikes if s >= target_short]
             if not candidates:
                 return None
-            short_strike = min(candidates)  # Closest to target from above
+            short_strike = min(candidates)
             long_strike = short_strike + spread_width
             spread_type = "bear_call_spread"
 
-        # Get real prices
-        prices = self.historical_data.get_spread_prices(
-            ticker, expiration, short_strike, long_strike, ot, date_str,
-        )
+        use_intraday = scan_hour is not None and scan_minute is not None
+
+        def _get_prices(ss: float, ls: float) -> Optional[Dict]:
+            if use_intraday:
+                return self.historical_data.get_intraday_spread_prices(
+                    ticker, expiration, ss, ls, ot,
+                    date_str, scan_hour, scan_minute,
+                )
+            return self.historical_data.get_spread_prices(
+                ticker, expiration, ss, ls, ot, date_str,
+            )
+
+        prices = _get_prices(short_strike, long_strike)
 
         if prices is None:
             # Try adjacent strikes (+/- $1)
             for offset in [1, -1, 2, -2]:
                 alt_short = short_strike + offset
-                if ot == "P":
-                    alt_long = alt_short - spread_width
-                else:
-                    alt_long = alt_short + spread_width
-                prices = self.historical_data.get_spread_prices(
-                    ticker, expiration, alt_short, alt_long, ot, date_str,
-                )
+                alt_long = alt_short - spread_width if ot == "P" else alt_short + spread_width
+                prices = _get_prices(alt_short, alt_long)
                 if prices is not None:
                     short_strike = alt_short
                     long_strike = alt_long
                     break
 
         if prices is None:
-            logger.debug("No price data for spread %s %s/%s on %s", ticker, short_strike, long_strike, date_str)
+            logger.debug(
+                "No %s price data for spread %s %s/%s on %s",
+                "intraday" if use_intraday else "daily",
+                ticker, short_strike, long_strike, date_str,
+            )
             return None
 
         credit = prices["spread_value"]
@@ -311,12 +354,12 @@ class Backtester:
             logger.debug("Credit $%.2f below minimum $%.2f, skipping", credit, min_credit)
             return None
 
-        # Negative credit shouldn't happen but guard against it
         if credit <= 0:
             return None
 
-        # Apply slippage
-        credit -= self.slippage
+        # Slippage: use bid/ask-modeled value from intraday bar, or config flat value
+        slippage = prices.get("slippage", self.slippage)
+        credit -= slippage
         if credit <= 0:
             return None
 
@@ -324,7 +367,6 @@ class Backtester:
 
         max_loss = spread_width - credit
 
-        # Calculate contracts based on risk
         risk_per_spread = max_loss * 100
         if risk_per_spread <= 0:
             return None
@@ -347,13 +389,16 @@ class Backtester:
             'status': 'open',
             'current_value': credit * contracts * 100,
             'option_type': ot,
+            'entry_scan_time': f"{scan_hour:02d}:{scan_minute:02d}" if use_intraday else None,
+            'slippage_applied': slippage,
         }
 
         self.capital -= commission_cost
 
         logger.debug(
-            "Opened %s: %s %s/%s credit=$%.2f (%d contracts)",
-            spread_type, ticker, short_strike, long_strike, credit, contracts,
+            "Opened %s: %s %s/%s credit=$%.2f slippage=$%.3f (%d contracts)%s",
+            spread_type, ticker, short_strike, long_strike, credit, slippage, contracts,
+            f" @ {position['entry_scan_time']} ET" if use_intraday else "",
         )
 
         return position

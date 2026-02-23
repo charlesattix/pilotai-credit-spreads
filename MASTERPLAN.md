@@ -5,11 +5,39 @@
 **Path:** `/Users/charlesbot/projects/pilotai-credit-spreads`  
 **Status:** 🔴 CRITICAL - P0 IN PROGRESS  
 **Created:** 2026-02-19  
-**Last Updated:** 2026-02-21 11:32 AM ET
+**Last Updated:** 2026-02-23 11:40 AM ET
 
 ---
 
-## 🔥 P0 CRITICAL PRIORITY (Carlos Directive - Feb 21, 11:32 AM)
+## 🔥 P0 #1 CRITICAL PRIORITY (Carlos Directive - Feb 23, 11:38 AM)
+
+**"We need to backtest in the same scenarios how we trade. This is flawed cause we are trading at all these times and the backtesting is only once a day."**
+
+**Mission:** Rewrite backtester to use **intraday option prices** matching our live trading schedule, not daily close prices.
+
+**The Problem:**
+- **Live trading**: 14 intraday scans (every 30 min, 9:15 AM - 3:30 PM ET), entries at real-time prices
+- **Backtesting**: 1 entry per day at daily close price with flat $0.05 slippage
+- **Result**: Backtest results are meaningless — they don't validate our actual intraday strategy
+
+**Required Changes:**
+1. **Intraday option data**: Use Polygon's 1-min or 5-min option bars (not daily close)
+2. **Simulate 30-min scan intervals**: Entries at the same times we trade live (9:15, 9:45, 10:15, etc.)
+3. **Realistic bid/ask modeling**: Use actual spread width from intraday bars, not flat $0.05
+4. **Files to refactor**: `backtest/historical_data.py`, `backtest/backtester.py`
+5. **Polygon endpoint**: `/v2/aggs/ticker/{ticker}/range/5/minute/{from}/{to}` for intraday bars
+
+**Acceptance Criteria:**
+- Backtester simulates entries at 14 intraday time slots per day
+- Uses intraday option prices (not daily close)
+- Slippage modeled from actual bid/ask spread width
+- Results are directly comparable to live paper trading performance
+
+**Status:** ✅ COMPLETE — Feb 23, 2026
+
+---
+
+## 🔥 P0 #2 CRITICAL PRIORITY (Carlos Directive - Feb 21, 11:32 AM)
 
 **"Top of the MASTERPLAN is to identify alert settings that yield positive trades and P&L every week of the year. This is top critical priority. Without this, the project is a massive failure."**
 
@@ -17,11 +45,12 @@
 
 **Approach:**
 1. Use REAL Polygon historical options data (commit dcac405 backtester)
-2. Run systematic backtest matrix across filter combinations
-3. Identify settings that produce positive P&L every week
-4. Deploy winning configuration to production
+2. **FIRST: Fix backtester to use intraday data (P0 #1 above)**
+3. Run systematic backtest matrix across filter combinations
+4. Identify settings that produce positive P&L every week
+5. Deploy winning configuration to production
 
-**Status:** 🔄 IN PROGRESS - Running backtest iterations now
+**Status:** 🔄 BLOCKED on P0 #1 (intraday backtester rewrite)
 
 ---
 
