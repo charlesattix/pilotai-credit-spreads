@@ -137,6 +137,13 @@ class SentimentScanner:
             logger.error(f"Error scanning {ticker}: {e}", exc_info=True)
             return self._get_default_scan()
 
+    # ETFs and indices that never have earnings — skip yfinance fundamentals call
+    _NO_EARNINGS_TICKERS = frozenset({
+        'SPY', 'QQQ', 'IWM', 'DIA', 'XLF', 'XLE', 'XLK', 'XLV', 'XLI',
+        'XLP', 'XLU', 'XLB', 'XLC', 'XLRE', 'XLY', 'TLT', 'HYG', 'GLD',
+        'SLV', 'EEM', 'EFA', 'VTI', 'VOO', 'ARKK', 'TQQQ', 'SQQQ',
+    })
+
     def _check_earnings(
         self,
         ticker: str,
@@ -146,6 +153,10 @@ class SentimentScanner:
         """
         Check for earnings announcements.
         """
+        # ETFs/indices never have earnings — skip the network call entirely
+        if ticker.upper() in self._NO_EARNINGS_TICKERS:
+            return None
+
         try:
             # Check cache first
             if ticker in self.earnings_cache:

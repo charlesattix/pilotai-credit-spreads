@@ -140,6 +140,8 @@ class MLPipeline:
         current_positions: Optional[list] = None,
         regime: Optional[Dict] = None,
         market_features: Optional[Dict] = None,
+        spread_credit: float = 0.0,
+        spread_max_loss: float = 0.0,
     ) -> TradeAnalysis:
         """
         Comprehensive ML-enhanced trade analysis.
@@ -206,14 +208,13 @@ class MLPipeline:
             result['event_risk'] = event_scan
 
             # 6. Position sizing
-            # Derive expected return/loss from actual spread parameters when available
-            # Credit spreads: return = credit/max_loss, loss = -1.0 (full max loss)
-            credit = iv_analysis.get('credit', 0) if isinstance(iv_analysis, dict) else 0
-            max_loss = iv_analysis.get('max_loss', 0) if isinstance(iv_analysis, dict) else 0
-            if credit > 0 and max_loss > 0:
-                expected_return = credit / max_loss  # actual return on risk
+            # Use actual spread credit/max_loss when available (passed from caller).
+            # Credit spreads: return = credit/max_loss, loss = -1.0 (full risk).
+            if spread_credit > 0 and spread_max_loss > 0:
+                expected_return = spread_credit / spread_max_loss
             else:
-                expected_return = 0.30  # fallback: 30% return on risk
+                # Fallback: typical credit spread collects ~25% of width
+                expected_return = 0.25 / 0.75  # ≈ 0.333
             expected_loss = -1.0  # max loss = full risk amount
 
             position_sizing = self.position_sizer.calculate_position_size(
@@ -305,9 +306,9 @@ class MLPipeline:
 
             # Regime direction mismatch penalty: if high-confidence regime
             # contradicts the spread direction, penalize the score.
-            # e.g., mean_reverting with >95% confidence but spread is directional
-            if regime_confidence > 0.95:
-                spread_type = analysis.get('spread_type', '')
+            # Iron condors are FAVORED in mean_reverting (neutral strategy).
+            spread_type = analysis.get('spread_type', '')
+            if regime_confidence > 0.95 and spread_type not in ('iron_condor',):
                 regime_mismatch = False
                 if regime == 'mean_reverting' and spread_type in ('bull_put', 'bear_call'):
                     # High-confidence mean-reverting but taking a directional bet
@@ -317,10 +318,13 @@ class MLPipeline:
                 if regime_mismatch:
                     penalty = 15 * regime_confidence
                     score -= penalty
-                    logger.warning(
+                    logger.info(
                         f"Regime-direction mismatch: {regime} ({regime_confidence:.0%} confidence) "
                         f"vs {spread_type} spread. Reducing score by {penalty:.1f}."
                     )
+            elif regime == 'mean_reverting' and spread_type == 'iron_condor':
+                # Iron condors thrive in mean-reverting regimes — bonus
+                score += 10 * regime_confidence
 
             # 3. IV analysis (0-15 points)
             iv_signals = analysis['iv_analysis']['signals']

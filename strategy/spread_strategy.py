@@ -299,9 +299,13 @@ class CreditSpreadStrategy:
             if not bull_puts or not bear_calls:
                 continue
 
+            # Limit to top 3 of each wing by credit to avoid O(N^2) explosion
+            bull_puts_top = sorted(bull_puts, key=lambda x: x['credit'], reverse=True)[:3]
+            bear_calls_top = sorted(bear_calls, key=lambda x: x['credit'], reverse=True)[:3]
+
             # Pair best bull put with best bear call on this expiration
-            for bp in bull_puts:
-                for bc in bear_calls:
+            for bp in bull_puts_top:
+                for bc in bear_calls_top:
                     # Validate non-overlapping: put short strike < call short strike
                     if bp['short_strike'] >= bc['short_strike']:
                         continue

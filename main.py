@@ -233,14 +233,34 @@ class CreditSpreadSystem:
             # Enhance with ML scoring if available
             if self.ml_pipeline and opportunities:
                 try:
-                    for opp in opportunities:
-                        spread_type = 'bull_put' if 'put' in opp.get('type', '') else 'bear_call'
+                    # Compute regime ONCE per ticker (not per-opportunity)
+                    regime_data = self.ml_pipeline.regime_detector.detect_regime(ticker=ticker)
+                    market_features = self.ml_pipeline.feature_engine._compute_market_features()
+
+                    # Limit to top 10 opportunities to avoid combinatorial explosion
+                    # (iron condors can generate O(N^2) pairs per expiration)
+                    ml_candidates = opportunities[:10]
+
+                    for opp in ml_candidates:
+                        # Map spread type correctly — iron condors are neutral, not directional
+                        opp_type = opp.get('type', '').lower()
+                        if 'condor' in opp_type:
+                            spread_type = 'iron_condor'
+                        elif 'put' in opp_type:
+                            spread_type = 'bull_put'
+                        else:
+                            spread_type = 'bear_call'
+
                         ml_result = self.ml_pipeline.analyze_trade(
                             ticker=ticker,
                             current_price=current_price,
                             options_chain=options_chain,
                             spread_type=spread_type,
                             technical_signals=technical_signals,
+                            regime=regime_data,
+                            market_features=market_features,
+                            spread_credit=opp.get('credit', 0),
+                            spread_max_loss=opp.get('max_loss', 0),
                         )
                         # Blend ML score with rules-based score (60% ML, 40% rules)
                         rules_score = opp.get('score', 50)
