@@ -27,7 +27,7 @@ const DB_PATH_ALT = path.join(process.cwd(), 'data', 'pilotai.db')
 let _db: DatabaseInstance | null = null
 let _dbFailed = false
 
-function getDb(): DatabaseInstance | null {
+export function getDb(): DatabaseInstance | null {
   if (_db) return _db
   if (_dbFailed || !DatabaseConstructor) return null
 
