@@ -16,6 +16,43 @@ from shared.scheduler import SCAN_TIMES
 
 logger = logging.getLogger(__name__)
 
+# Scan times that have actual option bars (9:15 is pre-open; bars start at 9:30)
+_FIRST_BAR_HOUR = 9
+_FIRST_BAR_MINUTE = 30
+
+
+def _nearest_friday_expiration(
+    date: datetime, target_dte: int = 35, min_dte: int = 25
+) -> datetime:
+    """Return the nearest Friday options expiration around *target_dte* days out.
+
+    Options expire on Fridays (weeklies / monthlies).  A naive
+    ``date + timedelta(35)`` usually lands on a weekday with no contracts,
+    causing ``get_available_strikes`` to return nothing.  This function snaps
+    to the Friday closest to the target, ensuring at least *min_dte* days of
+    time value remain.
+
+    Args:
+        date: Entry / evaluation date.
+        target_dte: Desired days-to-expiration (default 35).
+        min_dte: Minimum acceptable DTE (default 25).
+
+    Returns:
+        A datetime set to midnight of the target Friday.
+    """
+    target = date + timedelta(days=target_dte)
+    # (weekday - 4) % 7: number of days since the most-recent Friday
+    days_since_friday = (target.weekday() - 4) % 7
+    friday_before = target - timedelta(days=days_since_friday)
+    friday_after = friday_before + timedelta(days=7)
+
+    min_exp = date + timedelta(days=min_dte)
+
+    # Prefer the closer Friday; fall through to friday_after if too soon
+    if days_since_friday <= 3 and friday_before >= min_exp:
+        return friday_before
+    return friday_after
+
 
 class Backtester:
     """
@@ -73,8 +110,13 @@ class Backtester:
         """
         logger.info(f"Starting backtest for {ticker}: {start_date} to {end_date}")
 
-        # Get historical price data
-        price_data = self._get_historical_data(ticker, start_date, end_date)
+        # Fetch 30 extra calendar days before start so the MA20 is valid on day 1
+        # (MA20 needs 20 trading days ≈ 28 calendar days of history)
+        _MA_WARMUP_DAYS = 30
+        data_fetch_start = start_date - timedelta(days=_MA_WARMUP_DAYS)
+
+        # Get historical price data (with MA warmup prefix)
+        price_data = self._get_historical_data(ticker, data_fetch_start, end_date)
 
         if price_data.empty:
             logger.error(f"No historical data for {ticker}")
@@ -95,7 +137,7 @@ class Backtester:
             price_data.index = price_data.index.tz_localize(None)
         trading_dates = set(price_data.index)
 
-        # Simulate trading day by day
+        # Simulate trading day by day — start at backtest start, not the warmup prefix
         current_date = start_date
 
         while current_date <= end_date:
@@ -106,6 +148,11 @@ class Backtester:
                 continue
 
             current_price = float(price_data.loc[lookup_date, 'Close'])
+
+            logger.debug(
+                "%s  price=%.2f  open_positions=%d",
+                current_date.strftime("%Y-%m-%d"), current_price, len(open_positions),
+            )
 
             # Check existing positions
             open_positions = self._manage_positions(
@@ -158,7 +205,11 @@ class Backtester:
 
         # Close any remaining positions
         for pos in open_positions:
-            self._close_position(pos, end_date, current_price, 'backtest_end')
+            if self._use_real_data:
+                # Mark-to-market using the final daily close spread value
+                self._close_at_expiration_real(pos, end_date)
+            else:
+                self._close_position(pos, end_date, current_price, 'backtest_end')
 
         # Calculate performance metrics
         results = self._calculate_results()
@@ -212,8 +263,8 @@ class Backtester:
         if price < ma20:
             return None
 
-        # Expiration: 35 DTE
-        expiration = date + timedelta(days=35)
+        # Expiration: nearest Friday around 35 DTE (options only expire on Fridays)
+        expiration = _nearest_friday_expiration(date)
         date_str = date.strftime("%Y-%m-%d")
         spread_width = self.strategy_params['spread_width']
 
@@ -249,7 +300,7 @@ class Backtester:
             # Price above MA — bullish, skip bear calls
             return None
 
-        expiration = date + timedelta(days=35)
+        expiration = _nearest_friday_expiration(date)
         date_str = date.strftime("%Y-%m-%d")
         spread_width = self.strategy_params['spread_width']
 
@@ -313,7 +364,15 @@ class Backtester:
             long_strike = short_strike + spread_width
             spread_type = "bear_call_spread"
 
-        use_intraday = scan_hour is not None and scan_minute is not None
+        # Use intraday pricing only when a scan time is given AND options are open
+        # (options market opens at 9:30 ET; the 9:15 scan runs pre-open)
+        scan_time_mins = (scan_hour or 0) * 60 + (scan_minute or 0)
+        market_open_mins = _FIRST_BAR_HOUR * 60 + _FIRST_BAR_MINUTE  # 9:30 = 570
+        use_intraday = (
+            scan_hour is not None
+            and scan_minute is not None
+            and scan_time_mins >= market_open_mins
+        )
 
         def _get_prices(ss: float, ls: float) -> Optional[Dict]:
             if use_intraday:
@@ -348,13 +407,18 @@ class Backtester:
 
         credit = prices["spread_value"]
 
-        # Minimum credit filter: skip if credit < 20% of spread width
-        min_credit = spread_width * 0.20
-        if credit < min_credit:
-            logger.debug("Credit $%.2f below minimum $%.2f, skipping", credit, min_credit)
+        if credit <= 0:
             return None
 
-        if credit <= 0:
+        # Minimum credit filter: use config min_credit_pct (same threshold as live scanner)
+        min_credit_pct = self.strategy_params.get('min_credit_pct', 15) / 100
+        min_credit = spread_width * min_credit_pct
+        if credit < min_credit:
+            scan_tag = f" [{scan_hour:02d}:{scan_minute:02d} ET]" if use_intraday else ""
+            logger.debug(
+                "Credit $%.2f below minimum $%.2f (%.0f%% of $%.0fw) on %s%s — skipping",
+                credit, min_credit, min_credit_pct * 100, spread_width, date_str, scan_tag,
+            )
             return None
 
         # Slippage: use bid/ask-modeled value from intraday bar, or config flat value
@@ -577,6 +641,8 @@ class Backtester:
             'contracts': pos['contracts'],
             'pnl': pnl,
             'return_pct': (pnl / max_risk) * 100 if max_risk != 0 else 0,
+            'entry_scan_time': pos.get('entry_scan_time'),
+            'slippage_applied': pos.get('slippage_applied', 0.0),
         }
 
         self.trades.append(trade)

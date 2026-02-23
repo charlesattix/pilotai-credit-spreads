@@ -730,6 +730,50 @@ class TestBearCallBacktest:
 # Tests for intraday backtesting (14 scan times per day)
 # ---------------------------------------------------------------------------
 
+class TestNearestFridayExpiration:
+    """Tests for the Friday-snapping expiration helper."""
+
+    def test_monday_target_snaps_to_prior_friday(self):
+        """date + 35 days = Monday → should return the preceding Friday."""
+        from backtest.backtester import _nearest_friday_expiration
+        # Jan 6 (Mon) + 35 = Feb 10 (Mon) → nearest Friday = Feb 7
+        result = _nearest_friday_expiration(datetime(2025, 1, 6))
+        assert result.weekday() == 4  # Friday
+        assert result == datetime(2025, 2, 7)
+
+    def test_friday_target_is_unchanged(self):
+        """date + 35 days already a Friday → return it as-is."""
+        from backtest.backtester import _nearest_friday_expiration
+        # Jan 10 (Fri) + 35 = Feb 14 (Fri)
+        result = _nearest_friday_expiration(datetime(2025, 1, 10))
+        assert result.weekday() == 4
+        assert result == datetime(2025, 2, 14)
+
+    def test_thursday_target_snaps_forward(self):
+        """date + 35 days = Thursday → forward to next Friday is closer."""
+        from backtest.backtester import _nearest_friday_expiration
+        # Jan 9 (Thu) + 35 = Feb 13 (Thu) → Friday after = Feb 14
+        result = _nearest_friday_expiration(datetime(2025, 1, 9))
+        assert result.weekday() == 4
+        assert result == datetime(2025, 2, 14)
+
+    def test_wednesday_target_snaps_to_closer_friday(self):
+        """date + 35 days = Wednesday → Friday before (2 days) is closer."""
+        from backtest.backtester import _nearest_friday_expiration
+        # Jan 8 (Wed) + 35 = Feb 12 (Wed) → Friday before = Feb 7 (5 days earlier)
+        # Friday after = Feb 14 (2 days later) → should pick Feb 14
+        result = _nearest_friday_expiration(datetime(2025, 1, 8))
+        assert result.weekday() == 4
+        assert result == datetime(2025, 2, 14)
+
+    def test_result_satisfies_min_dte(self):
+        """Result must always be at least min_dte days from entry date."""
+        from backtest.backtester import _nearest_friday_expiration
+        entry = datetime(2025, 1, 6)
+        result = _nearest_friday_expiration(entry, target_dte=35, min_dte=25)
+        assert (result - entry).days >= 25
+
+
 class TestIntradayBacktest:
     """Tests for the intraday simulation rewrite (P0 #1)."""
 
@@ -820,6 +864,23 @@ class TestIntradayBacktest:
         """Live schedule must define exactly 14 scan times to match backtester."""
         from shared.scheduler import SCAN_TIMES
         assert len(SCAN_TIMES) == 14
+
+    def test_find_real_spread_skips_intraday_for_pre_open_scan(self):
+        """9:15 scan (pre-open) should fall back to daily pricing, not intraday."""
+        self.mock_hd.get_available_strikes.return_value = [440, 445, 450]
+        self.mock_hd.get_spread_prices.return_value = {
+            'short_close': 2.00, 'long_close': 0.60, 'spread_value': 1.40,
+        }
+
+        result = self.bt._find_real_spread(
+            'SPY', datetime(2025, 1, 6), '2025-01-06', 480.0,
+            datetime(2025, 2, 7), 5.0, option_type='P',
+            scan_hour=9, scan_minute=15,  # pre-open
+        )
+
+        assert result is not None
+        self.mock_hd.get_spread_prices.assert_called_once()
+        self.mock_hd.get_intraday_spread_prices.assert_not_called()
 
     def test_backtester_attempts_all_scan_times_on_trading_day(self):
         """In real-data mode, backtester should attempt all 14 scan times per day."""
