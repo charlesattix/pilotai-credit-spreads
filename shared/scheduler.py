@@ -59,13 +59,17 @@ def _next_scan_time(now_et: datetime) -> datetime:
 class ScanScheduler:
     """Runs a scan callback on the market-hours schedule."""
 
-    def __init__(self, scan_fn):
+    def __init__(self, scan_fn, startup_delay: int = 30):
         """
         Args:
             scan_fn: Callable that performs the scan (no arguments).
+            startup_delay: Seconds to wait before entering the scan loop.
+                           Gives co-located services (web server, healthcheck)
+                           time to stabilise before CPU-heavy scans start.
         """
         self._scan_fn = scan_fn
         self._stop_event = threading.Event()
+        self._startup_delay = startup_delay
 
     def stop(self):
         """Signal the scheduler to stop after the current sleep."""
@@ -74,6 +78,12 @@ class ScanScheduler:
     def run_forever(self):
         """Block and run scans on schedule until stop() is called or SIGTERM."""
         logger.info("Scheduler started — %d scan times per trading day", len(SCAN_TIMES))
+
+        if self._startup_delay > 0:
+            logger.info("Startup delay: waiting %ds before first scan cycle", self._startup_delay)
+            if self._stop_event.wait(timeout=self._startup_delay):
+                logger.info("Scheduler stopping (signal received during startup delay)")
+                return
 
         while not self._stop_event.is_set():
             now_et = datetime.now(ET)

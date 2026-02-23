@@ -106,7 +106,7 @@ class TestScanScheduler:
     def test_scan_runs_when_time_matches(self):
         """Scheduler should call scan_fn when the scheduled time arrives."""
         scan_fn = MagicMock()
-        scheduler = ScanScheduler(scan_fn)
+        scheduler = ScanScheduler(scan_fn, startup_delay=0)
 
         call_count = 0
 

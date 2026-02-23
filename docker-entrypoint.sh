@@ -45,8 +45,24 @@ case "$1" in
     WEB_PID=$!
     echo "Web server started (PID $WEB_PID)"
 
-    # Give the web server a moment to bind the port
-    sleep 2
+    # Wait for the web server to pass healthcheck before starting the
+    # scheduler.  The scheduler's Python init (ML training, data downloads)
+    # is CPU-heavy and will starve the web server if started too early,
+    # causing Railway's healthcheck to fail.
+    echo "Waiting for web server healthcheck..."
+    TRIES=0
+    MAX_TRIES=30
+    while [ "$TRIES" -lt "$MAX_TRIES" ]; do
+      if curl -sf http://localhost:8080/api/health >/dev/null 2>&1; then
+        echo "Web server healthy after ${TRIES}s"
+        break
+      fi
+      TRIES=$((TRIES + 1))
+      sleep 1
+    done
+    if [ "$TRIES" -ge "$MAX_TRIES" ]; then
+      echo "WARNING: Web server not healthy after ${MAX_TRIES}s, starting scheduler anyway"
+    fi
 
     echo "Starting scan scheduler..."
     python3 /app/main.py scheduler &
