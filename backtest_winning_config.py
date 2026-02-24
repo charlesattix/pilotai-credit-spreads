@@ -99,6 +99,9 @@ def run_period(base_config: dict, historical_data, label: str,
     print(f"  Avg Loss:         ${results['avg_loss']:,.2f}")
     print(f"  Bull Puts:        {results['bull_put_trades']}")
     print(f"  Bear Calls:       {results['bear_call_trades']}")
+    print(f"  Iron Condors:     {results.get('iron_condor_trades', 0)}")
+    if results.get('iron_condor_trades', 0) > 0:
+        print(f"  Condor WR:        {results.get('iron_condor_win_rate', 0)}%")
     print(f"  Weekly Consist.:  {ws['positive_weeks']}/{ws['total_weeks']} "
           f"({ws['weekly_consistency']}%)")
 
@@ -117,6 +120,8 @@ def run_period(base_config: dict, historical_data, label: str,
         'avg_loss': results['avg_loss'],
         'bull_put_trades': results['bull_put_trades'],
         'bear_call_trades': results['bear_call_trades'],
+        'iron_condor_trades': results.get('iron_condor_trades', 0),
+        'iron_condor_win_rate': results.get('iron_condor_win_rate', 0),
         'positive_weeks': ws['positive_weeks'],
         'total_weeks': ws['total_weeks'],
         'weekly_consistency': ws['weekly_consistency'],
@@ -164,16 +169,17 @@ def main():
     print("COMPARISON SUMMARY (vs 2024 benchmark)")
     print("=" * 70)
     print(f"\n{'Year':<12} {'Trades':>7} {'WR%':>6} {'Return%':>8} {'DD%':>7} "
-          f"{'Sharpe':>7} {'Weekly%':>9} {'Bulls':>6} {'Calls':>6}")
-    print("─" * 70)
+          f"{'Sharpe':>7} {'Weekly%':>9} {'Bulls':>6} {'Calls':>6} {'Condors':>8}")
+    print("─" * 78)
     # 2024 benchmark row (from memory)
     print(f"{'2024 (bench)':<12} {'109':>7} {'84.4':>6} {'25.5':>8} {'-24.4':>7} "
-          f"{'0.60':>7} {'88.5':>9} {'?':>6} {'?':>6}")
+          f"{'0.60':>7} {'88.5':>9} {'?':>6} {'?':>6} {'?':>8}")
     for r in all_results:
         print(f"{r['label']:<12} {r['total_trades']:>7} {r['win_rate']:>6} "
               f"{r['return_pct']:>8} {r['max_drawdown']:>7.1f} "
               f"{r['sharpe_ratio']:>7.2f} {r['weekly_consistency']:>9} "
-              f"{r['bull_put_trades']:>6} {r['bear_call_trades']:>6}")
+              f"{r['bull_put_trades']:>6} {r['bear_call_trades']:>6} "
+              f"{r.get('iron_condor_trades', 0):>8}")
 
     # Save results
     out_path = Path('output/out_of_sample_validation.json')

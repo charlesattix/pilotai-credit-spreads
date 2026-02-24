@@ -171,6 +171,8 @@ class Backtester:
             _drawdown_pct = (self.capital - self.starting_capital) / self.starting_capital
             _skip_new_entries = _drawdown_pct < -0.20
 
+            _ic_enabled = self.strategy_params.get('iron_condor', {}).get('enabled', False)
+
             if self._use_real_data:
                 for scan_hour, scan_minute in SCAN_TIMES:
                     if _skip_new_entries:
@@ -183,13 +185,23 @@ class Backtester:
                     )
                     if new_position:
                         open_positions.append(new_position)
-                    elif len(open_positions) < self.risk_params['max_positions']:
-                        bear_call = self._find_bear_call_opportunity(
-                            ticker, current_date, current_price, price_data,
-                            scan_hour=scan_hour, scan_minute=scan_minute,
+                        continue
+                    if len(open_positions) >= self.risk_params['max_positions']:
+                        break
+                    bear_call = self._find_bear_call_opportunity(
+                        ticker, current_date, current_price, price_data,
+                        scan_hour=scan_hour, scan_minute=scan_minute,
+                    )
+                    if bear_call:
+                        open_positions.append(bear_call)
+                        continue
+                    # Iron condor fallback — only if enabled in config
+                    if _ic_enabled and len(open_positions) < self.risk_params['max_positions']:
+                        condor = self._find_iron_condor_opportunity(
+                            ticker, current_date, current_price, scan_hour, scan_minute,
                         )
-                        if bear_call:
-                            open_positions.append(bear_call)
+                        if condor:
+                            open_positions.append(condor)
             else:
                 # Heuristic mode: one opportunity scan per week on Monday
                 if current_date.weekday() == 0:
@@ -206,6 +218,13 @@ class Backtester:
                             )
                             if bear_call:
                                 open_positions.append(bear_call)
+                            elif _ic_enabled and self._use_real_data:
+                                if len(open_positions) < self.risk_params['max_positions']:
+                                    condor = self._find_iron_condor_opportunity(
+                                        ticker, current_date, current_price,
+                                    )
+                                    if condor:
+                                        open_positions.append(condor)
 
             # Record equity
             position_value = sum(pos.get('current_value', 0) for pos in open_positions)
@@ -326,6 +345,134 @@ class Backtester:
                 ticker, date, price, expiration, spread_width, spread_type="bear_call_spread",
             )
 
+    def _find_iron_condor_opportunity(
+        self,
+        ticker: str,
+        date: datetime,
+        price: float,
+        scan_hour: Optional[int] = None,
+        scan_minute: Optional[int] = None,
+    ) -> Optional[Dict]:
+        """Find an iron condor (put spread + call spread) as a fallback.
+
+        No MA20 direction check — condors are direction-neutral.  Used only
+        when neither a bull put nor bear call passes its individual credit
+        minimum.  Requires real data mode.
+        """
+        if not self._use_real_data:
+            return None
+
+        expiration = _nearest_friday_expiration(date)
+        date_str = date.strftime("%Y-%m-%d")
+        spread_width = self.strategy_params['spread_width']
+
+        # Fetch each leg — bypass individual min_credit (checked on combined below)
+        put_leg = self._find_real_spread(
+            ticker, date, date_str, price, expiration,
+            spread_width, option_type="P",
+            scan_hour=scan_hour, scan_minute=scan_minute,
+            min_credit_override=0.0, skip_commission=True,
+        )
+        if put_leg is None:
+            return None
+
+        call_leg = self._find_real_spread(
+            ticker, date, date_str, price, expiration,
+            spread_width, option_type="C",
+            scan_hour=scan_hour, scan_minute=scan_minute,
+            min_credit_override=0.0, skip_commission=True,
+        )
+        if call_leg is None:
+            return None
+
+        # Validate non-overlapping strikes
+        if put_leg['short_strike'] >= call_leg['short_strike']:
+            logger.debug(
+                "IC legs overlap: put_short=%.0f >= call_short=%.0f on %s — skipping",
+                put_leg['short_strike'], call_leg['short_strike'], date_str,
+            )
+            return None
+
+        put_credit = put_leg['credit']   # already net of slippage
+        call_credit = call_leg['credit']  # already net of slippage
+        combined_credit = put_credit + call_credit
+
+        # Combined credit minimum check
+        min_combined_credit_pct = self.strategy_params.get('iron_condor', {}).get(
+            'min_combined_credit_pct', 20
+        )
+        min_combined_credit = spread_width * (min_combined_credit_pct / 100)
+        if combined_credit < min_combined_credit:
+            logger.debug(
+                "IC combined credit $%.2f below minimum $%.2f (%.0f%% of $%.0fw) on %s — skipping",
+                combined_credit, min_combined_credit, min_combined_credit_pct,
+                spread_width, date_str,
+            )
+            return None
+
+        stop_loss_multiplier = self.risk_params['stop_loss_multiplier']
+        commission_cost = self.commission * 4  # 4 legs (entry)
+        max_loss = spread_width - combined_credit  # only one wing can fully lose
+
+        risk_per_spread = max_loss * 100
+        if risk_per_spread <= 0:
+            return None
+
+        max_risk = self.starting_capital * (self.risk_params['max_risk_per_trade'] / 100)
+        max_contracts_cap = self.risk_params.get('max_contracts', 999)
+        contracts = max(1, min(max_contracts_cap, int(max_risk / risk_per_spread)))
+
+        scan_time_mins = (scan_hour or 0) * 60 + (scan_minute or 0)
+        market_open_mins = _FIRST_BAR_HOUR * 60 + _FIRST_BAR_MINUTE
+        use_intraday = (
+            scan_hour is not None
+            and scan_minute is not None
+            and scan_time_mins >= market_open_mins
+        )
+        slippage_applied = (
+            put_leg.get('slippage_applied', 0.0) + call_leg.get('slippage_applied', 0.0)
+        )
+
+        position = {
+            'ticker': ticker,
+            'type': 'iron_condor',
+            'entry_date': date,
+            'expiration': expiration,
+            # Put spread leg (backward compat with _record_close)
+            'short_strike': put_leg['short_strike'],
+            'long_strike': put_leg['long_strike'],
+            # Call spread leg
+            'call_short_strike': call_leg['short_strike'],
+            'call_long_strike': call_leg['long_strike'],
+            # Credits
+            'put_credit': put_credit,
+            'call_credit': call_credit,
+            'credit': combined_credit,
+            'contracts': contracts,
+            'max_loss': max_loss,
+            'profit_target': combined_credit * 0.5,
+            'stop_loss': combined_credit * stop_loss_multiplier,
+            'commission': commission_cost,  # exit commission (4 legs)
+            'status': 'open',
+            'option_type': 'IC',
+            'current_value': combined_credit * contracts * 100,
+            'entry_scan_time': f"{scan_hour:02d}:{scan_minute:02d}" if use_intraday else None,
+            'slippage_applied': slippage_applied,
+        }
+
+        self.capital -= commission_cost  # entry commission
+
+        logger.debug(
+            "Opened iron_condor: %s put=%s/%s call=%s/%s credit=$%.2f (%d contracts)%s",
+            ticker,
+            put_leg['short_strike'], put_leg['long_strike'],
+            call_leg['short_strike'], call_leg['long_strike'],
+            combined_credit, contracts,
+            f" @ {position['entry_scan_time']} ET" if use_intraday else "",
+        )
+
+        return position
+
     def _find_real_spread(
         self,
         ticker: str,
@@ -337,6 +484,8 @@ class Backtester:
         option_type: str,
         scan_hour: Optional[int] = None,
         scan_minute: Optional[int] = None,
+        min_credit_override: Optional[float] = None,
+        skip_commission: bool = False,
     ) -> Optional[Dict]:
         """Find a spread using real historical option prices from Polygon.
 
@@ -421,14 +570,17 @@ class Backtester:
         if credit <= 0:
             return None
 
-        # Minimum credit filter: use config min_credit_pct (same threshold as live scanner)
-        min_credit_pct = self.strategy_params.get('min_credit_pct', 15) / 100
-        min_credit = spread_width * min_credit_pct
+        # Minimum credit filter
+        if min_credit_override is not None:
+            min_credit = min_credit_override
+        else:
+            min_credit_pct = self.strategy_params.get('min_credit_pct', 15) / 100
+            min_credit = spread_width * min_credit_pct
         if credit < min_credit:
             scan_tag = f" [{scan_hour:02d}:{scan_minute:02d} ET]" if use_intraday else ""
             logger.debug(
-                "Credit $%.2f below minimum $%.2f (%.0f%% of $%.0fw) on %s%s — skipping",
-                credit, min_credit, min_credit_pct * 100, spread_width, date_str, scan_tag,
+                "Credit $%.2f below minimum $%.2f on %s%s — skipping",
+                credit, min_credit, date_str, scan_tag,
             )
             return None
 
@@ -471,7 +623,8 @@ class Backtester:
             'slippage_applied': slippage,
         }
 
-        self.capital -= commission_cost
+        if not skip_commission:
+            self.capital -= commission_cost
 
         logger.debug(
             "Opened %s: %s %s/%s credit=$%.2f slippage=$%.3f (%d contracts)%s",
@@ -566,19 +719,33 @@ class Backtester:
             date_str = current_date.strftime("%Y-%m-%d")
 
             if self._use_real_data:
-                ot = pos.get('option_type', 'P')
-                prices = self.historical_data.get_spread_prices(
-                    pos['ticker'], pos['expiration'],
-                    pos['short_strike'], pos['long_strike'],
-                    ot, date_str,
-                )
+                if pos['type'] == 'iron_condor':
+                    put_prices = self.historical_data.get_spread_prices(
+                        pos['ticker'], pos['expiration'],
+                        pos['short_strike'], pos['long_strike'], 'P', date_str,
+                    )
+                    call_prices = self.historical_data.get_spread_prices(
+                        pos['ticker'], pos['expiration'],
+                        pos['call_short_strike'], pos['call_long_strike'], 'C', date_str,
+                    )
+                    if put_prices is None or call_prices is None:
+                        remaining_positions.append(pos)
+                        continue
+                    current_spread_value = put_prices['spread_value'] + call_prices['spread_value']
+                else:
+                    ot = pos.get('option_type', 'P')
+                    prices = self.historical_data.get_spread_prices(
+                        pos['ticker'], pos['expiration'],
+                        pos['short_strike'], pos['long_strike'],
+                        ot, date_str,
+                    )
 
-                if prices is None:
-                    # No data for today — keep position, don't mark
-                    remaining_positions.append(pos)
-                    continue
+                    if prices is None:
+                        # No data for today — keep position, don't mark
+                        remaining_positions.append(pos)
+                        continue
 
-                current_spread_value = prices["spread_value"]
+                    current_spread_value = prices["spread_value"]
             else:
                 dte = (pos['expiration'] - current_date).days
                 current_spread_value = self._estimate_spread_value(pos, current_price, dte)
@@ -614,6 +781,30 @@ class Backtester:
     def _close_at_expiration_real(self, pos: Dict, expiration_date: datetime):
         """Close a position at expiration using real prices."""
         date_str = expiration_date.strftime("%Y-%m-%d")
+
+        if pos['type'] == 'iron_condor':
+            put_prices = self.historical_data.get_spread_prices(
+                pos['ticker'], pos['expiration'],
+                pos['short_strike'], pos['long_strike'], 'P', date_str,
+            )
+            call_prices = self.historical_data.get_spread_prices(
+                pos['ticker'], pos['expiration'],
+                pos['call_short_strike'], pos['call_long_strike'], 'C', date_str,
+            )
+            if put_prices is not None and call_prices is not None:
+                closing_spread_value = put_prices['spread_value'] + call_prices['spread_value']
+                if closing_spread_value > 0.05:
+                    pnl = (pos['credit'] - closing_spread_value) * pos['contracts'] * 100 - pos['commission']
+                    reason = 'expiration_loss' if pnl < 0 else 'expiration_profit'
+                else:
+                    pnl = pos['credit'] * pos['contracts'] * 100 - pos['commission']
+                    reason = 'expiration_profit'
+            else:
+                pnl = pos['credit'] * pos['contracts'] * 100 - pos['commission']
+                reason = 'expiration_profit'
+            self._record_close(pos, expiration_date, pnl, reason)
+            return
+
         ot = pos.get('option_type', 'P')
         prices = self.historical_data.get_spread_prices(
             pos['ticker'], pos['expiration'],
@@ -781,6 +972,8 @@ class Backtester:
                 'bear_call_trades': 0,
                 'bull_put_win_rate': 0,
                 'bear_call_win_rate': 0,
+                'iron_condor_trades': 0,
+                'iron_condor_win_rate': 0,
             }
 
         trades_df = pd.DataFrame(self.trades)
@@ -799,12 +992,15 @@ class Backtester:
         # Per-strategy breakdown
         bull_puts = trades_df[trades_df['type'] == 'bull_put_spread']
         bear_calls = trades_df[trades_df['type'] == 'bear_call_spread']
+        iron_condors = trades_df[trades_df['type'] == 'iron_condor']
 
         bull_put_winners = bull_puts[bull_puts['pnl'] > 0] if len(bull_puts) > 0 else pd.DataFrame()
         bear_call_winners = bear_calls[bear_calls['pnl'] > 0] if len(bear_calls) > 0 else pd.DataFrame()
+        iron_condor_winners = iron_condors[iron_condors['pnl'] > 0] if len(iron_condors) > 0 else pd.DataFrame()
 
         bull_put_wr = (len(bull_put_winners) / len(bull_puts)) * 100 if len(bull_puts) > 0 else 0
         bear_call_wr = (len(bear_call_winners) / len(bear_calls)) * 100 if len(bear_calls) > 0 else 0
+        iron_condor_wr = (len(iron_condor_winners) / len(iron_condors)) * 100 if len(iron_condors) > 0 else 0
 
         # Equity curve analysis
         equity_df = pd.DataFrame(self.equity_curve, columns=['date', 'equity'])
@@ -858,6 +1054,8 @@ class Backtester:
             'bear_call_trades': len(bear_calls),
             'bull_put_win_rate': round(bull_put_wr, 2),
             'bear_call_win_rate': round(bear_call_wr, 2),
+            'iron_condor_trades': len(iron_condors),
+            'iron_condor_win_rate': round(iron_condor_wr, 2),
         }
 
         return results
