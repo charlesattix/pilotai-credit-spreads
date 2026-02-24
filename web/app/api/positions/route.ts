@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { PaperTrade, PositionsSummary } from '@/lib/types';
 import { getTrades, TradeRow } from '@/lib/database';
 import { verifyAuth } from "@/lib/auth";
-import { fetchAlpacaAccount, fetchAlpacaPositions, AlpacaPosition } from '@/lib/alpaca';
+import { fetchAlpacaAccount, fetchAlpacaPositions, AlpacaPosition, parseOCC } from '@/lib/alpaca';
 
 export const dynamic = 'force-dynamic'
 
@@ -47,14 +47,7 @@ function tradeRowToPaperTrade(row: TradeRow): PaperTrade {
   };
 }
 
-/** Parse an OCC option symbol like O:SPY250321P00450000 */
-function parseOCCSymbol(symbol: string): { ticker: string; expiration: string; optionType: 'P' | 'C'; strike: number } | null {
-  const match = symbol.match(/^O:([A-Z]+)(\d{6})([PC])(\d{8})$/)
-  if (!match) return null
-  const [, ticker, dateStr, optionType, strikeStr] = match
-  const expiration = `20${dateStr.slice(0, 2)}-${dateStr.slice(2, 4)}-${dateStr.slice(4, 6)}`
-  return { ticker, expiration, optionType: optionType as 'P' | 'C', strike: parseInt(strikeStr) / 1000 }
-}
+// OCC parsing delegated to shared alpaca helper (handles O: prefix and padded tickers)
 
 function daysUntil(dateStr: string): number {
   return Math.max(0, Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86400000))
@@ -73,7 +66,7 @@ function alpacaPositionsToPaperTrades(positions: AlpacaPosition[]): PaperTrade[]
 
   const legs: ParsedLeg[] = []
   for (const pos of positions) {
-    const parsed = parseOCCSymbol(pos.symbol)
+    const parsed = parseOCC(pos.symbol)
     if (!parsed) continue
     legs.push({
       ...parsed,
