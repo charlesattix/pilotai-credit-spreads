@@ -39,6 +39,7 @@ from backtest import Backtester, HistoricalOptionsData, PerformanceMetrics
 from tracker import TradeTracker, PnLDashboard
 from paper_trader import PaperTrader
 from shared.data_cache import DataCache
+from shared.database import insert_alert
 from shared.metrics import metrics
 from shared.provider_protocol import DataProvider  # noqa: F401 – ARCH-PY-06
 
@@ -301,6 +302,13 @@ class CreditSpreadSystem:
 
         for output_type, output_path in outputs.items():
             logger.info(f"{output_type.upper()} alerts: {output_path}")
+
+        # Persist all opportunities to SQLite so the web dashboard can read them
+        for opp in opportunities:
+            try:
+                insert_alert(opp)
+            except Exception as e:
+                logger.warning(f"Failed to persist alert for {opp.get('ticker')}: {e}")
 
         # Send Telegram alerts if enabled
         if self.telegram_bot.enabled:
