@@ -63,7 +63,7 @@ class Backtester:
     Otherwise falls back to the legacy heuristic mode (for quick testing).
     """
 
-    def __init__(self, config: Dict, historical_data=None):
+    def __init__(self, config: Dict, historical_data=None, otm_pct: float = 0.05):
         """
         Initialize backtester.
 
@@ -71,6 +71,8 @@ class Backtester:
             config: Configuration dictionary
             historical_data: Optional HistoricalOptionsData instance for
                              real pricing.  None = legacy heuristic mode.
+            otm_pct: How far OTM the short strike is as a fraction of price
+                     (default 0.05 = 5% OTM).  Applies to both puts and calls.
         """
         self.config = config
         self.backtest_config = config['backtest']
@@ -80,6 +82,7 @@ class Backtester:
         self.starting_capital = self.backtest_config['starting_capital']
         self.commission = self.backtest_config['commission_per_contract']
         self.slippage = self.backtest_config['slippage']
+        self.otm_pct = otm_pct
 
         self.historical_data = historical_data
         self._use_real_data = historical_data is not None
@@ -162,8 +165,16 @@ class Backtester:
             # Look for new opportunities.
             # Real-data mode: simulate all 14 intraday scan times per trading day.
             # Heuristic mode: one scan per week on Monday (backward compat).
+
+            # Drawdown circuit breaker: pause NEW entries when account is down >20%
+            # from starting capital (prevents going to negative balance with fixed sizing).
+            _drawdown_pct = (self.capital - self.starting_capital) / self.starting_capital
+            _skip_new_entries = _drawdown_pct < -0.20
+
             if self._use_real_data:
                 for scan_hour, scan_minute in SCAN_TIMES:
+                    if _skip_new_entries:
+                        break
                     if len(open_positions) >= self.risk_params['max_positions']:
                         break
                     new_position = self._find_backtest_opportunity(
@@ -346,9 +357,9 @@ class Backtester:
             logger.debug("No strikes available for %s exp %s on %s", ticker, exp_str, date_str)
             return None
 
-        # Pick short strike ~5% OTM
+        # Pick short strike OTM by self.otm_pct (default 5%)
         if ot == "P":
-            target_short = price * 0.95  # 5% below for puts
+            target_short = price * (1 - self.otm_pct)
             candidates = [s for s in strikes if s <= target_short]
             if not candidates:
                 return None
@@ -356,7 +367,7 @@ class Backtester:
             long_strike = short_strike - spread_width
             spread_type = "bull_put_spread"
         else:
-            target_short = price * 1.05  # 5% above for calls
+            target_short = price * (1 + self.otm_pct)
             candidates = [s for s in strikes if s >= target_short]
             if not candidates:
                 return None
@@ -434,8 +445,11 @@ class Backtester:
         risk_per_spread = max_loss * 100
         if risk_per_spread <= 0:
             return None
-        max_risk = self.capital * (self.risk_params['max_risk_per_trade'] / 100)
-        contracts = max(1, int(max_risk / risk_per_spread))
+        # Fixed sizing: use starting_capital (not current capital) so compounding
+        # doesn't inflate later trades — each trade risks the same dollar amount.
+        max_risk = self.starting_capital * (self.risk_params['max_risk_per_trade'] / 100)
+        max_contracts_cap = self.risk_params.get('max_contracts', 999)
+        contracts = max(1, min(max_contracts_cap, int(max_risk / risk_per_spread)))
 
         position = {
             'ticker': ticker,
