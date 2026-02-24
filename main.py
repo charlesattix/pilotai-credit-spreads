@@ -502,6 +502,7 @@ Examples:
         # Execute command
         if args.command == 'scan':
             system.scan_opportunities()
+            system.paper_trader.sync_alpaca_orders()
 
         elif args.command == 'scheduler':
             from shared.scheduler import ScanScheduler

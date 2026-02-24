@@ -27,6 +27,12 @@ MAX_DRAWDOWN_PCT = 0.20  # 20% portfolio-level max drawdown kill switch
 EXTRINSIC_DECAY_RATE = 1.2  # Accelerating time-decay multiplier for OTM spreads
 BASE_DECAY_FACTOR = 0.3  # Fraction of extrinsic value remaining when ITM
 
+# Stale-order reconciliation: orders unconfirmed for this long are treated as dead
+_STALE_ORDER_HOURS = 1
+_TERMINAL_ALPACA_STATES = frozenset({
+    "cancelled", "expired", "rejected", "replaced", "done_for_day",
+})
+
 # Anti-suicide-loop circuit breakers
 CONSECUTIVE_LOSS_BLOCK_THRESHOLD = 2   # Block after N consecutive losses on same ticker+direction
 CONSECUTIVE_LOSS_LOOKBACK_HOURS = 1    # Only count losses within this window
@@ -78,9 +84,13 @@ class PaperTrader:
         self.trades = self._load_trades()
         self._rebuild_cached_lists()
         self._seed_loss_tracker()
-        logger.info(f"PaperTrader initialized | Balance: ${self.account_size:,.0f} | "
-                     f"Open: {len(self.open_trades)} | Closed: {len(self.closed_trades)} | "
-                     f"Alpaca: {'ON' if self.alpaca else 'OFF'}")
+        stale = self._reconcile_submitted_orders()
+        logger.info(
+            f"PaperTrader initialized | Balance: ${self.account_size:,.0f} | "
+            f"Open: {len(self.open_trades)} | Closed: {len(self.closed_trades)} | "
+            f"Alpaca: {'ON' if self.alpaca else 'OFF'}"
+            + (f" | Stale orders cleaned: {stale}" if stale else "")
+        )
 
     @staticmethod
     def _is_kill_switch_active() -> bool:
@@ -678,6 +688,104 @@ class PaperTrader:
             f"PAPER TRADE CLOSED: {trade['ticker']} {trade.get('type', '')} | "
             f"P&L: ${pnl:+.2f} | Reason: {reason} | "
             f"Balance: ${self.trades['current_balance']:,.2f}"
+        )
+
+    def _reconcile_submitted_orders(self) -> int:
+        """Reconcile locally-open trades whose Alpaca orders are not yet confirmed filled.
+
+        Called once on startup.  For each unconfirmed order:
+          - Ask Alpaca for the real status.
+          - If filled: update alpaca_status; trade stays open (it is a real position).
+          - If terminal non-fill (cancelled/rejected/expired/replaced): force-close locally.
+          - If Alpaca API errors out OR the order is still "submitted" after
+            _STALE_ORDER_HOURS: treat as dead and force-close locally.
+
+        Returns the number of positions removed from open-position tracking.
+        """
+        if not self.alpaca:
+            return 0
+
+        now = datetime.now(timezone.utc)
+        removed = 0
+
+        for trade in list(self.open_trades):   # iterate a snapshot — list may shrink
+            order_id = trade.get("alpaca_order_id")
+            alpaca_status = trade.get("alpaca_status", "")
+
+            if not order_id or alpaca_status == "filled":
+                continue
+
+            # How old is this order?
+            try:
+                entry_time = datetime.fromisoformat(trade.get("entry_date", ""))
+                if entry_time.tzinfo is None:
+                    entry_time = entry_time.replace(tzinfo=timezone.utc)
+                hours_old = (now - entry_time).total_seconds() / 3600
+            except (ValueError, TypeError):
+                hours_old = 99   # unknown age → treat as old
+
+            # Ask Alpaca for the real status
+            api_error = False
+            new_status = alpaca_status
+            try:
+                result = self.alpaca.get_order_status(order_id)
+                new_status = result.get("status", alpaca_status)
+            except Exception as e:
+                logger.warning("Alpaca order check failed for %s (order=%s): %s",
+                               trade["ticker"], order_id, e)
+                api_error = True
+
+            # Persist updated status if it changed
+            if new_status != alpaca_status:
+                trade["alpaca_status"] = new_status
+                upsert_trade(trade, source="scanner")
+                logger.info("Alpaca order status updated: %s %s → %s",
+                            trade["ticker"], alpaca_status, new_status)
+
+            # Determine whether this position should be cleaned up
+            is_terminal = new_status in _TERMINAL_ALPACA_STATES
+            is_stale = (
+                (api_error or new_status not in ("filled", "partially_filled"))
+                and hours_old >= _STALE_ORDER_HOURS
+            )
+
+            if is_terminal or is_stale:
+                self._force_close_stale(trade)
+                removed += 1
+
+        if removed:
+            self._save_trades()
+            logger.warning(
+                "Startup reconciliation: %d stale/unconfirmed Alpaca order(s) "
+                "removed from open-position tracking.", removed
+            )
+        return removed
+
+    def _force_close_stale(self, trade: Dict) -> None:
+        """Remove a stale/unconfirmed Alpaca order from open-position tracking.
+
+        Unlike _close_trade(), this does NOT call alpaca.close_spread() — the
+        order is already in a terminal state or unreachable, so there is nothing
+        to close on the broker side.  Updates local state only.
+        """
+        with self._trades_lock:
+            trade["status"] = "closed_manual"
+            trade["exit_date"] = datetime.now(timezone.utc).isoformat()
+            trade["exit_reason"] = "stale_order"
+            trade["pnl"] = 0.0
+            trade["exit_pnl"] = 0.0
+
+            if trade in self._open_trades:
+                self._open_trades.remove(trade)
+            self._closed_trades.append(trade)
+
+        upsert_trade(trade, source="scanner")
+        logger.info(
+            "Stale order removed from tracking: %s %s | order=%s | was_status=%s",
+            trade["ticker"],
+            trade.get("strategy_type", ""),
+            trade.get("alpaca_order_id"),
+            trade.get("alpaca_status"),
         )
 
     def sync_alpaca_orders(self):
