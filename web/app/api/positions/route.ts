@@ -92,36 +92,84 @@ function alpacaPositionsToPaperTrades(positions: AlpacaPosition[]): PaperTrade[]
 
   for (const [key, groupLegs] of groups) {
     const [ticker, expiration] = key.split(':')
-    const shortLeg = groupLegs.find(l => l.side === 'short')
-    const longLeg = groupLegs.find(l => l.side === 'long')
+    const shortLegs = groupLegs.filter(l => l.side === 'short').sort((a, b) => a.strike - b.strike)
+    const longLegs = groupLegs.filter(l => l.side === 'long').sort((a, b) => a.strike - b.strike)
 
-    if (shortLeg && longLeg) {
-      // Reconstructed credit spread
-      const type = shortLeg.optionType === 'P' ? 'bull_put_spread' : 'bear_call_spread'
-      const contracts = Math.min(shortLeg.qty, longLeg.qty)
-      const entry_credit = shortLeg.avg_entry_price - longLeg.avg_entry_price
-      const spread_width = Math.abs(shortLeg.strike - longLeg.strike)
-      const unrealized_pnl = shortLeg.unrealized_pl + longLeg.unrealized_pl
-      trades.push({
-        id: `alpaca:${shortLeg.symbol}`,
-        ticker,
-        type,
-        short_strike: shortLeg.strike,
-        long_strike: longLeg.strike,
-        spread_width,
-        expiration,
-        dte_at_entry: daysUntil(expiration),
-        entry_credit,
-        entry_price: shortLeg.avg_entry_price,
-        current_price: shortLeg.current_price,
-        contracts,
-        max_profit: entry_credit * 100 * contracts,
-        max_loss: (spread_width - entry_credit) * 100 * contracts,
-        status: 'open',
-        entry_date: today,
-        unrealized_pnl,
-        days_remaining: daysUntil(expiration),
-      })
+    // Pair short+long legs into spreads by closest strike proximity
+    const usedLong = new Set<number>()
+    const paired: Array<{ short: ParsedLeg; long: ParsedLeg }> = []
+
+    for (const sl of shortLegs) {
+      let bestIdx = -1
+      let bestDist = Infinity
+      for (let i = 0; i < longLegs.length; i++) {
+        if (usedLong.has(i)) continue
+        const dist = Math.abs(sl.strike - longLegs[i].strike)
+        if (dist < bestDist) { bestDist = dist; bestIdx = i }
+      }
+      if (bestIdx >= 0) {
+        usedLong.add(bestIdx)
+        paired.push({ short: sl, long: longLegs[bestIdx] })
+      }
+    }
+
+    if (paired.length > 0) {
+      for (const { short: shortLeg, long: longLeg } of paired) {
+        const type = shortLeg.optionType === 'P' ? 'bull_put_spread' : 'bear_call_spread'
+        const contracts = Math.min(shortLeg.qty, longLeg.qty)
+        const entry_credit = shortLeg.avg_entry_price - longLeg.avg_entry_price
+        const spread_width = Math.abs(shortLeg.strike - longLeg.strike)
+        const unrealized_pnl = shortLeg.unrealized_pl + longLeg.unrealized_pl
+        trades.push({
+          id: `alpaca:${shortLeg.symbol}`,
+          ticker,
+          type,
+          short_strike: shortLeg.strike,
+          long_strike: longLeg.strike,
+          spread_width,
+          expiration,
+          dte_at_entry: daysUntil(expiration),
+          entry_credit,
+          entry_price: shortLeg.avg_entry_price,
+          current_price: shortLeg.current_price,
+          contracts,
+          max_profit: entry_credit * 100 * contracts,
+          max_loss: (spread_width - entry_credit) * 100 * contracts,
+          status: 'open',
+          entry_date: today,
+          unrealized_pnl,
+          days_remaining: daysUntil(expiration),
+        })
+      }
+
+      // Any unpaired legs
+      const unpairedShorts = shortLegs.filter((_, i) => !paired.some(p => p.short === shortLegs[i]))
+      const unpairedLongs = longLegs.filter((_, i) => !usedLong.has(i))
+      const unpaired = [...unpairedShorts, ...unpairedLongs]
+      for (const leg of unpaired) {
+        trades.push({
+          id: `alpaca:${leg.symbol}`,
+          ticker,
+          type: leg.side === 'short'
+            ? (leg.optionType === 'P' ? 'short_put' : 'short_call')
+            : (leg.optionType === 'P' ? 'long_put' : 'long_call'),
+          short_strike: leg.side === 'short' ? leg.strike : 0,
+          long_strike: leg.side === 'long' ? leg.strike : 0,
+          spread_width: 0,
+          expiration,
+          dte_at_entry: daysUntil(expiration),
+          entry_credit: leg.side === 'short' ? leg.avg_entry_price : 0,
+          entry_price: leg.avg_entry_price,
+          current_price: leg.current_price,
+          contracts: leg.qty,
+          max_profit: leg.side === 'short' ? leg.avg_entry_price * 100 * leg.qty : 0,
+          max_loss: 0,
+          status: 'open',
+          entry_date: today,
+          unrealized_pnl: leg.unrealized_pl,
+          days_remaining: daysUntil(expiration),
+        })
+      }
     } else {
       // Single legs (no matching pair) — show individually
       for (const leg of groupLegs) {
