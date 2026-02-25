@@ -5,6 +5,12 @@ const nextConfig = {
   output: 'standalone',
   reactStrictMode: true,
   serverExternalPackages: ['better-sqlite3'],
+  async rewrites() {
+    return [
+      // Serve dashboard.html via route handler (public/ static serving unreliable in standalone)
+      { source: '/dashboard.html', destination: '/api/dashboard' },
+    ]
+  },
   async headers() {
     return [
       {
