@@ -153,6 +153,7 @@ def main():
     print(f"SQLite cache: data/options_cache.db")
 
     periods = [
+        ("2024 Full Year", datetime(2024, 1, 1), datetime(2024, 12, 31)),
         ("2025 Full Year", datetime(2025, 1, 1), datetime(2025, 12, 31)),
         ("2026 YTD",       datetime(2026, 1, 1), datetime(2026, 2, 24)),
     ]
@@ -171,9 +172,9 @@ def main():
     print(f"\n{'Year':<12} {'Trades':>7} {'WR%':>6} {'Return%':>8} {'DD%':>7} "
           f"{'Sharpe':>7} {'Weekly%':>9} {'Bulls':>6} {'Calls':>6} {'Condors':>8}")
     print("─" * 78)
-    # 2024 benchmark row (from memory)
+    # 2024 benchmark row (daily-close baseline, pre-intraday-exits)
     print(f"{'2024 (bench)':<12} {'109':>7} {'84.4':>6} {'25.5':>8} {'-24.4':>7} "
-          f"{'0.60':>7} {'88.5':>9} {'?':>6} {'?':>6} {'?':>8}")
+          f"{'0.60':>7} {'88.5':>9} {'60':>6} {'49':>6} {'0':>8}")
     for r in all_results:
         print(f"{r['label']:<12} {r['total_trades']:>7} {r['win_rate']:>6} "
               f"{r['return_pct']:>8} {r['max_drawdown']:>7.1f} "
