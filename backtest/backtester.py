@@ -82,6 +82,10 @@ class Backtester:
         self.starting_capital = self.backtest_config['starting_capital']
         self.commission = self.backtest_config['commission_per_contract']
         self.slippage = self.backtest_config['slippage']
+        # Additional friction when closing at a stop loss (adverse market conditions).
+        # Entry slippage is already modeled via bar high-low; exit at stop happens in
+        # fast markets where bid/ask is wider and fills are worse.
+        self.exit_slippage = self.backtest_config.get('exit_slippage', 0.10)
         self.otm_pct = otm_pct
 
         self.historical_data = historical_data
@@ -801,7 +805,10 @@ class Backtester:
                 if intraday_result is not None:
                     reason, spread_value = intraday_result
                     if reason in ('profit_target', 'stop_loss'):
-                        pnl = (pos['credit'] - spread_value) * pos['contracts'] * 100 - pos['commission']
+                        # Stop-loss exits incur additional friction: closing in a fast,
+                        # adverse market where bid/ask is wider than normal conditions.
+                        exit_cost = spread_value + (self.exit_slippage if reason == 'stop_loss' else 0.0)
+                        pnl = (pos['credit'] - exit_cost) * pos['contracts'] * 100 - pos['commission']
                         self._record_close(pos, current_date, pnl, reason)
                         continue
                     # 'no_trigger' — had intraday data but no exit; skip daily close check
@@ -856,7 +863,8 @@ class Backtester:
             loss = current_spread_value - pos['credit']
             if loss >= pos['stop_loss']:
                 if self._use_real_data:
-                    pnl = (pos['credit'] - current_spread_value) * pos['contracts'] * 100 - pos['commission']
+                    exit_cost = current_spread_value + self.exit_slippage
+                    pnl = (pos['credit'] - exit_cost) * pos['contracts'] * 100 - pos['commission']
                     self._record_close(pos, current_date, pnl, 'stop_loss')
                 else:
                     self._close_position(pos, current_date, current_price, 'stop_loss')

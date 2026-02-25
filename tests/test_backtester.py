@@ -381,8 +381,9 @@ class TestRealPricing:
 
         assert len(remaining) == 0
         assert self.bt.trades[0]['exit_reason'] == 'stop_loss'
-        # PnL = (1.00 - 4.00) * 1 * 100 - 1.30 = -301.30
-        assert self.bt.trades[0]['pnl'] == pytest.approx(-301.30, rel=1e-4)
+        # exit_cost = spread_value + exit_slippage = 4.00 + 0.10 = 4.10
+        # PnL = (1.00 - 4.10) * 1 * 100 - 1.30 = -311.30
+        assert self.bt.trades[0]['pnl'] == pytest.approx(-311.30, rel=1e-4)
 
     def test_manage_positions_real_data_no_data_keeps_position(self):
         """If no price data available, should keep position open."""
@@ -1082,7 +1083,8 @@ class TestIntradayHistoricalData:
 
         assert result is not None
         assert result['spread_value'] == pytest.approx(1.50, rel=1e-6)   # 2.50 - 1.00
-        assert result['slippage'] == pytest.approx(0.40, rel=1e-6)        # 0.20 + 0.20
+        # Each leg's half-range is 0.20, but capped at $0.05/leg → total = 0.10
+        assert result['slippage'] == pytest.approx(0.10, rel=1e-6)
 
         hd.close()
 

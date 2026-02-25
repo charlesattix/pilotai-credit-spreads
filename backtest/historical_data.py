@@ -493,10 +493,14 @@ class HistoricalOptionsData:
 
         spread_value = short_close - long_close
 
-        # Model bid/ask slippage from bar high-low range (half-spread per leg)
+        # Model bid/ask slippage from bar high-low range, capped per leg.
+        # Raw bar range conflates directional momentum with actual bid/ask spread.
+        # Cap prevents outlier bars in volatile markets from inflating friction
+        # beyond realistic OTM SPY bid/ask (~$0.02-$0.10/leg in practice).
+        _CAP = 0.05  # max slippage per leg — matches config fallback as natural ceiling
         sh_hl = short_bar["high"] - short_bar["low"] if (short_bar["high"] and short_bar["low"]) else 0.0
         lg_hl = long_bar["high"] - long_bar["low"] if (long_bar["high"] and long_bar["low"]) else 0.0
-        slippage = sh_hl / 2 + lg_hl / 2
+        slippage = min(sh_hl / 2, _CAP) + min(lg_hl / 2, _CAP)
 
         return {
             "short_close": short_close,
