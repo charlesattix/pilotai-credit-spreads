@@ -3,9 +3,30 @@
 **Project:** PilotAI - Advanced ML/AI Trade Alerts  
 **Current Implementation:** Credit Spreads (pilotai-credit-spreads)  
 **Path:** `/Users/charlesbot/projects/pilotai-credit-spreads`  
-**Status:** 🔴 CRITICAL - P0 IN PROGRESS  
+**Status:** 🔴 CRITICAL - BACKTEST V3 + STRATEGY OVERHAUL  
 **Created:** 2026-02-19  
-**Last Updated:** 2026-02-23 11:40 AM ET
+**Last Updated:** 2026-02-24 7:35 PM ET
+
+---
+
+## 🎯 STRATEGIC DIRECTION (Carlos Directive - Feb 24, 7:30 PM)
+
+**Carlos's expert assessment:** The system survives but does not dominate. Core problems:
+- **Sharpe ratios unacceptable**: 0.60 (2024), 0.56 (2025), -0.11 (2026 YTD)
+- **Lethal drawdown-to-return**: 25.6% max DD for 17.2% return (Calmar < 0.7)
+- **Correlated tail risk**: All positions blow up simultaneously on macro events
+- **Win rate is a vanity metric**: Losses mathematically devastating vs wins
+
+**The 4 Strategic Changes (after V3 backtester fixes):**
+1. **Volatility Regimes**: IVR-based position sizing (size up IVR>50, skip IVR<20)
+2. **Portfolio Correlation Cap**: Beta-weighted net delta limits, not just position count
+3. **Tail Hedges**: 5-10% of premium → deep OTM VIX calls / SPY puts
+4. **Optimize for Calmar > 2.0**: Replace weekly consistency as objective function
+
+**Execution Order:**
+1. ✅ V3 backtester accuracy fixes (Problem 1 first, isolated)
+2. Re-sweep with Calmar as optimization target
+3. Implement strategic changes as separate experiments, measured independently
 
 ---
 
