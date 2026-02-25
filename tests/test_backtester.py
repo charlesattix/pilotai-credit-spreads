@@ -67,6 +67,9 @@ def _make_mock_historical_data():
     """Create a mock HistoricalOptionsData for testing."""
     mock = MagicMock()
     mock.api_calls_made = 0
+    # Default: no intraday data — _check_intraday_exits falls back to daily close.
+    # Individual tests that exercise intraday paths override this.
+    mock.get_intraday_spread_prices.return_value = None
     return mock
 
 

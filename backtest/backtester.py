@@ -693,6 +693,83 @@ class Backtester:
     # Position management
     # ------------------------------------------------------------------
 
+    def _check_intraday_exits(
+        self,
+        pos: Dict,
+        current_date: datetime,
+        date_str: str,
+    ) -> Optional[Tuple]:
+        """Check 30-min intraday scan times for stop/profit triggers.
+
+        Mirrors the live scanner's 30-min cadence (SCAN_TIMES) so backtest
+        exit granularity matches live trading behavior.
+
+        On the entry day, bars at or before entry_scan_time are skipped to
+        avoid acting on data that predates the position's opening.
+
+        Returns:
+            ('profit_target'|'stop_loss', spread_value) if triggered
+            ('no_trigger', last_spread_value)            if data found but no trigger
+            None                                         if no intraday data (fall back to daily close)
+        """
+        entry_scan_time = pos.get('entry_scan_time')  # e.g. "10:30"
+        is_entry_day = current_date.date() == pos['entry_date'].date()
+
+        entry_mins = None
+        if entry_scan_time and is_entry_day:
+            h, m = entry_scan_time.split(':')
+            entry_mins = int(h) * 60 + int(m)
+
+        had_any_data = False
+        last_spread_value = None
+
+        for scan_hour, scan_minute in SCAN_TIMES:
+            # Skip 9:15 — options don't open until 9:30
+            if scan_hour == _FIRST_BAR_HOUR and scan_minute < _FIRST_BAR_MINUTE:
+                continue
+
+            # On entry day, skip scan times at or before the entry scan time
+            if entry_mins is not None:
+                if scan_hour * 60 + scan_minute <= entry_mins:
+                    continue
+
+            if pos['type'] == 'iron_condor':
+                put_prices = self.historical_data.get_intraday_spread_prices(
+                    pos['ticker'], pos['expiration'],
+                    pos['short_strike'], pos['long_strike'], 'P',
+                    date_str, scan_hour, scan_minute,
+                )
+                call_prices = self.historical_data.get_intraday_spread_prices(
+                    pos['ticker'], pos['expiration'],
+                    pos['call_short_strike'], pos['call_long_strike'], 'C',
+                    date_str, scan_hour, scan_minute,
+                )
+                if put_prices is None or call_prices is None:
+                    continue
+                spread_value = put_prices['spread_value'] + call_prices['spread_value']
+            else:
+                ot = pos.get('option_type', 'P')
+                prices = self.historical_data.get_intraday_spread_prices(
+                    pos['ticker'], pos['expiration'],
+                    pos['short_strike'], pos['long_strike'], ot,
+                    date_str, scan_hour, scan_minute,
+                )
+                if prices is None:
+                    continue
+                spread_value = prices['spread_value']
+
+            had_any_data = True
+            last_spread_value = spread_value
+
+            if pos['credit'] - spread_value >= pos['profit_target']:
+                return ('profit_target', spread_value)
+            if spread_value - pos['credit'] >= pos['stop_loss']:
+                return ('stop_loss', spread_value)
+
+        if not had_any_data:
+            return None  # No intraday data — caller falls back to daily close
+        return ('no_trigger', last_spread_value)
+
     def _manage_positions(
         self,
         positions: List[Dict],
@@ -719,6 +796,20 @@ class Backtester:
             date_str = current_date.strftime("%Y-%m-%d")
 
             if self._use_real_data:
+                # Try intraday exits first (30-min scan granularity matching live scanner)
+                intraday_result = self._check_intraday_exits(pos, current_date, date_str)
+                if intraday_result is not None:
+                    reason, spread_value = intraday_result
+                    if reason in ('profit_target', 'stop_loss'):
+                        pnl = (pos['credit'] - spread_value) * pos['contracts'] * 100 - pos['commission']
+                        self._record_close(pos, current_date, pnl, reason)
+                        continue
+                    # 'no_trigger' — had intraday data but no exit; skip daily close check
+                    pos['current_value'] = -spread_value * pos['contracts'] * 100
+                    remaining_positions.append(pos)
+                    continue
+
+                # No intraday data available — fall back to daily close check
                 if pos['type'] == 'iron_condor':
                     put_prices = self.historical_data.get_spread_prices(
                         pos['ticker'], pos['expiration'],
@@ -750,7 +841,7 @@ class Backtester:
                 dte = (pos['expiration'] - current_date).days
                 current_spread_value = self._estimate_spread_value(pos, current_price, dte)
 
-            # P&L check: profit = credit - current spread value
+            # P&L check: profit = credit - current spread value (daily close fallback)
             profit = pos['credit'] - current_spread_value
 
             if profit >= pos['profit_target']:
