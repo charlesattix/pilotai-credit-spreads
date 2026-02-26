@@ -171,7 +171,7 @@ class TestPaperTrader:
     @patch('paper_trader.PAPER_LOG')
     @patch('paper_trader.DATA_DIR')
     def test_position_limit(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
-        """Should not open more trades than max_positions."""
+        """All eligible opportunities should open — no hard position cap enforced."""
         mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
         mock_data_dir.mkdir = MagicMock()
         mock_paper_log.exists.return_value = False
@@ -187,7 +187,7 @@ class TestPaperTrader:
             _make_opportunity(ticker='IWM', short_strike=200),
         ]
         new_trades = pt.execute_signals(opps)
-        assert len(new_trades) == 2  # limited by max_positions
+        assert len(new_trades) == 3  # no hard cap — all eligible trades open
 
     @patch('paper_trader.db_close_trade')
     @patch('paper_trader.upsert_trade')

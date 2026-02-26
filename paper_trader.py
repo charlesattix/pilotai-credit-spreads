@@ -302,13 +302,6 @@ class PaperTrader:
             logger.info("No opportunities to trade")
             return []
 
-        open_count = len(self.open_trades)
-        available_slots = self.max_positions - open_count
-
-        if available_slots <= 0:
-            logger.info(f"Max positions reached ({self.max_positions}), skipping new entries")
-            return []
-
         # Only trade opportunities that meet the alert-quality threshold (score >= 28)
         # Lowered to generate more trading activity (Carlos directive Feb 21)
         sorted_opps = [o for o in opportunities if o.get("score", 0) >= 28]
@@ -334,7 +327,7 @@ class PaperTrader:
         ]
 
         new_trades = []
-        for opp in eligible[:available_slots]:
+        for opp in eligible:
             trade = self._open_trade(opp)
             if trade:
                 new_trades.append(trade)
