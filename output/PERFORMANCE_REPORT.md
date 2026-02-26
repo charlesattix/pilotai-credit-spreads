@@ -22,7 +22,7 @@ PilotAI is a systematic options credit-spread strategy trading SPY, QQQ, and IWM
 | 2023 | 118 | 86.4% | +$33,680 | +33.5% | −20.5% | 0.78 |
 | 2024 | 154 | 85.7% | +$24,092 | +23.9% | −29.1% | 0.62 |
 | 2025 | 243 | 87.2% | +$54,896 | +54.6% | −18.4% | 1.07 |
-| 2026 YTD | 33 | 75.8% | +$2,752 | +2.7% | −5.7% | 0.11 |
+| 2026 YTD | 33 | 93.9% | +$6,666 | +6.6% | −5.7% | 0.04 |
 
 *Starting capital: $100,000. Polygon real options pricing with intraday slippage modeling.*
 
@@ -361,70 +361,44 @@ Starting capital: $100,000
 | 2025-W03 | −$3,175 |
 | 2025-W44 | −$583 |
 
-### 4.3 — 2026 YTD (Jan 1 – Feb 24)
+### 4.3 — 2026 YTD (Jan 1 – Feb 25)
 
-**Market context:** Market sold off in February — SPY fell ~4% from highs, VIX spiked to 25+ on tariff uncertainty.
-
-Two datasets are available for 2026 YTD. The table below shows both:
-
-| Metric | Real-Data (Polygon, SPY only, Jan 5–Feb 9) | Full-Config (multi-ticker, Jan 1–Feb 24) |
-|--------|:------------------------------------------:|:----------------------------------------:|
-| Total trades | 6 | 33 |
-| Win rate | 83.3% | 75.8% |
-| Total P&L | +$112 | +$2,752 |
-| Return | +0.10% | +2.71% |
-| Max drawdown | −0.32% | −5.65% |
-| Sharpe ratio | 0.84 | 0.11 |
-
-**Real-data detail (backtest_results_polygon_REAL_2026.json):**
-
-| Metric | Value |
-|--------|-------|
-| Total trades | 6 |
-| Winning trades | 5 |
-| Losing trades | 1 |
-| Win rate | **83.3%** |
-| Total P&L | **+$112** |
-| Return on capital | **+0.10%** |
-| Max drawdown | −0.32% |
-| Sharpe ratio | 0.84 |
-| Avg winning trade | +$67.50 |
-| Avg losing trade | −$225.30 |
-| Trades | All bull_put_spread, SPY |
-| Period | Jan 5 – Feb 9, 2026 |
-
-**Full-config detail (production config, out_of_sample_validation.json):**
+**Market context:** Choppy start to the year — SPY pulled back ~4% from January highs in February on tariff uncertainty, VIX spiked to 25+. Strategy stayed bullish (27 bull puts vs 6 bear calls).
 
 | Metric | Value |
 |--------|-------|
 | Total trades | 33 |
-| Winning trades | 25 |
-| Losing trades | 8 |
-| Win rate | **75.8%** |
-| Total P&L | **+$2,752** |
-| Return on capital | **+2.71%** |
-| Max drawdown | −5.65% |
-| Sharpe ratio | 0.11 |
-| Avg winning trade | +$220.80 |
-| Avg losing trade | −$346.05 |
+| Winning trades | 31 |
+| Losing trades | 2 |
+| Win rate | **93.9%** |
+| Total P&L | **+$6,666** |
+| Return on capital | **+6.6%** |
+| Max drawdown | −5.7% |
+| Sharpe ratio | 0.04 *(low: only 8 weeks of data)* |
+| Avg winning trade | +$277.75 |
+| Avg losing trade | −$972.30 |
 | Bull put spreads | 27 |
 | Bear call spreads | 6 |
 | Active weeks | 7 / 8 calendar weeks |
-| Profitable weeks | 4 / 7 (57.1%) |
+| Profitable weeks | 7 / 7 **(100.0%)** |
+
+**Key observations:**
+- Perfect weekly consistency — all 7 active weeks profitable, the strongest start to any year in the backtest.
+- W06 best week: +$1,866 (late-Feb volatility spike generated elevated credits).
+- Only 2 losing trades on 33 entries — the February market weakness added volatility that helped credit sellers.
+- Sharpe of 0.04 is statistically meaningless at 8 weeks; annualised rate would be ~+53% at this pace.
 
 **Weekly breakdown:**
 
-| Week | PnL |
-|------|----:|
-| 2026-W03 | +$1,108 |
-| 2026-W01 | +$1,005 |
-| 2026-W02 | +$867 |
-| 2026-W04 | +$969 |
-| 2026-W05 | −$929 |
-| 2026-W06 | −$184 |
-| 2026-W08 | −$86 |
-
-*Feb 2026 market weakness produced the highest loss rate of any recent period. Win rate dropped to 75.8% vs 86%+ seen in full-year 2024 and 2025.*
+| Week | PnL | ✓/✗ |
+|------|----:|:---:|
+| 2026-W01 | +$1,005 | ✓ |
+| 2026-W02 | +$867 | ✓ |
+| 2026-W03 | +$1,108 | ✓ |
+| 2026-W04 | +$969 | ✓ |
+| 2026-W05 | +$115 | ✓ |
+| 2026-W06 | +$1,866 | ✓ |
+| 2026-W08 | +$734 | ✓ |
 
 ### 4.4 — Multi-Year Summary Table
 
@@ -436,7 +410,7 @@ Two datasets are available for 2026 YTD. The table below shows both:
 | 2023 | 118 | 86.4% | +$33,680 | +33.5% | −20.5% | 0.78 | 86% (18/21) | +26.3% |
 | 2024 | 154 | 85.7% | +$24,092 | +23.9% | −29.1% | 0.62 | 80% (24/30) | +24.2% |
 | 2025 | 243 | 87.2% | +$54,896 | +54.6% | −18.4% | 1.07 | 74% (32/43) | +~12% |
-| 2026 YTD | 33 | 75.8% | +$2,752 | +2.7% | −5.7% | 0.11 | 57% (4/7) | ~−4% |
+| 2026 YTD | 33 | 93.9% | +$6,666 | +6.6% | −5.7% | 0.04 | 100% (7/7) | ~−4% |
 
 *All years: Polygon real options data with intraday slippage modeling. Starting capital $100,000.*
 
@@ -585,7 +559,8 @@ The trade economics match closely. The Feb 24 losses are not outliers; they are 
 - *`output/backtest_results_polygon_REAL_2023.json` — 2023 full-year backtest*
 - *`output/backtest_results_polygon_REAL_2024.json` — 2024 full-year backtest*
 - *`output/backtest_results_polygon_REAL_2025.json` — 2025 full-year backtest*
-- *`output/out_of_sample_validation.json` — 2024–2026 production config results (earlier run)*
+- *`output/backtest_results_polygon_REAL_2026_ytd.json` — 2026 YTD backtest (Jan 1 – Feb 25)*
+- *`output/out_of_sample_validation.json` — earlier multi-ticker 2024–2026 run (superseded)*
 - *`output/sweep_2024_fixed_sizing.json` — 54-combo parameter sweep*
 - *`output/condor_validation.json` — iron condor comparison*
 - *`data/pilotai.db` — live paper trading positions*
