@@ -100,6 +100,10 @@ class Backtester:
         self._current_iv_rank: float = 25.0       # default = standard regime
         self._current_portfolio_risk: float = 0.0
 
+        # Realized-vol state (fixes constant σ=25% bias in delta selection)
+        self._realized_vol_by_date: dict = {}
+        self._current_realized_vol: float = 0.25  # fallback = 25%
+
         # Trade history
         self.trades = []
         self.equity_curve = []
@@ -144,6 +148,9 @@ class Backtester:
         # the same way the live scanner does — small in low-vol, large in high-vol.
         self._iv_rank_by_date = self._build_iv_rank_series(data_fetch_start, end_date)
 
+        # Build per-date realized vol for delta strike selection (fixes σ=25% constant)
+        self._realized_vol_by_date = self._build_realized_vol_series(price_data)
+
         # Strip timezone for consistent date-only comparison
         start_date = start_date.replace(tzinfo=None) if hasattr(start_date, 'tzinfo') and start_date.tzinfo else start_date
         end_date = end_date.replace(tzinfo=None) if hasattr(end_date, 'tzinfo') and end_date.tzinfo else end_date
@@ -173,6 +180,7 @@ class Backtester:
 
             # Set current IV Rank + portfolio heat for sizing calculations (Upgrade 3)
             self._current_iv_rank = self._iv_rank_by_date.get(lookup_date, 25.0)
+            self._current_realized_vol = self._realized_vol_by_date.get(lookup_date, 0.25)
             self._current_portfolio_risk = sum(
                 p.get('max_loss', 0) * p.get('contracts', 1) * 100
                 for p in open_positions
@@ -349,6 +357,47 @@ class Backtester:
             return iv_rank_map
         except Exception as e:
             logger.warning("Failed to build IV rank series: %s — using default 25", e)
+            return {}
+
+    def _build_realized_vol_series(self, price_data: pd.DataFrame) -> dict:
+        """Build {pd.Timestamp: realized_vol} from OHLCV data already in memory.
+
+        Uses 20-day ATR normalized to annualized vol as a proxy for current IV.
+        This replaces the constant σ=25% previously used in delta-based strike
+        selection, which caused systematic strike misplacement in non-average-vol
+        regimes (too near ATM in high-IV, too far OTM in low-IV).
+
+        Formula: σ = ATR(20) / Close × √252
+        ATR uses full True Range: max(H-L, |H-PrevClose|, |L-PrevClose|)
+
+        Result is clipped to [0.10, 1.00] and NaNs filled with 0.25.
+        """
+        try:
+            high = price_data['High']
+            low = price_data['Low']
+            close = price_data['Close']
+            prev_close = close.shift(1)
+
+            tr = pd.concat([
+                high - low,
+                (high - prev_close).abs(),
+                (low - prev_close).abs(),
+            ], axis=1).max(axis=1)
+
+            atr20 = tr.rolling(20, min_periods=5).mean()
+            rv = (atr20 / close * math.sqrt(252)).clip(lower=0.10, upper=1.00)
+            rv = rv.fillna(0.25)
+
+            if rv.index.tz is not None:
+                rv.index = rv.index.tz_localize(None)
+
+            logger.debug(
+                "Realized vol series: %d dates, range %.0f%%–%.0f%%",
+                len(rv), rv.min() * 100, rv.max() * 100,
+            )
+            return rv.to_dict()
+        except Exception as e:
+            logger.warning("Failed to build realized vol series: %s — using 0.25", e)
             return {}
 
     # ------------------------------------------------------------------
@@ -589,6 +638,7 @@ class Backtester:
             from shared.strike_selector import select_delta_strike
             chain = self.historical_data.get_strikes_with_approx_delta(
                 ticker, expiration, price, date_str, option_type=ot,
+                iv_estimate=self._current_realized_vol,
             )
             if not chain:
                 logger.debug("No strikes for delta selection: %s exp %s on %s",

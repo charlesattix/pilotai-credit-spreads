@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-02-25T23:36:18.844189",
+  "timestamp": "2026-02-26T05:58:50.907442",
   "config": {
     "otm_pct": 0.03,
     "spread_width": 5,
@@ -12,26 +12,30 @@
     {
       "label": "2026 YTD",
       "period": "2026-01-01 to 2026-02-25",
-      "total_trades": 13,
-      "win_rate": 100.0,
-      "total_pnl": 867.1,
-      "return_pct": 0.85,
-      "max_drawdown": -0.3,
-      "sharpe_ratio": 2.37,
-      "avg_win": 66.7,
-      "avg_loss": 0,
-      "bull_put_trades": 13,
-      "bear_call_trades": 0,
+      "total_trades": 45,
+      "win_rate": 95.56,
+      "total_pnl": 2309.5,
+      "return_pct": 2.25,
+      "max_drawdown": -1.64,
+      "sharpe_ratio": 1.15,
+      "avg_win": 66.86,
+      "avg_loss": 282.8,
+      "bull_put_trades": 44,
+      "bear_call_trades": 1,
       "iron_condor_trades": 0,
       "iron_condor_win_rate": 0,
-      "positive_weeks": 4,
-      "total_weeks": 4,
-      "weekly_consistency": 100.0,
+      "positive_weeks": 7,
+      "total_weeks": 8,
+      "weekly_consistency": 87.5,
       "weekly_pnl": {
-        "2026-W04": 333.4999999999999,
-        "2026-W05": 70.69999999999997,
-        "2026-W06": 240.79999999999995,
-        "2026-W08": 222.0999999999999
+        "2026-W01": 355.2,
+        "2026-W02": 270.8,
+        "2026-W03": 937.6000000000003,
+        "2026-W04": 114.40000000000002,
+        "2026-W05": 222.09999999999974,
+        "2026-W06": 199.3999999999998,
+        "2026-W07": 318.4999999999999,
+        "2026-W08": -108.50000000000011
       }
     }
   ]
