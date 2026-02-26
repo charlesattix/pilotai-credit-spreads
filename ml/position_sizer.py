@@ -18,6 +18,77 @@ from shared.types import PositionSizeResult
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Upgrade 3: IV-Scaled Position Sizing (standalone functions)
+# ---------------------------------------------------------------------------
+
+def calculate_dynamic_risk(
+    account_value: float,
+    iv_rank: float,
+    current_portfolio_risk: float,
+) -> float:
+    """Return the dollar risk budget for one new trade based on IV Rank.
+
+    Sizing tiers:
+      IVR < 20  (low edge)      → 0.5× baseline = 1% of account
+      IVR 20-50 (standard edge) → 1× baseline    = 2% of account
+      IVR > 50  (high edge)     → up to 1.5×     = up to 3% (linear)
+
+    Also enforces a 40% portfolio heat cap: if adding this trade would push
+    total open risk above 40% of account_value, the budget is reduced to
+    whatever room is left in the heat cap (floored at 0).
+
+    Args:
+        account_value: Current account balance in dollars.
+        iv_rank: Current IV Rank 0-100.
+        current_portfolio_risk: Dollar value of max-loss exposure already
+                                 committed across all open positions.
+
+    Returns:
+        Dollar risk budget for the new trade (>= 0).
+    """
+    base_risk_pct = 0.02
+    max_portfolio_heat = 0.40
+
+    if iv_rank < 20:
+        target_risk_pct = base_risk_pct * 0.5
+    elif iv_rank <= 50:
+        target_risk_pct = base_risk_pct
+    else:
+        multiplier = min(1.5, 1.0 + ((iv_rank - 50) / 100.0))
+        target_risk_pct = base_risk_pct * multiplier
+
+    trade_dollar_risk = account_value * target_risk_pct
+
+    heat_budget = account_value * max_portfolio_heat - current_portfolio_risk
+    if trade_dollar_risk > heat_budget:
+        return max(0.0, heat_budget)
+
+    return trade_dollar_risk
+
+
+def get_contract_size(
+    trade_dollar_risk: float,
+    spread_width: float,
+    credit_received: float,
+) -> int:
+    """Convert a dollar risk budget into a contract count.
+
+    Args:
+        trade_dollar_risk: Dollar risk budget from calculate_dynamic_risk().
+        spread_width: Width of the spread in dollars (e.g. 5 for a $5-wide spread).
+        credit_received: Net credit per spread in dollars (e.g. 0.65).
+
+    Returns:
+        Number of contracts (integer, minimum 0, maximum 5).
+    """
+    max_loss_per_contract = (spread_width - credit_received) * 100
+    if max_loss_per_contract <= 0:
+        return 0
+    contracts = int(trade_dollar_risk // max_loss_per_contract)
+    return min(contracts, 5)
+
+
 class PositionSizer:
     """
     Adaptive position sizing using Kelly Criterion.

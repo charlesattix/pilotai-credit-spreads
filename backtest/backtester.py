@@ -95,6 +95,11 @@ class Backtester:
         self._use_delta_selection = self.strategy_params.get("use_delta_selection", False)
         self._target_delta = float(self.strategy_params.get("target_delta", 0.12))
 
+        # IV-scaled sizing state (Upgrade 3) — updated per trading day in run_backtest
+        self._iv_rank_by_date: dict = {}
+        self._current_iv_rank: float = 25.0       # default = standard regime
+        self._current_portfolio_risk: float = 0.0
+
         # Trade history
         self.trades = []
         self.equity_curve = []
@@ -134,6 +139,11 @@ class Backtester:
             logger.error(f"No historical data for {ticker}")
             return {}
 
+        # Build per-date IV Rank lookup from VIX data (Upgrade 3: IV-scaled sizing)
+        # Uses a 252-trading-day rolling IV Rank so the backtester sizes positions
+        # the same way the live scanner does — small in low-vol, large in high-vol.
+        self._iv_rank_by_date = self._build_iv_rank_series(data_fetch_start, end_date)
+
         # Strip timezone for consistent date-only comparison
         start_date = start_date.replace(tzinfo=None) if hasattr(start_date, 'tzinfo') and start_date.tzinfo else start_date
         end_date = end_date.replace(tzinfo=None) if hasattr(end_date, 'tzinfo') and end_date.tzinfo else end_date
@@ -161,9 +171,17 @@ class Backtester:
 
             current_price = float(price_data.loc[lookup_date, 'Close'])
 
+            # Set current IV Rank + portfolio heat for sizing calculations (Upgrade 3)
+            self._current_iv_rank = self._iv_rank_by_date.get(lookup_date, 25.0)
+            self._current_portfolio_risk = sum(
+                p.get('max_loss', 0) * p.get('contracts', 1) * 100
+                for p in open_positions
+            )
+
             logger.debug(
-                "%s  price=%.2f  open_positions=%d",
-                current_date.strftime("%Y-%m-%d"), current_price, len(open_positions),
+                "%s  price=%.2f  open_positions=%d  ivr=%.0f",
+                current_date.strftime("%Y-%m-%d"), current_price,
+                len(open_positions), self._current_iv_rank,
             )
 
             # Check existing positions
@@ -277,6 +295,61 @@ class Backtester:
         except Exception as e:
             logger.error(f"Error getting historical data: {e}", exc_info=True)
             return pd.DataFrame()
+
+    def _build_iv_rank_series(
+        self, start_date: datetime, end_date: datetime
+    ) -> dict:
+        """Build a {pd.Timestamp: iv_rank} lookup for IV-scaled sizing (Upgrade 3).
+
+        Downloads VIX daily closes from yfinance and computes a 252-trading-day
+        rolling IV Rank (current VIX vs trailing year min/max).  Fetches 300
+        extra calendar days before start_date to guarantee a full 252-bar window.
+
+        Falls back gracefully: any date without data receives iv_rank=25 (standard
+        regime = 2% base risk), so sizing is never broken by VIX data gaps.
+        """
+        from shared.indicators import calculate_iv_rank as _calc_ivr
+        try:
+            fetch_start = start_date - timedelta(days=300)
+            raw = yf.download(
+                "^VIX",
+                start=fetch_start.strftime("%Y-%m-%d"),
+                end=(end_date + timedelta(days=1)).strftime("%Y-%m-%d"),
+                progress=False,
+                auto_adjust=True,
+            )
+            if raw.empty:
+                logger.warning("VIX data unavailable — using default iv_rank=25")
+                return {}
+
+            # Flatten MultiIndex if present (yfinance >= 0.2)
+            if isinstance(raw.columns, pd.MultiIndex):
+                raw.columns = raw.columns.get_level_values(0)
+
+            vix = raw["Close"].dropna()
+            if vix.index.tz is not None:
+                vix.index = vix.index.tz_localize(None)
+
+            iv_rank_map = {}
+            for ts in vix.index:
+                # Rolling 252-day window ending on this date
+                window = vix.loc[:ts].tail(252)
+                if len(window) < 20:
+                    iv_rank_map[ts] = 25.0
+                    continue
+                result = _calc_ivr(window, float(vix.loc[ts]))
+                iv_rank_map[ts] = result["iv_rank"]
+
+            logger.debug(
+                "IV rank series built: %d dates, range %.0f–%.0f",
+                len(iv_rank_map),
+                min(iv_rank_map.values()) if iv_rank_map else 0,
+                max(iv_rank_map.values()) if iv_rank_map else 0,
+            )
+            return iv_rank_map
+        except Exception as e:
+            logger.warning("Failed to build IV rank series: %s — using default 25", e)
+            return {}
 
     # ------------------------------------------------------------------
     # Opportunity finding
@@ -427,9 +500,14 @@ class Backtester:
         if risk_per_spread <= 0:
             return None
 
-        max_risk = self.starting_capital * (self.risk_params['max_risk_per_trade'] / 100)
-        max_contracts_cap = self.risk_params.get('max_contracts', 999)
-        contracts = max(1, min(max_contracts_cap, int(max_risk / risk_per_spread)))
+        # IV-scaled sizing (Upgrade 3)
+        from ml.position_sizer import calculate_dynamic_risk, get_contract_size
+        current_portfolio_risk = getattr(self, '_current_portfolio_risk', 0.0)
+        iv_rank = getattr(self, '_current_iv_rank', 25.0)
+        trade_dollar_risk = calculate_dynamic_risk(
+            self.starting_capital, iv_rank, current_portfolio_risk
+        )
+        contracts = max(1, get_contract_size(trade_dollar_risk, spread_width, combined_credit))
 
         scan_time_mins = (scan_hour or 0) * 60 + (scan_minute or 0)
         market_open_mins = _FIRST_BAR_HOUR * 60 + _FIRST_BAR_MINUTE
@@ -621,11 +699,15 @@ class Backtester:
         risk_per_spread = max_loss * 100
         if risk_per_spread <= 0:
             return None
-        # Fixed sizing: use starting_capital (not current capital) so compounding
-        # doesn't inflate later trades — each trade risks the same dollar amount.
-        max_risk = self.starting_capital * (self.risk_params['max_risk_per_trade'] / 100)
-        max_contracts_cap = self.risk_params.get('max_contracts', 999)
-        contracts = max(1, min(max_contracts_cap, int(max_risk / risk_per_spread)))
+        # IV-scaled sizing (Upgrade 3): risk budget varies with IV Rank.
+        # current_portfolio_risk = max_loss exposure across all currently-open positions.
+        from ml.position_sizer import calculate_dynamic_risk, get_contract_size
+        current_portfolio_risk = getattr(self, '_current_portfolio_risk', 0.0)
+        iv_rank = getattr(self, '_current_iv_rank', 25.0)
+        trade_dollar_risk = calculate_dynamic_risk(
+            self.starting_capital, iv_rank, current_portfolio_risk
+        )
+        contracts = max(1, get_contract_size(trade_dollar_risk, spread_width, credit))
 
         position = {
             'ticker': ticker,
