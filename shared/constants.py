@@ -21,6 +21,17 @@ MODELS_DIR = os.path.join(PROJECT_ROOT, 'ml', 'models')
 CONFIG_PATH = os.path.join(PROJECT_ROOT, 'config.yaml')
 
 # ---------------------------------------------------------------------------
+# MASTERPLAN risk management — HARD-CODED, never user-configurable
+# ---------------------------------------------------------------------------
+MAX_RISK_PER_TRADE = 0.05        # 5% max risk on any single trade
+MAX_TOTAL_EXPOSURE = 0.15        # 15% max total portfolio exposure
+DAILY_LOSS_LIMIT = 0.08          # 8% daily loss → stop all alerts for the day
+WEEKLY_LOSS_LIMIT = 0.15         # 15% weekly loss → 50% size reduction
+MIN_RISK_REWARD = 1.0            # minimum risk/reward ratio
+MAX_CORRELATED_POSITIONS = 3     # max positions with same direction
+COOLDOWN_AFTER_STOP = 30 * 60   # 30 minutes cooldown after stop-out (seconds)
+
+# ---------------------------------------------------------------------------
 # Position sizing
 # ---------------------------------------------------------------------------
 MAX_CONTRACTS_PER_TRADE = 10

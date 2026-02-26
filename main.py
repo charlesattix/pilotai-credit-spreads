@@ -35,6 +35,10 @@ except Exception as e:
 from utils import load_config, setup_logging, validate_config
 from strategy import CreditSpreadStrategy, TechnicalAnalyzer, OptionsAnalyzer
 from alerts import AlertGenerator, TelegramBot
+from alerts.risk_gate import RiskGate
+from alerts.alert_position_sizer import AlertPositionSizer
+from alerts.alert_router import AlertRouter
+from alerts.formatters.telegram import TelegramAlertFormatter
 from backtest import Backtester, HistoricalOptionsData, PerformanceMetrics
 from tracker import TradeTracker, PnLDashboard
 from paper_trader import PaperTrader
@@ -119,6 +123,14 @@ class CreditSpreadSystem:
         self.ml_score_weight = strategy_cfg.get('ml_score_weight', _DEFAULT_ML_SCORE_WEIGHT)
         self.rules_score_weight = 1.0 - self.ml_score_weight
         self.event_risk_threshold = strategy_cfg.get('event_risk_threshold', _DEFAULT_EVENT_RISK_THRESHOLD)
+
+        # MASTERPLAN alert router pipeline
+        self.alert_router = AlertRouter(
+            risk_gate=RiskGate(),
+            position_sizer=AlertPositionSizer(),
+            telegram_bot=self.telegram_bot,
+            formatter=TelegramAlertFormatter(),
+        )
 
         logger.info("All components initialized successfully")
 
@@ -310,7 +322,7 @@ class CreditSpreadSystem:
             except Exception as e:
                 logger.warning(f"Failed to persist alert for {opp.get('ticker')}: {e}")
 
-        # Send Telegram alerts if enabled
+        # Send Telegram alerts if enabled (legacy flow — backward compatible)
         if self.telegram_bot.enabled:
             top_opportunities = [
                 opp for opp in opportunities
@@ -319,6 +331,70 @@ class CreditSpreadSystem:
 
             sent = self.telegram_bot.send_alerts(top_opportunities, self.alert_generator)
             logger.info(f"Sent {sent} Telegram alerts")
+
+        # New MASTERPLAN alert router pipeline (runs alongside legacy flow)
+        try:
+            account_state = self._build_account_state()
+            routed = self.alert_router.route_opportunities(opportunities, account_state)
+            logger.info(f"Alert router dispatched {len(routed)} alerts")
+        except Exception as e:
+            logger.warning(f"Alert router pipeline failed (non-fatal): {e}")
+
+    def _build_account_state(self) -> Dict:
+        """Build the account_state dict expected by RiskGate / AlertRouter.
+
+        Reads live data from the paper trader and trade tracker.
+        """
+        # Account value
+        account_value = self.paper_trader.trades.get(
+            "current_balance", self.paper_trader.account_size
+        )
+
+        # Open positions — map to the shape RiskGate expects
+        open_positions = []
+        for pos in self.paper_trader.open_trades:
+            # Infer direction from spread type
+            opp_type = pos.get("strategy_type") or pos.get("type", "")
+            if "condor" in opp_type:
+                direction = "neutral"
+            elif "put" in opp_type:
+                direction = "bullish"
+            else:
+                direction = "bearish"
+
+            open_positions.append({
+                "ticker": pos.get("ticker", ""),
+                "direction": direction,
+                "risk_pct": pos.get("risk_pct", 0.02),
+                "entry_time": pos.get("entry_date", ""),
+            })
+
+        # P&L — approximate daily/weekly from total stats
+        daily_pnl_pct = 0.0
+        weekly_pnl_pct = 0.0
+        try:
+            total_pnl = self.paper_trader.trades.get("stats", {}).get("total_pnl", 0)
+            if account_value > 0 and total_pnl:
+                daily_pnl_pct = total_pnl / account_value
+        except Exception:
+            pass
+
+        # Recent stops
+        recent_stops = []
+        for pos in self.paper_trader.closed_trades:
+            if pos.get("exit_reason") in ("stop_loss", "stopped"):
+                recent_stops.append({
+                    "ticker": pos.get("ticker", ""),
+                    "stopped_at": pos.get("exit_date", ""),
+                })
+
+        return {
+            "account_value": account_value,
+            "open_positions": open_positions,
+            "daily_pnl_pct": daily_pnl_pct,
+            "weekly_pnl_pct": weekly_pnl_pct,
+            "recent_stops": recent_stops[-10:],
+        }
 
     def run_backtest(self, ticker: str = 'SPY', lookback_days: int = 365, clear_cache: bool = False):
         """
