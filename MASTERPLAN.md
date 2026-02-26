@@ -3,9 +3,9 @@
 **Project:** PilotAI - Advanced ML/AI Trade Alerts  
 **Current Implementation:** Credit Spreads (pilotai-credit-spreads)  
 **Path:** `/Users/charlesbot/projects/pilotai-credit-spreads`  
-**Status:** 🔴 CRITICAL - BACKTEST V3 + STRATEGY OVERHAUL  
-**Created:** 2026-02-19  
-**Last Updated:** 2026-02-24 7:35 PM ET
+**Status:** 🔴 CRITICAL - BACKTEST V3 + STRATEGY OVERHAUL
+**Created:** 2026-02-19
+**Last Updated:** 2026-02-25 ET
 
 ---
 
@@ -27,6 +27,63 @@
 1. ✅ V3 backtester accuracy fixes (Problem 1 first, isolated)
 2. Re-sweep with Calmar as optimization target
 3. Implement strategic changes as separate experiments, measured independently
+
+---
+
+## 🔥 UPGRADE 1: Delta-Based Strike Selection (Feb 25, 2026)
+
+**Directive:** Replace static 3% OTM strike calculation with dynamic 12-delta targeting.
+
+**Problem:** Fixed OTM% ignores the volatility surface. In high-IV markets a 3% OTM strike is deep ITM (too risky); in low-IV markets it's too far OTM to collect meaningful premium. A fixed delta (12-delta) self-adjusts with the vol surface and stays at a consistent probability-of-profit regardless of regime.
+
+**Implementation (complete):**
+
+| Component | Change |
+|-----------|--------|
+| `shared/strike_selector.py` (NEW) | Pure functions: `bs_delta()`, `select_delta_strike()` — no I/O, usable in both live and backtest |
+| `backtest/historical_data.py` | Added `get_strikes_with_approx_delta()` — annotates strikes with BS delta using constant 25% IV estimate |
+| `backtest/backtester.py` | `__init__` reads `use_delta_selection` + `target_delta` from config; `_find_real_spread()` branches on delta vs OTM% |
+| `strategy/spread_strategy.py` | `_find_spreads()` branches on delta vs legacy range filter; uses `select_delta_strike()` for live chain |
+| `config.yaml` | `use_delta_selection: true`, `target_delta: 0.12` added under `strategy:` |
+
+**Key Design Decisions:**
+- `use_delta_selection` defaults `False` in code so existing tests pass without config changes
+- Production config sets `true` — live scanner (real Polygon Greeks) and backtester (BS approximation) both use same `select_delta_strike()` logic
+- Constant 25% IV estimate for backtester places 12-delta within ±1 strike of true value across normal SPY vol regimes
+- Long leg always = short strike ± $5 spread width (unchanged from before)
+- Min credit 10% ($0.50 on $5 wide) still enforced — if 12-delta strike doesn't yield min credit, skip trade
+
+**Status:** ✅ COMPLETE — Feb 25, 2026
+
+---
+
+## 🔥 UPGRADE 2: State Reconciliation (Pending — after Upgrade 1)
+
+**Problem:** Paper trader has fragile state. If the process crashes between Alpaca submission and the SQLite write, the position exists in Alpaca but is invisible to the system. Stale `pending_open` entries accumulate. No way to match Alpaca position back to internal trade record after restart.
+
+**Solution:** Write-ahead pattern + deterministic client_order_id + standalone reconciliation loop.
+
+**Required Changes:**
+
+| Component | Change |
+|-----------|--------|
+| `shared/alpaca_provider.py` | Add `get_account_activities()` for `/v2/account/activities`; accept optional `client_order_id` in `submit_credit_spread()` |
+| `shared/database.py` | Add columns `alpaca_client_order_id`, `alpaca_fill_price`; add `reconciliation_events` audit table |
+| `shared/reconciler.py` (NEW) | `PositionReconciler`: queries `/v2/positions` + `/v2/account/activities`, matches via `client_order_id`, updates DB state |
+| `paper_trader.py` | `_open_trade()`: generate deterministic `client_order_id = f"Pilot_{ticker}_{spread_type}_{trade_id}"`; write `status=pending_open` to SQLite BEFORE Alpaca API call |
+| `paper_trader.py` | Wire `PositionReconciler` into `__init__` (startup reconciliation) and scheduler loop (every ~3 scan cycles) |
+
+**Deterministic client_order_id format:** `Pilot_{ticker}_{BullPut|BearCall}_{trade_id}`
+- Reproducible across restarts — same trade_id always yields same client_order_id
+- Queryable from Alpaca's order history to find exact fill prices
+
+**Reconciliation flow:**
+1. At startup: scan all `pending_open` DB rows → query Alpaca `/v2/positions` → update fills, mark `open`
+2. For orphaned Alpaca positions (no matching DB row): create recovery record
+3. For DB rows with no matching Alpaca position: query `/v2/account/activities` → find close, record true exit P&L, mark `closed`
+4. Write all transitions to `reconciliation_events` table for audit
+
+**Status:** ⏳ PENDING — starts after Upgrade 1 deployed & verified
 
 ---
 
@@ -727,3 +784,16 @@ Original 13 trades intact locally + 10 trades synced to Railway dashboard.
 *Last Updated: 2026-02-20 10:30 AM ET by Charles*
 *Next Review: After daily market close or when positions close*
 *Status: Phase 1 (Credit Spreads) - P0 backtest blocker RESOLVED, forward testing live, strategy validation now unblocked*
+
+## UPGRADE 3: IV-Scaled Position Sizing (Priority: After Upgrades 1 & 2)
+
+**Problem:** Fixed 2% risk per trade deploys equal capital across vastly different vol regimes. This creates persistent ~25% max drawdowns every year regardless of edge quality.
+
+**Solution:** Dynamic position sizing based on VIX/IV Rank:
+- Low IV (VIX < 15): Risk scales DOWN to 0.75-1.0% per trade
+- Normal IV (VIX 15-25): Baseline 2.0% per trade  
+- High IV (VIX > 25): Risk scales UP to 3.0% per trade
+
+**Why:** The system is a long-volatility engine — it prints +66% in COVID, +111% in 2022 bear. It should bet HEAVY when premiums are fat and bet SMALL when premiums are thin. This mathematically aligns capital exposure with probabilistic edge.
+
+**Implementation:** Replace static `max_risk_per_trade: 2.0` with a function that reads current VIX level and IV Rank, then outputs scaled risk percentage. Integrate with existing PositionSizer in ml/position_sizer.py.

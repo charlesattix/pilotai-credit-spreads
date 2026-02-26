@@ -303,6 +303,56 @@ class HistoricalOptionsData:
         data = self._api_get("/v3/reference/options/contracts", params=params)
         return data.get("results", [])
 
+    def get_strikes_with_approx_delta(
+        self,
+        ticker: str,
+        expiration: datetime,
+        current_price: float,
+        date_str: str,
+        option_type: str,
+        iv_estimate: float = 0.25,
+        risk_free_rate: float = 0.045,
+    ) -> List[Dict]:
+        """Return available strikes annotated with approximate Black-Scholes delta.
+
+        Uses a constant IV estimate (default 25%) since per-contract historical
+        IV is unavailable from Polygon on the free tier.  Good enough to place
+        the 12-delta short strike within ±1 strike of where it would land with
+        real IV across typical SPY volatility regimes.
+
+        Args:
+            ticker: Underlying ticker symbol.
+            expiration: Expiration datetime.
+            current_price: Underlying price on date_str.
+            date_str: As-of date "YYYY-MM-DD".
+            option_type: "P" or "C".
+            iv_estimate: Annualised IV estimate (default 0.25 = 25%).
+            risk_free_rate: Annualised risk-free rate (default 0.045).
+
+        Returns:
+            List of {'strike': float, 'delta': float} dicts, signed deltas
+            (negative for puts, positive for calls).
+        """
+        from shared.strike_selector import bs_delta
+
+        exp_str = expiration.strftime("%Y-%m-%d")
+        strikes = self.get_available_strikes(ticker, exp_str, date_str, option_type=option_type)
+
+        try:
+            as_of = datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            as_of = datetime.now()
+
+        dte_days = (expiration.replace(tzinfo=None) - as_of).days
+        T = max(dte_days, 1) / 365.0
+        ot = option_type[0].upper()
+
+        result = []
+        for strike in strikes:
+            delta = bs_delta(current_price, strike, T, risk_free_rate, iv_estimate, ot)
+            result.append({"strike": strike, "delta": delta})
+        return result
+
     # ------------------------------------------------------------------
     # Spread pricing convenience
     # ------------------------------------------------------------------

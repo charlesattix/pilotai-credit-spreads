@@ -411,22 +411,32 @@ class CreditSpreadStrategy:
         if legs.empty:
             return spreads
 
-        target_delta_min = self.strategy_params['min_delta']
-        target_delta_max = self.strategy_params['max_delta']
+        use_delta_selection = self.strategy_params.get('use_delta_selection', False)
 
-        # Delta filtering differs by spread type
-        if spread_type == 'bull_put':
-            # For puts, delta is negative
-            short_candidates = legs[
-                (legs['delta'] >= -target_delta_max) &
-                (legs['delta'] <= -target_delta_min)
-            ]
+        if use_delta_selection:
+            # Find single strike closest to target delta (e.g. 12-delta)
+            from shared.strike_selector import select_delta_strike
+            target_delta = float(self.strategy_params.get('target_delta', 0.12))
+            ot_char = 'P' if spread_type == 'bull_put' else 'C'
+            chain_rows = legs[['strike', 'delta']].to_dict('records')
+            best_strike = select_delta_strike(chain_rows, ot_char, target_delta=target_delta)
+            if best_strike is None:
+                return spreads
+            short_candidates = legs[legs['strike'] == best_strike]
         else:
-            # For calls, delta is positive
-            short_candidates = legs[
-                (legs['delta'] >= target_delta_min) &
-                (legs['delta'] <= target_delta_max)
-            ]
+            # Legacy delta range filter
+            target_delta_min = self.strategy_params['min_delta']
+            target_delta_max = self.strategy_params['max_delta']
+            if spread_type == 'bull_put':
+                short_candidates = legs[
+                    (legs['delta'] >= -target_delta_max) &
+                    (legs['delta'] <= -target_delta_min)
+                ]
+            else:
+                short_candidates = legs[
+                    (legs['delta'] >= target_delta_min) &
+                    (legs['delta'] <= target_delta_max)
+                ]
 
         # Dynamic spread width based on IV environment
         if iv_data:

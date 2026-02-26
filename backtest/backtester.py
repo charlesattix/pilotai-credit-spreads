@@ -91,12 +91,17 @@ class Backtester:
         self.historical_data = historical_data
         self._use_real_data = historical_data is not None
 
+        # Delta-based strike selection (replaces static OTM% when enabled)
+        self._use_delta_selection = self.strategy_params.get("use_delta_selection", False)
+        self._target_delta = float(self.strategy_params.get("target_delta", 0.12))
+
         # Trade history
         self.trades = []
         self.equity_curve = []
 
         mode = "real data" if self._use_real_data else "heuristic"
-        logger.info("Backtester initialized (%s mode)", mode)
+        logger.info("Backtester initialized (%s mode, delta_selection=%s)",
+                    mode, self._use_delta_selection)
 
     def run_backtest(
         self,
@@ -501,30 +506,45 @@ class Backtester:
         exp_str = expiration.strftime("%Y-%m-%d")
         ot = option_type[0].upper()
 
-        # Discover available strikes
-        strikes = self.historical_data.get_available_strikes(
-            ticker, exp_str, date_str, option_type=ot,
-        )
-
-        if not strikes:
-            logger.debug("No strikes available for %s exp %s on %s", ticker, exp_str, date_str)
-            return None
-
-        # Pick short strike OTM by self.otm_pct (default 5%)
-        if ot == "P":
-            target_short = price * (1 - self.otm_pct)
-            candidates = [s for s in strikes if s <= target_short]
-            if not candidates:
+        # Select short strike — delta-based or OTM% depending on config
+        if self._use_delta_selection:
+            from shared.strike_selector import select_delta_strike
+            chain = self.historical_data.get_strikes_with_approx_delta(
+                ticker, expiration, price, date_str, option_type=ot,
+            )
+            if not chain:
+                logger.debug("No strikes for delta selection: %s exp %s on %s",
+                             ticker, exp_str, date_str)
                 return None
-            short_strike = max(candidates)
+            short_strike = select_delta_strike(chain, ot, target_delta=self._target_delta)
+            if short_strike is None:
+                return None
+        else:
+            strikes = self.historical_data.get_available_strikes(
+                ticker, exp_str, date_str, option_type=ot,
+            )
+            if not strikes:
+                logger.debug("No strikes available for %s exp %s on %s",
+                             ticker, exp_str, date_str)
+                return None
+            # Pick short strike OTM by self.otm_pct (default 5%)
+            if ot == "P":
+                target_short = price * (1 - self.otm_pct)
+                candidates = [s for s in strikes if s <= target_short]
+                if not candidates:
+                    return None
+                short_strike = max(candidates)
+            else:
+                target_short = price * (1 + self.otm_pct)
+                candidates = [s for s in strikes if s >= target_short]
+                if not candidates:
+                    return None
+                short_strike = min(candidates)
+
+        if ot == "P":
             long_strike = short_strike - spread_width
             spread_type = "bull_put_spread"
         else:
-            target_short = price * (1 + self.otm_pct)
-            candidates = [s for s in strikes if s >= target_short]
-            if not candidates:
-                return None
-            short_strike = min(candidates)
             long_strike = short_strike + spread_width
             spread_type = "bear_call_spread"
 
