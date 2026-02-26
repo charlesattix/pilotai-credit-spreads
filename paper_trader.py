@@ -80,16 +80,20 @@ class PaperTrader:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         init_db()
 
-        # Load trades from SQLite
+        # Startup reconciliation: resolve any pending_open rows left by a previous
+        # crash before loading in-memory state (so stats are clean from the start).
+        reconcile_summary = self._startup_reconcile()
+
+        # Load trades from SQLite (pending_open / failed_open are excluded)
         self.trades = self._load_trades()
         self._rebuild_cached_lists()
         self._seed_loss_tracker()
-        stale = self._reconcile_submitted_orders()
+
         logger.info(
             f"PaperTrader initialized | Balance: ${self.account_size:,.0f} | "
             f"Open: {len(self.open_trades)} | Closed: {len(self.closed_trades)} | "
             f"Alpaca: {'ON' if self.alpaca else 'OFF'}"
-            + (f" | Stale orders cleaned: {stale}" if stale else "")
+            + (f" | Reconciled: {reconcile_summary}" if reconcile_summary else "")
         )
 
     @staticmethod
@@ -106,7 +110,13 @@ class PaperTrader:
         """
         try:
             db_trades = get_trades(source="scanner")
-            trades_list = list(db_trades)
+            # Exclude transient write-ahead states from the live trade list.
+            # pending_open trades are resolved by reconcile_positions() on startup.
+            # failed_open trades are recorded for audit but should not affect stats.
+            trades_list = [
+                t for t in db_trades
+                if t.get("status") not in ("pending_open", "failed_open")
+            ]
         except Exception as e:
             logger.warning(
                 f"Could not load trades from database: {e}. "
@@ -415,9 +425,15 @@ class PaperTrader:
             # EH-TRADE-07: UUID-based trade IDs to avoid collisions on restart
             trade_id = f"PT-{uuid.uuid4().hex[:12]}"
 
+            # Deterministic client_order_id: survives process restarts and lets the
+            # reconciler match DB records back to Alpaca orders unambiguously.
+            spread_type_slug = (opp.get("type") or "spread").replace("_", "-")
+            client_order_id = f"Pilot-{ticker}-{spread_type_slug}-{trade_id[3:]}"
+
             trade = {
                 "id": trade_id,
-                "status": "open",
+                "status": "pending_open",  # write-ahead — promoted to "open" after Alpaca confirms
+                "alpaca_client_order_id": client_order_id if self.alpaca else None,
                 "ticker": opp["ticker"],
                 "type": opp["type"],
                 "short_strike": opp["short_strike"],
@@ -451,6 +467,11 @@ class PaperTrader:
                 trade["put_credit"] = opp.get("put_credit")
                 trade["call_credit"] = opp.get("call_credit")
 
+            # Write-ahead: persist with status=pending_open BEFORE calling Alpaca.
+            # If the process crashes between here and the final upsert below, the
+            # reconciler will find this row on next startup and resolve it.
+            upsert_trade(trade, source="scanner")
+
             # Optionally submit to Alpaca broker for real paper execution
             if self.alpaca:
                 try:
@@ -462,23 +483,30 @@ class PaperTrader:
                         spread_type=trade["type"],
                         contracts=trade["contracts"],
                         limit_price=trade["credit_per_spread"],
+                        client_order_id=client_order_id,
                     )
                     trade["alpaca_order_id"] = alpaca_result.get("order_id")
                     trade["alpaca_status"] = alpaca_result.get("status")
 
                     if alpaca_result["status"] == "error":
-                        logger.warning(f"Alpaca order failed: {alpaca_result['message']}. Recording as DB-only trade.")
+                        logger.warning(
+                            f"Alpaca order failed: {alpaca_result['message']}. Recording as DB-only trade."
+                        )
                     else:
                         logger.info(f"Alpaca order submitted: {alpaca_result['order_id']}")
                 except Exception as e:
                     logger.warning(f"Alpaca submission failed: {e}. Recording as DB-only trade.")
 
-            # Add to tracking and persist
+            # Promote to open — all submission paths (Alpaca success, Alpaca error,
+            # no Alpaca) converge here.  The reconciler will back-fill fill prices.
+            trade["status"] = "open"
+
+            # Add to in-memory tracking now that we have a confirmed intent
             self.trades["trades"].append(trade)
             self._open_trades.append(trade)
             self.trades["stats"]["total_trades"] += 1
 
-            # Persist to SQLite immediately
+            # Final SQLite write with status=open
             upsert_trade(trade, source="scanner")
 
             metrics.inc('trades_opened')
@@ -689,6 +717,49 @@ class PaperTrader:
             f"P&L: ${pnl:+.2f} | Reason: {reason} | "
             f"Balance: ${self.trades['current_balance']:,.2f}"
         )
+
+    def _startup_reconcile(self) -> str:
+        """Resolve pending_open DB rows created by write-ahead before last shutdown.
+
+        Called once during __init__, before _load_trades(), so that any resolved
+        trades are already in their final status when the in-memory state is built.
+
+        Returns a human-readable summary string (empty string if nothing changed).
+        """
+        if not self.alpaca:
+            return ""
+        try:
+            from shared.reconciler import PositionReconciler
+            result = PositionReconciler(self.alpaca).reconcile()
+            if result:
+                return (
+                    f"resolved={result.pending_resolved}, "
+                    f"failed={result.pending_failed}"
+                )
+        except Exception as e:
+            logger.warning("Startup reconciliation error: %s", e)
+        return ""
+
+    def reconcile_positions(self) -> None:
+        """Run a reconciliation pass and reload in-memory state if anything changed.
+
+        Called periodically from the scheduler (every ~3 scan cycles ≈ 90 min)
+        to catch positions that were quietly closed in Alpaca (expiration, manual
+        close, etc.) without going through our normal exit path.
+        """
+        if not self.alpaca:
+            return
+        try:
+            from shared.reconciler import PositionReconciler
+            result = PositionReconciler(self.alpaca).reconcile()
+            if result:
+                logger.info("Reconciliation pass: %s", result)
+                # Reload in-memory state to reflect DB changes
+                with self._trades_lock:
+                    self.trades = self._load_trades()
+                    self._rebuild_cached_lists()
+        except Exception as e:
+            logger.warning("Periodic reconciliation error: %s", e)
 
     def _reconcile_submitted_orders(self) -> int:
         """Reconcile locally-open trades whose Alpaca orders are not yet confirmed filled.

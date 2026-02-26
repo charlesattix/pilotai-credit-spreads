@@ -68,6 +68,11 @@ class AlpacaProvider:
     """Submit credit spread orders to Alpaca paper trading."""
 
     def __init__(self, api_key: str, api_secret: str, paper: bool = True):
+        self._api_key = api_key
+        self._api_secret = api_secret
+        self._base_url = (
+            "https://paper-api.alpaca.markets" if paper else "https://api.alpaca.markets"
+        )
         self.client = TradingClient(api_key, api_secret, paper=paper)
         self._circuit_breaker = CircuitBreaker(failure_threshold=5, reset_timeout=60)
         self._verify_connection()
@@ -217,6 +222,7 @@ class AlpacaProvider:
         spread_type: str,
         contracts: int = 1,
         limit_price: Optional[float] = None,
+        client_order_id: Optional[str] = None,
     ) -> Dict:
         """
         Submit a credit spread as a multi-leg order.
@@ -266,7 +272,7 @@ class AlpacaProvider:
             ),
         ]
 
-        client_id = f"cs-{ticker}-{uuid.uuid4().hex[:8]}"
+        client_id = client_order_id or f"cs-{ticker}-{uuid.uuid4().hex[:8]}"
 
         try:
             order = self._submit_mleg_order(legs, contracts, limit_price, client_id)
@@ -441,3 +447,84 @@ class AlpacaProvider:
         """Cancel all open orders."""
         self.client.cancel_orders()
         logger.info("All orders cancelled")
+
+    def get_order_by_client_id(self, client_order_id: str) -> Optional[Dict]:
+        """Look up an order by our deterministic client_order_id.
+
+        Returns a dict with id, status, filled_avg_price, etc., or None if not found.
+        """
+        try:
+            order = self._circuit_breaker.call(
+                self.client.get_order_by_client_id, client_order_id
+            )
+            return {
+                "id": str(order.id),
+                "client_order_id": order.client_order_id,
+                "status": str(order.status),
+                "filled_avg_price": (
+                    str(order.filled_avg_price) if order.filled_avg_price else None
+                ),
+                "filled_at": str(order.filled_at) if order.filled_at else None,
+                "legs": [
+                    {
+                        "symbol": leg.symbol,
+                        "side": str(leg.side),
+                        "filled_qty": str(leg.filled_qty) if leg.filled_qty else None,
+                    }
+                    for leg in (order.legs or [])
+                ],
+            }
+        except Exception as e:
+            logger.warning("get_order_by_client_id(%s): %s", client_order_id, e)
+            return None
+
+    def get_account_activities(
+        self,
+        activity_type: str = "FILL",
+        since: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict]:
+        """Fetch account activities (fills, expirations, etc.) via the Alpaca REST API.
+
+        Args:
+            activity_type: Alpaca activity type string, e.g. "FILL" or "OPEXP".
+            since: ISO-8601 timestamp — return activities after this time.
+            limit: Maximum number of results (page_size).
+
+        Returns:
+            List of activity dicts with symbol, qty, price, side, transaction_time, etc.
+            Empty list on error.
+        """
+        import requests as _requests
+
+        url = f"{self._base_url}/v2/account/activities"
+        headers = {
+            "APCA-API-KEY-ID": self._api_key,
+            "APCA-API-SECRET-KEY": self._api_secret,
+        }
+        params: Dict = {"activity_types": activity_type, "page_size": str(limit)}
+        if since:
+            params["after"] = since
+
+        try:
+            resp = _requests.get(url, headers=headers, params=params, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+            results = []
+            for a in (data if isinstance(data, list) else []):
+                results.append({
+                    "id": a.get("id"),
+                    "activity_type": a.get("activity_type"),
+                    "symbol": a.get("symbol"),
+                    "qty": a.get("qty"),
+                    "price": a.get("price"),
+                    "side": a.get("side"),
+                    "transaction_time": a.get("transaction_time"),
+                    "net_amount": a.get("net_amount"),
+                    "order_id": a.get("order_id"),
+                    "client_order_id": a.get("client_order_id"),
+                })
+            return results
+        except Exception as e:
+            logger.warning("get_account_activities failed: %s", e)
+            return []

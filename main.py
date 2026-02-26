@@ -507,9 +507,18 @@ Examples:
         elif args.command == 'scheduler':
             from shared.scheduler import ScanScheduler
 
+            _scan_count = 0
+
             def scan_and_sync():
+                nonlocal _scan_count
                 system.scan_opportunities()
                 system.paper_trader.sync_alpaca_orders()
+                _scan_count += 1
+                # Run a full reconciliation pass every 3 scans (~90 min).
+                # Catches positions that closed in Alpaca without going through
+                # our normal exit path (expiration, manual close, etc.).
+                if _scan_count % 3 == 0:
+                    system.paper_trader.reconcile_positions()
 
             scheduler = ScanScheduler(scan_fn=scan_and_sync)
 

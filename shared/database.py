@@ -68,8 +68,28 @@ def init_db(path: Optional[str] = None) -> None:
                 features JSON,
                 created_at TEXT DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS reconciliation_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                details JSON,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
         """)
         conn.commit()
+
+        # Safe column migrations — ADD IF NOT EXISTS (try/except for older SQLite)
+        for migration_sql in [
+            "ALTER TABLE trades ADD COLUMN alpaca_client_order_id TEXT",
+            "ALTER TABLE trades ADD COLUMN alpaca_fill_price REAL",
+        ]:
+            try:
+                conn.execute(migration_sql)
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass  # column already exists
+
         logger.info(f"Database initialized at {path or DB_PATH}")
     finally:
         conn.close()
@@ -203,6 +223,24 @@ def insert_regime_snapshot(
         conn.execute(
             "INSERT INTO regime_snapshots (regime, confidence, features) VALUES (?, ?, ?)",
             (regime, confidence, json.dumps(features or {}, default=str)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def insert_reconciliation_event(
+    trade_id: str,
+    event_type: str,
+    details: Optional[Dict] = None,
+    path: Optional[str] = None,
+) -> None:
+    """Append an audit entry to the reconciliation_events table."""
+    conn = get_db(path)
+    try:
+        conn.execute(
+            "INSERT INTO reconciliation_events (trade_id, event_type, details) VALUES (?, ?, ?)",
+            (trade_id, event_type, json.dumps(details or {}, default=str)),
         )
         conn.commit()
     finally:
