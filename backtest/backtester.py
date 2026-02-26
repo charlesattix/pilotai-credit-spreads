@@ -104,6 +104,21 @@ class Backtester:
         self._realized_vol_by_date: dict = {}
         self._current_realized_vol: float = 0.25  # fallback = 25%
 
+        # DTE targeting — configurable for optimization sweep
+        self._target_dte: int = int(self.strategy_params.get('target_dte', 35))
+        self._min_dte: int = int(self.strategy_params.get('min_dte', 25))
+
+        # Profit target — configurable (config stores as %, e.g. 50 → close at 50% of credit)
+        self._profit_target_pct: float = float(self.risk_params.get('profit_target', 50)) / 100.0
+
+        # Direction filter — "both" | "bull_put" | "bear_call"
+        # Controls which spread types are entered during the scan loop.
+        self._direction: str = self.strategy_params.get('direction', 'both')
+
+        # Trend MA period for direction filter (default 20).
+        # Use 50 to avoid whipsawing on short-term MA crosses (e.g. brief 2024 dips).
+        self._trend_ma_period: int = int(self.strategy_params.get('trend_ma_period', 20))
+
         # Trade history
         self.trades = []
         self.equity_curve = []
@@ -131,9 +146,9 @@ class Backtester:
         """
         logger.info(f"Starting backtest for {ticker}: {start_date} to {end_date}")
 
-        # Fetch 30 extra calendar days before start so the MA20 is valid on day 1
-        # (MA20 needs 20 trading days ≈ 28 calendar days of history)
-        _MA_WARMUP_DAYS = 30
+        # Warmup window: MA_PERIOD trading days ≈ MA_PERIOD * 1.4 calendar days.
+        # MA50 needs ~70 calendar days; MA20 needs ~28.  Add 15-day buffer.
+        _MA_WARMUP_DAYS = max(30, int(self._trend_ma_period * 1.4) + 15)
         data_fetch_start = start_date - timedelta(days=_MA_WARMUP_DAYS)
 
         # Get historical price data (with MA warmup prefix)
@@ -208,28 +223,44 @@ class Backtester:
 
             _ic_enabled = self.strategy_params.get('iron_condor', {}).get('enabled', False)
 
+            _want_puts  = self._direction in ('both', 'bull_put')
+            _want_calls = self._direction in ('both', 'bear_call')
+
             if self._use_real_data:
+                # Track (expiration_str, short_strike, option_type) already entered today.
+                # Prevents multiple intraday scans from opening duplicate positions on the
+                # same (expiration, strike) when a single daily entry is intended.
+                _entered_today: set = set()
+
                 for scan_hour, scan_minute in SCAN_TIMES:
                     if _skip_new_entries:
                         break
                     if len(open_positions) >= self.risk_params['max_positions']:
                         break
-                    new_position = self._find_backtest_opportunity(
-                        ticker, current_date, current_price, price_data,
-                        scan_hour=scan_hour, scan_minute=scan_minute,
-                    )
-                    if new_position:
-                        open_positions.append(new_position)
-                        continue
+                    if _want_puts:
+                        new_position = self._find_backtest_opportunity(
+                            ticker, current_date, current_price, price_data,
+                            scan_hour=scan_hour, scan_minute=scan_minute,
+                        )
+                        if new_position:
+                            _key = (new_position.get('expiration'), new_position['short_strike'], 'P')
+                            if _key not in _entered_today:
+                                open_positions.append(new_position)
+                                _entered_today.add(_key)
+                            continue
                     if len(open_positions) >= self.risk_params['max_positions']:
                         break
-                    bear_call = self._find_bear_call_opportunity(
-                        ticker, current_date, current_price, price_data,
-                        scan_hour=scan_hour, scan_minute=scan_minute,
-                    )
-                    if bear_call:
-                        open_positions.append(bear_call)
-                        continue
+                    if _want_calls:
+                        bear_call = self._find_bear_call_opportunity(
+                            ticker, current_date, current_price, price_data,
+                            scan_hour=scan_hour, scan_minute=scan_minute,
+                        )
+                        if bear_call:
+                            _key = (bear_call.get('expiration'), bear_call['short_strike'], 'C')
+                            if _key not in _entered_today:
+                                open_positions.append(bear_call)
+                                _entered_today.add(_key)
+                            continue
                     # Iron condor fallback — only if enabled in config
                     if _ic_enabled and len(open_positions) < self.risk_params['max_positions']:
                         condor = self._find_iron_condor_opportunity(
@@ -241,13 +272,15 @@ class Backtester:
                 # Heuristic mode: one opportunity scan per week on Monday
                 if current_date.weekday() == 0:
                     if len(open_positions) < self.risk_params['max_positions']:
-                        new_position = self._find_backtest_opportunity(
-                            ticker, current_date, current_price, price_data
-                        )
+                        new_position = None
+                        if _want_puts:
+                            new_position = self._find_backtest_opportunity(
+                                ticker, current_date, current_price, price_data
+                            )
                         if new_position:
                             open_positions.append(new_position)
 
-                        if not new_position and len(open_positions) < self.risk_params['max_positions']:
+                        if not new_position and _want_calls and len(open_positions) < self.risk_params['max_positions']:
                             bear_call = self._find_bear_call_opportunity(
                                 ticker, current_date, current_price, price_data
                             )
@@ -414,18 +447,19 @@ class Backtester:
         scan_minute: Optional[int] = None,
     ) -> Optional[Dict]:
         """Find a bull put spread opportunity."""
-        recent_data = price_data.loc[:date].tail(50)
+        _mp = self._trend_ma_period
+        recent_data = price_data.loc[:date].tail(_mp + 20)
 
-        if len(recent_data) < 20:
+        if len(recent_data) < min(20, _mp):
             return None
 
-        ma20 = recent_data['Close'].rolling(20).mean().iloc[-1]
+        trend_ma = recent_data['Close'].rolling(_mp, min_periods=max(10, _mp // 2)).mean().iloc[-1]
 
-        if price < ma20:
+        if price < trend_ma:
             return None
 
-        # Expiration: nearest Friday around 35 DTE (options only expire on Fridays)
-        expiration = _nearest_friday_expiration(date)
+        # Expiration: nearest Friday around target DTE (options only expire on Fridays)
+        expiration = _nearest_friday_expiration(date, self._target_dte, self._min_dte)
         date_str = date.strftime("%Y-%m-%d")
         spread_width = self.strategy_params['spread_width']
 
@@ -450,18 +484,19 @@ class Backtester:
         scan_minute: Optional[int] = None,
     ) -> Optional[Dict]:
         """Find a bear call spread opportunity (bearish/neutral trend)."""
-        recent_data = price_data.loc[:date].tail(50)
+        _mp = self._trend_ma_period
+        recent_data = price_data.loc[:date].tail(_mp + 20)
 
-        if len(recent_data) < 20:
+        if len(recent_data) < min(20, _mp):
             return None
 
-        ma20 = recent_data['Close'].rolling(20).mean().iloc[-1]
+        trend_ma = recent_data['Close'].rolling(_mp, min_periods=max(10, _mp // 2)).mean().iloc[-1]
 
-        if price > ma20:
+        if price > trend_ma:
             # Price above MA — bullish, skip bear calls
             return None
 
-        expiration = _nearest_friday_expiration(date)
+        expiration = _nearest_friday_expiration(date, self._target_dte, self._min_dte)
         date_str = date.strftime("%Y-%m-%d")
         spread_width = self.strategy_params['spread_width']
 
@@ -493,7 +528,7 @@ class Backtester:
         if not self._use_real_data:
             return None
 
-        expiration = _nearest_friday_expiration(date)
+        expiration = _nearest_friday_expiration(date, self._target_dte, self._min_dte)
         date_str = date.strftime("%Y-%m-%d")
         spread_width = self.strategy_params['spread_width']
 
@@ -586,7 +621,7 @@ class Backtester:
             'credit': combined_credit,
             'contracts': contracts,
             'max_loss': max_loss,
-            'profit_target': combined_credit * 0.5,
+            'profit_target': combined_credit * self._profit_target_pct,
             'stop_loss': combined_credit * stop_loss_multiplier,
             'commission': commission_cost,  # exit commission (4 legs)
             'status': 'open',
@@ -769,7 +804,7 @@ class Backtester:
             'credit': credit,
             'contracts': contracts,
             'max_loss': max_loss,
-            'profit_target': credit * 0.5,
+            'profit_target': credit * self._profit_target_pct,
             'stop_loss': credit * self.risk_params['stop_loss_multiplier'],
             'commission': commission_cost,
             'status': 'open',
@@ -835,7 +870,7 @@ class Backtester:
             'credit': credit,
             'contracts': contracts,
             'max_loss': max_loss,
-            'profit_target': credit * 0.5,
+            'profit_target': credit * self._profit_target_pct,
             'stop_loss': credit * self.risk_params['stop_loss_multiplier'],
             'commission': commission_cost,
             'status': 'open',
@@ -1237,6 +1272,9 @@ class Backtester:
                 'bear_call_win_rate': 0,
                 'iron_condor_trades': 0,
                 'iron_condor_win_rate': 0,
+                'monthly_pnl': {},
+                'max_win_streak': 0,
+                'max_loss_streak': 0,
             }
 
         trades_df = pd.DataFrame(self.trades)
@@ -1297,6 +1335,40 @@ class Backtester:
         else:
             return_pct = 0
 
+        # Monthly P&L breakdown (required for regime diversity overfit check)
+        try:
+            trades_df['_exit_month'] = pd.to_datetime(
+                trades_df['exit_date'].apply(lambda d: d if isinstance(d, str) else str(d)[:10])
+            ).dt.to_period('M')
+            _monthly = (
+                trades_df.groupby('_exit_month')
+                .agg(_pnl=('pnl', 'sum'), _trades=('pnl', 'count'),
+                     _wins=('pnl', lambda x: (x > 0).sum()))
+                .reset_index()
+            )
+            _monthly['win_rate'] = (_monthly['_wins'] / _monthly['_trades']).round(3)
+            monthly_pnl = {
+                str(row['_exit_month']): {
+                    'pnl': round(row['_pnl'], 2),
+                    'trades': int(row['_trades']),
+                    'wins': int(row['_wins']),
+                    'win_rate': float(row['win_rate']),
+                }
+                for _, row in _monthly.iterrows()
+            }
+        except Exception:
+            monthly_pnl = {}
+
+        # Win/loss streak tracking (for overfit check F)
+        max_win_streak = max_loss_streak = cur_win = cur_loss = 0
+        for is_win in (trades_df['pnl'] > 0):
+            if is_win:
+                cur_win += 1; cur_loss = 0
+                max_win_streak = max(max_win_streak, cur_win)
+            else:
+                cur_loss += 1; cur_win = 0
+                max_loss_streak = max(max_loss_streak, cur_loss)
+
         results = {
             'total_trades': total_trades,
             'winning_trades': len(winners),
@@ -1319,6 +1391,9 @@ class Backtester:
             'bear_call_win_rate': round(bear_call_wr, 2),
             'iron_condor_trades': len(iron_condors),
             'iron_condor_win_rate': round(iron_condor_wr, 2),
+            'monthly_pnl': monthly_pnl,
+            'max_win_streak': max_win_streak,
+            'max_loss_streak': max_loss_streak,
         }
 
         return results

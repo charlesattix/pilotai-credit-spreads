@@ -446,8 +446,8 @@ class TestExpirationReal:
         # PnL = (1.50 - 2.50) * 1 * 100 - 1.30 = -101.30
         assert self.bt.trades[0]['pnl'] == pytest.approx(-101.30, rel=1e-4)
 
-    def test_expiration_no_data_assumes_worthless(self):
-        """If no expiration data, assume expired worthless."""
+    def test_expiration_no_data_assumes_max_loss(self):
+        """If no expiration data, conservatively assume max loss (not expired worthless)."""
         pos = _make_position(credit=1.50, max_loss=3.50, contracts=1, commission=1.30)
         pos['option_type'] = 'P'
 
@@ -455,7 +455,9 @@ class TestExpirationReal:
 
         self.bt._close_at_expiration_real(pos, datetime(2025, 2, 5))
 
-        assert self.bt.trades[0]['exit_reason'] == 'expiration_profit'
+        assert self.bt.trades[0]['exit_reason'] == 'expiration_no_data'
+        # PnL = -max_loss * contracts * 100 - commission = -3.50 * 1 * 100 - 1.30 = -351.30
+        assert self.bt.trades[0]['pnl'] == pytest.approx(-351.30, rel=1e-4)
 
 
 # ---------------------------------------------------------------------------
