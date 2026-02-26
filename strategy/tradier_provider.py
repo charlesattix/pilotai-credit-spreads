@@ -95,6 +95,13 @@ class TradierProvider:
             open_interest, iv, delta, gamma, theta, vega, mid, expiration
         """
         def _do_get_options_chain():
+            # Fetch the underlying price first so we can compute ITM correctly
+            try:
+                quote = self.get_quote(ticker)
+                underlying_price = float(quote.get("last", 0) or 0)
+            except Exception:
+                underlying_price = 0.0
+
             url = f"{self.base_url}/markets/options/chains"
             params = {
                 "symbol": ticker,
@@ -121,10 +128,14 @@ class TradierProvider:
             rows = []
             for opt in option_list:
                 greeks = opt.get("greeks") or {}
+                strike = opt.get("strike", 0)
+                is_call = opt.get("option_type") == "call"
+                # ITM: for calls, strike < underlying; for puts, strike > underlying
+                itm = (strike < underlying_price) if is_call else (strike > underlying_price)
                 rows.append({
                     "contract_symbol": opt.get("symbol", ""),
-                    "strike": opt.get("strike", 0),
-                    "type": "call" if opt.get("option_type") == "call" else "put",
+                    "strike": strike,
+                    "type": "call" if is_call else "put",
                     "bid": opt.get("bid", 0) or 0,
                     "ask": opt.get("ask", 0) or 0,
                     "last": opt.get("last", 0) or 0,
@@ -138,7 +149,7 @@ class TradierProvider:
                     "vega": greeks.get("vega", 0) or 0,
                     "mid": ((opt.get("bid", 0) or 0) + (opt.get("ask", 0) or 0)) / 2,
                     "expiration": datetime.strptime(expiration, "%Y-%m-%d").replace(tzinfo=timezone.utc),
-                    "itm": opt.get("strike", 0) < opt.get("last", 0) if opt.get("option_type") == "call" else opt.get("strike", 0) > opt.get("last", 0),
+                    "itm": itm,
                 })
 
             df = pd.DataFrame(rows)

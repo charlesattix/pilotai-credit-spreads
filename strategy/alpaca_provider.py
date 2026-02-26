@@ -139,7 +139,7 @@ class AlpacaProvider:
         date_str = exp_dt.strftime("%y%m%d")
         cp = "C" if option_type.lower().startswith("c") else "P"
         strike_int = int(strike * 1000)
-        return f"{ticker.upper():<6}{date_str}{cp}{strike_int:08d}".replace(" ", " ").strip()
+        return f"{ticker.upper():<6}{date_str}{cp}{strike_int:08d}".replace(" ", "")
 
     def find_option_symbol(self, ticker: str, expiration: str, strike: float, option_type: str) -> Optional[str]:
         """

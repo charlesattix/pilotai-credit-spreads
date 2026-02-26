@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 import logging
 import yfinance as yf
 from shared.indicators import calculate_rsi
-from shared.constants import FOMC_DATES
+from shared.constants import FOMC_DATES, CPI_RELEASE_DAYS
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +99,7 @@ class FeatureEngine:
             if market_features is not None:
                 features.update(market_features)
             else:
-                computed_market = self._compute_market_features()
+                computed_market = self.compute_market_features()
                 features.update(computed_market)
 
             # 4. Event risk features
@@ -256,7 +256,7 @@ class FeatureEngine:
                 'put_skew_steepness': 0.0,
             }
 
-    def _compute_market_features(self) -> Dict:
+    def compute_market_features(self) -> Dict:
         """
         Compute market-wide features.
         """
@@ -347,7 +347,8 @@ class FeatureEngine:
             current_month = now.month
             current_year = now.year
             current_day = now.day
-            CPI_RELEASE_DAY = 13  # BLS typically publishes CPI around day 10-14
+            # Use the median of the shared CPI_RELEASE_DAYS range
+            CPI_RELEASE_DAY = CPI_RELEASE_DAYS[len(CPI_RELEASE_DAYS) // 2]
 
             if current_day < CPI_RELEASE_DAY + 1:
                 # CPI this month hasn't passed yet

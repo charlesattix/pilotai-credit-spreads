@@ -7,6 +7,7 @@ Base URL: https://api.polygon.io
 import logging
 import os
 import time
+import threading
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -38,6 +39,7 @@ class PolygonProvider:
         self._circuit_breaker = CircuitBreaker(failure_threshold=5, reset_timeout=60)
         self._last_call_time = 0.0
         self._min_call_interval = 0.2  # 5 calls/sec max
+        self._rate_lock = threading.Lock()
         logger.info("PolygonProvider initialized")
 
     def __del__(self):
@@ -48,12 +50,13 @@ class PolygonProvider:
             pass
 
     def _rate_limit(self):
-        """Enforce max 5 calls/sec rate limit."""
-        now = time.monotonic()
-        elapsed = now - self._last_call_time
-        if elapsed < self._min_call_interval:
-            time.sleep(self._min_call_interval - elapsed)
-        self._last_call_time = time.monotonic()
+        """Enforce max 5 calls/sec rate limit (thread-safe)."""
+        with self._rate_lock:
+            now = time.monotonic()
+            elapsed = now - self._last_call_time
+            if elapsed < self._min_call_interval:
+                time.sleep(self._min_call_interval - elapsed)
+            self._last_call_time = time.monotonic()
 
     def _get(self, path: str, params: Optional[Dict] = None, timeout: int = 10) -> Dict:
         """Make authenticated GET request with rate limiting."""

@@ -43,27 +43,37 @@ function stripDangerousKeys(obj: unknown): unknown {
   return result;
 }
 
+/** Keys whose string values represent file/directory paths and must be validated. */
+const PATH_KEYS = new Set(['json_file', 'text_file', 'csv_file', 'file', 'report_dir']);
+
 /**
  * Recursively check that no string value contains path traversal sequences
- * (`../` or `..\`).  Returns the first offending key path, or null if clean.
+ * (`../`, `..\`, encoded variants) or absolute paths for path-like keys.
+ * Returns the first offending key path, or null if clean.
  */
-function findPathTraversal(obj: unknown, path = ''): string | null {
+function findPathTraversal(obj: unknown, path = '', key = ''): string | null {
   if (typeof obj === 'string') {
-    if (obj.includes('../') || obj.includes('..\\')) {
+    // Check for path traversal patterns (including URL-encoded)
+    const decoded = decodeURIComponent(obj);
+    if (decoded.includes('../') || decoded.includes('..\\') || obj.includes('../') || obj.includes('..\\')) {
+      return path || '(root)';
+    }
+    // Reject absolute paths for file/directory config keys
+    if (PATH_KEYS.has(key) && (obj.startsWith('/') || /^[A-Za-z]:[/\\]/.test(obj))) {
       return path || '(root)';
     }
     return null;
   }
   if (Array.isArray(obj)) {
     for (let i = 0; i < obj.length; i++) {
-      const hit = findPathTraversal(obj[i], `${path}[${i}]`);
+      const hit = findPathTraversal(obj[i], `${path}[${i}]`, key);
       if (hit) return hit;
     }
     return null;
   }
   if (obj !== null && typeof obj === 'object') {
-    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-      const hit = findPathTraversal(value, path ? `${path}.${key}` : key);
+    for (const [k, value] of Object.entries(obj as Record<string, unknown>)) {
+      const hit = findPathTraversal(value, path ? `${path}.${k}` : k, k);
       if (hit) return hit;
     }
   }
@@ -188,7 +198,7 @@ export async function GET(request: Request) {
   try {
     const configPath = CONFIG_PATH
     const data = await fs.readFile(configPath, 'utf-8')
-    const config = yaml.load(data)
+    const config = yaml.load(data, { schema: yaml.JSON_SCHEMA })
     return NextResponse.json(stripSecrets(config))
   } catch (error) {
     logger.error('Failed to read config', { error: String(error) })
@@ -235,7 +245,7 @@ export async function POST(request: Request) {
     }
 
     const configPath = CONFIG_PATH
-    const existing = yaml.load(await fs.readFile(configPath, 'utf-8')) as Record<string, unknown> || {}
+    const existing = yaml.load(await fs.readFile(configPath, 'utf-8'), { schema: yaml.JSON_SCHEMA }) as Record<string, unknown> || {}
 
     // SEC-DATA-14: Use deep merge instead of shallow spread
     const merged = deepMerge(existing, parsed.data as Record<string, unknown>)

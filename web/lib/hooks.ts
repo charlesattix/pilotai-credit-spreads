@@ -1,4 +1,5 @@
 import useSWR from 'swr'
+import { useEffect, useRef } from 'react'
 import { apiFetch } from '@/lib/api'
 import type { AlertsResponse, Config, PaperTrade, PositionsSummary } from '@/lib/types'
 
@@ -42,11 +43,35 @@ interface PaperTradesResponse {
 }
 
 export function usePaperTrades(userId: string = 'default') {
-  return useSWR<PaperTradesResponse>(`/api/paper-trades?userId=${userId}`, fetcher<PaperTradesResponse>, {
+  const encodedUserId = encodeURIComponent(userId)
+  const result = useSWR<PaperTradesResponse>(`/api/paper-trades?userId=${encodedUserId}`, fetcher<PaperTradesResponse>, {
     refreshInterval: 120000,
     dedupingInterval: 30000,
     revalidateOnFocus: true,
   })
+
+  // Trigger auto-close of expired/target-hit trades on each fetch, then re-fetch
+  const hasRunAutoClose = useRef(false)
+  useEffect(() => {
+    if (!result.data || hasRunAutoClose.current) return
+    const hasOpenTrades = result.data.trades?.some(t => t.status === 'open')
+    if (!hasOpenTrades) return
+    hasRunAutoClose.current = true
+    apiFetch<{ closed: number }>(`/api/paper-trades?userId=${encodedUserId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+      body: JSON.stringify({ action: 'auto-close' }),
+    }).then(res => {
+      if (res.closed > 0) result.mutate()
+    }).catch(() => {
+      // Auto-close is best-effort
+    }).finally(() => {
+      // Allow re-run on next mount cycle
+      setTimeout(() => { hasRunAutoClose.current = false }, 60000)
+    })
+  }, [result.data, encodedUserId, userId, result])
+
+  return result
 }
 
 export function useConfig() {

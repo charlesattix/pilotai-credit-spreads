@@ -6,9 +6,11 @@ import numpy as np
 
 def calculate_rsi(prices: pd.Series, period: int = 14) -> pd.Series:
     """
-    Calculate RSI (Relative Strength Index).
+    Calculate RSI (Relative Strength Index) using Wilder's smoothing method.
 
-    Uses the standard Wilder smoothing method (simple moving average of gains/losses).
+    Wilder's smoothing is an exponential moving average with alpha = 1/period,
+    which is the standard RSI implementation used by most trading platforms
+    (TradingView, thinkorswim, etc.).
 
     Args:
         prices: Series of closing prices.
@@ -18,9 +20,12 @@ def calculate_rsi(prices: pd.Series, period: int = 14) -> pd.Series:
         Series of RSI values (0-100).
     """
     delta = prices.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    rs = gain / loss
+    gain = delta.where(delta > 0, 0.0)
+    loss = (-delta.where(delta < 0, 0.0))
+    # Wilder's smoothing = EMA with alpha=1/period (equivalent to com=period-1)
+    avg_gain = gain.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    rs = avg_gain / avg_loss
     rsi = 100 - (100 / (1 + rs))
     return rsi
 

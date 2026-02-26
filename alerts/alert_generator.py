@@ -30,6 +30,8 @@ class AlertGenerator:
         """
         self.config = config
         self.alert_config = config['alerts']
+        self.min_alert_score = config.get('alerts', {}).get('min_score', 28)
+        self.max_alerts = config.get('alerts', {}).get('max_alerts', 5)
 
         # Ensure output directory exists
         self.output_dir = Path(_OUTPUT_DIR)
@@ -52,12 +54,11 @@ class AlertGenerator:
             logger.info("No opportunities to generate alerts for")
             return {}
 
-        # Filter top opportunities (top 5 or score > 28)
-        # Lowered to generate more trading activity (Carlos directive Feb 21)
+        # Filter top opportunities by minimum score (configurable via alerts.min_score)
         top_opportunities = [
             opp for opp in opportunities
-            if opp.get('score', 0) >= 28
-        ][:5]
+            if opp.get('score', 0) >= self.min_alert_score
+        ][:self.max_alerts]
 
         if not top_opportunities:
             logger.info("No high-quality opportunities found")

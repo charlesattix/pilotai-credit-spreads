@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { jwtVerify } from 'jose'
+import crypto from 'crypto'
 
 /**
  * Per-route auth helper (runs in Node.js runtime, NOT Edge).
@@ -26,7 +27,8 @@ export async function verifyAuth(request: Request): Promise<NextResponse | null>
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
     }
 
-    const secret = new TextEncoder().encode(token)
+    // Derive the same key used in api/auth/route.ts for JWT signing
+    const secret = crypto.createHmac('sha256', 'pilotai-jwt-signing-v1').update(token).digest()
     await jwtVerify(jwt, secret)
 
     return null

@@ -3,17 +3,20 @@ import { NextResponse } from "next/server";
 import { apiError } from "@/lib/api-error";
 import { checkRateLimit } from "@/lib/database";
 import { verifyAuth } from "@/lib/auth";
+import { z } from "zod";
 
-interface ChatAlert {
-  ticker?: string;
-  type?: string;
-  short_strike?: number;
-  long_strike?: number;
-  expiration?: string;
-  credit?: number;
-  pop?: number;
-  score?: number;
-}
+const ChatAlertSchema = z.object({
+  ticker: z.string().min(1).max(10).regex(/^[A-Z]{1,5}$/i),
+  type: z.string().min(1).max(30),
+  short_strike: z.number().finite().optional(),
+  long_strike: z.number().finite().optional(),
+  expiration: z.string().max(20).optional(),
+  credit: z.number().finite().nonnegative().optional(),
+  pop: z.number().finite().min(0).max(100).optional(),
+  score: z.number().finite().min(0).max(100).optional(),
+});
+
+type ChatAlert = z.infer<typeof ChatAlertSchema>;
 
 const RATE_LIMIT_MAX = 10;
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -42,8 +45,9 @@ export async function POST(request: Request) {
   const authErr = await verifyAuth(request); if (authErr) return authErr;
   try {
     const forwarded = request.headers.get('x-forwarded-for');
+    // Use the first (leftmost) IP — the client IP added by the outermost proxy
     const ip = forwarded
-      ? forwarded.split(',').map(s => s.trim()).filter(Boolean).pop() || 'unknown'
+      ? forwarded.split(',')[0]?.trim() || 'unknown'
       : 'unknown';
     if (!checkRateLimit(`chat:${ip}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS)) {
       return apiError("Rate limit exceeded. Max 10 requests per minute.", 429);
@@ -71,12 +75,20 @@ export async function POST(request: Request) {
     }
 
     // Build context with current alerts if available
+    // SEC-INJ-02: Validate alerts with Zod schema before injecting into system prompt
     let contextPrompt = SYSTEM_PROMPT;
-    if (alerts && alerts.length > 0) {
-      const alertSummary = alerts.slice(0, 5).map((a: ChatAlert) =>
-        `${a.ticker} ${a.type}: ${a.short_strike}/${a.long_strike} exp ${a.expiration}, credit $${a.credit?.toFixed(2)}, PoP ${a.pop?.toFixed(0)}%, score ${a.score}`
-      ).join('\n');
-      contextPrompt += `\n\nCurrent active alerts:\n${alertSummary}`;
+    if (alerts && Array.isArray(alerts) && alerts.length > 0) {
+      const validAlerts: ChatAlert[] = [];
+      for (const raw of alerts.slice(0, 5)) {
+        const parsed = ChatAlertSchema.safeParse(raw);
+        if (parsed.success) validAlerts.push(parsed.data);
+      }
+      if (validAlerts.length > 0) {
+        const alertSummary = validAlerts.map((a) =>
+          `${a.ticker} ${a.type}: ${a.short_strike ?? '?'}/${a.long_strike ?? '?'} exp ${a.expiration ?? '?'}, credit $${a.credit?.toFixed(2) ?? '?'}, PoP ${a.pop?.toFixed(0) ?? '?'}%, score ${a.score ?? '?'}`
+        ).join('\n');
+        contextPrompt += `\n\nCurrent active alerts:\n${alertSummary}`;
+      }
     }
 
     // Try OpenAI first, then fallback to local responses

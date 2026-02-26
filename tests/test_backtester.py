@@ -540,7 +540,7 @@ class TestCalculateResults:
             (datetime(2025, 1, 3), 100500),
         ]
         results = self.bt._calculate_results()
-        assert results['profit_factor'] == float('inf')
+        assert results['profit_factor'] == 999.99
 
     def test_all_losers(self):
         """All losing trades should produce 0% win rate."""

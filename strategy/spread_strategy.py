@@ -92,14 +92,16 @@ class CreditSpreadStrategy:
             # Evaluate bull put spreads (bullish/neutral)
             if self._check_bullish_conditions(technical_signals, iv_data):
                 bull_puts = self._find_bull_put_spreads(
-                    ticker, exp_chain, current_price, expiration, iv_data
+                    ticker, exp_chain, current_price, expiration, iv_data,
+                    as_of_date=as_of_date,
                 )
                 opportunities.extend(bull_puts)
 
             # Evaluate bear call spreads (bearish/neutral)
             if self._check_bearish_conditions(technical_signals, iv_data):
                 bear_calls = self._find_bear_call_spreads(
-                    ticker, exp_chain, current_price, expiration, iv_data
+                    ticker, exp_chain, current_price, expiration, iv_data,
+                    as_of_date=as_of_date,
                 )
                 opportunities.extend(bear_calls)
 
@@ -227,9 +229,10 @@ class CreditSpreadStrategy:
         current_price: float,
         expiration: datetime,
         iv_data: Optional[Dict] = None,
+        as_of_date: Optional[datetime] = None,
     ) -> List[Dict]:
         """Find bull put spread opportunities (thin wrapper)."""
-        return self._find_spreads(ticker, option_chain, current_price, expiration, 'bull_put', iv_data=iv_data)
+        return self._find_spreads(ticker, option_chain, current_price, expiration, 'bull_put', iv_data=iv_data, as_of_date=as_of_date)
 
     def _find_bear_call_spreads(
         self,
@@ -238,9 +241,10 @@ class CreditSpreadStrategy:
         current_price: float,
         expiration: datetime,
         iv_data: Optional[Dict] = None,
+        as_of_date: Optional[datetime] = None,
     ) -> List[Dict]:
         """Find bear call spread opportunities (thin wrapper)."""
-        return self._find_spreads(ticker, option_chain, current_price, expiration, 'bear_call', iv_data=iv_data)
+        return self._find_spreads(ticker, option_chain, current_price, expiration, 'bear_call', iv_data=iv_data, as_of_date=as_of_date)
 
     def find_iron_condors(
         self,
@@ -293,8 +297,8 @@ class CreditSpreadStrategy:
             exp_chain = option_chain[option_chain['expiration'] == expiration]
 
             # Find both wings — relaxed credit filter for individual legs
-            bull_puts = self._find_spreads(ticker, exp_chain, current_price, expiration, 'bull_put', iv_data=iv_data, for_condor=True)
-            bear_calls = self._find_spreads(ticker, exp_chain, current_price, expiration, 'bear_call', iv_data=iv_data, for_condor=True)
+            bull_puts = self._find_spreads(ticker, exp_chain, current_price, expiration, 'bull_put', iv_data=iv_data, for_condor=True, as_of_date=as_of_date)
+            bear_calls = self._find_spreads(ticker, exp_chain, current_price, expiration, 'bear_call', iv_data=iv_data, for_condor=True, as_of_date=as_of_date)
 
             if not bull_puts or not bear_calls:
                 continue
@@ -380,6 +384,7 @@ class CreditSpreadStrategy:
         spread_type: str,
         iv_data: Optional[Dict] = None,
         for_condor: bool = False,
+        as_of_date: Optional[datetime] = None,
     ) -> List[SpreadOpportunity]:
         """
         Find credit spread opportunities.
@@ -392,6 +397,8 @@ class CreditSpreadStrategy:
             spread_type: 'bull_put' or 'bear_call'
             iv_data: IV rank/percentile data for dynamic width selection
             for_condor: If True, relax min credit (combined credit checked later)
+            as_of_date: Date to use for DTE calculation (for backtesting).
+                        Defaults to datetime.now() for live scanning.
 
         Returns:
             List of spread opportunity dicts
@@ -463,7 +470,16 @@ class CreditSpreadStrategy:
 
             # Calculate credit and risk
             credit = short_leg['bid'] - long_leg['ask']
+
+            # Reject crossed markets (negative credit)
+            if credit <= 0:
+                continue
+
             max_loss = spread_width - credit
+
+            # Reject spreads where max_loss is non-positive (credit exceeds width)
+            if max_loss <= 0:
+                continue
 
             # Check minimum credit requirement
             # For condor legs, use a low floor (combined credit checked later)
@@ -476,7 +492,10 @@ class CreditSpreadStrategy:
                     continue
 
             exp_aware = expiration if expiration.tzinfo else expiration.replace(tzinfo=timezone.utc)
-            dte = (exp_aware - datetime.now(timezone.utc)).days
+            ref_date = as_of_date or datetime.now(timezone.utc)
+            if not hasattr(ref_date, 'tzinfo') or ref_date.tzinfo is None:
+                ref_date = ref_date.replace(tzinfo=timezone.utc)
+            dte = (exp_aware - ref_date).days
 
             # Distance to short strike (always positive — how far price
             # must move adversely to reach the short strike)

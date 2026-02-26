@@ -15,14 +15,17 @@ export default function SettingsPage() {
 
   // Sync SWR data into local form state when it loads or refreshes
   useEffect(() => {
-    if (fetchedConfig && !config) {
+    if (fetchedConfig) {
       setConfig(fetchedConfig)
     }
-  }, [fetchedConfig, config])
+  }, [fetchedConfig])
 
-  if (error) {
-    toast.error('Failed to load configuration')
-  }
+  // Show error toast only once when error state changes
+  useEffect(() => {
+    if (error) {
+      toast.error('Failed to load configuration')
+    }
+  }, [error])
 
   const saveConfig = async () => {
     if (!config) return

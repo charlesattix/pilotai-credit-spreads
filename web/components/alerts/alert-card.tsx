@@ -41,8 +41,8 @@ export function AlertCard({ alert, isNew = false, onPaperTrade }: AlertCardProps
     try {
       const data = await apiFetch<{ success: boolean; trade?: unknown; error?: string }>('/api/paper-trades', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ alert, contracts: 1, userId: getUserId() }),
+        headers: { 'Content-Type': 'application/json', 'x-user-id': getUserId() },
+        body: JSON.stringify({ alert, contracts: 1 }),
       })
 
       if (data.success) {

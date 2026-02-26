@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 import pandas as pd
 from shared.constants import DATA_DIR as _DATA_DIR, OUTPUT_DIR as _OUTPUT_DIR
-from shared.database import init_db, upsert_trade, get_trades as db_get_trades
+from shared.database import init_db, upsert_trade, batch_upsert_trades, get_trades as db_get_trades
 
 logger = logging.getLogger(__name__)
 
@@ -73,14 +73,12 @@ class TradeTracker:
             return []
 
     def _save_trades(self):
-        """Persist trades to SQLite."""
-        for trade in self.trades:
-            upsert_trade(trade, source="tracker")
+        """Persist trades to SQLite (single connection for all trades)."""
+        batch_upsert_trades(self.trades, source="tracker")
 
     def _save_positions(self):
-        """Persist positions to SQLite."""
-        for pos in self.positions:
-            upsert_trade(pos, source="tracker")
+        """Persist positions to SQLite (single connection for all positions)."""
+        batch_upsert_trades(self.positions, source="tracker")
 
     def add_position(self, position: Dict) -> str:
         """

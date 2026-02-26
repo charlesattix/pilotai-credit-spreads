@@ -138,6 +138,52 @@ def upsert_trade(trade: Dict[str, Any], source: str = "scanner", path: Optional[
         conn.close()
 
 
+def batch_upsert_trades(trades: List[Dict[str, Any]], source: str = "scanner", path: Optional[str] = None) -> None:
+    """Insert or update multiple trades in a single connection/transaction."""
+    if not trades:
+        return
+    conn = get_db(path)
+    try:
+        for trade in trades:
+            metadata = {k: v for k, v in trade.items() if k not in (
+                "id", "ticker", "type", "strategy_type", "status",
+                "short_strike", "long_strike", "expiration", "credit",
+                "contracts", "entry_date", "exit_date", "exit_reason", "pnl",
+            )}
+            conn.execute("""
+                INSERT INTO trades (id, source, ticker, strategy_type, status,
+                    short_strike, long_strike, expiration, credit, contracts,
+                    entry_date, exit_date, exit_reason, pnl, metadata, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(id) DO UPDATE SET
+                    status=excluded.status,
+                    exit_date=excluded.exit_date,
+                    exit_reason=excluded.exit_reason,
+                    pnl=excluded.pnl,
+                    metadata=excluded.metadata,
+                    updated_at=datetime('now')
+            """, (
+                str(trade.get("id", "")),
+                source,
+                trade.get("ticker", ""),
+                trade.get("type") or trade.get("strategy_type", ""),
+                trade.get("status", "open"),
+                trade.get("short_strike"),
+                trade.get("long_strike"),
+                str(trade.get("expiration", "")),
+                trade.get("credit") or trade.get("credit_per_spread"),
+                trade.get("contracts", 1),
+                trade.get("entry_date"),
+                trade.get("exit_date"),
+                trade.get("exit_reason"),
+                trade.get("exit_pnl") or trade.get("pnl"),
+                json.dumps(metadata, default=str),
+            ))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def get_trades(
     status: Optional[str] = None,
     source: Optional[str] = None,

@@ -126,7 +126,7 @@ def _build_pipeline(
     # Feature engine
     fe_inst = MockFeature.return_value
     fe_inst.build_features.return_value = features or _mock_features()
-    fe_inst._compute_market_features.return_value = {}
+    fe_inst.compute_market_features.return_value = {}
 
     # Signal model
     sm_inst = MockSignal.return_value

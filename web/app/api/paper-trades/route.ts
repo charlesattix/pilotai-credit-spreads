@@ -73,7 +73,7 @@ function tradeRowToPaperTrade(row: TradeRow): PaperTrade {
   };
 }
 
-// GET — fetch user's paper trades
+// GET — fetch user's paper trades (read-only, no side effects)
 export async function GET(request: Request) {
   const authErr = await verifyAuth(request); if (authErr) return authErr;
   if (!PAPER_TRADING_ENABLED) {
@@ -87,21 +87,7 @@ export async function GET(request: Request) {
     const trades: PaperTrade[] = dbTrades.map(tradeRowToPaperTrade).map((trade) => {
       if (trade.status === 'open') {
         const { unrealized_pnl, days_remaining } = calcUnrealizedPnL(trade);
-        const enriched = { ...trade, unrealized_pnl, days_remaining };
-
-        // Auto-close trades that hit profit target, stop loss, or expiration
-        const autoClose = shouldAutoClose(enriched);
-        if (autoClose.close) {
-          const closed = closeUserTrade(trade.id, unrealized_pnl, autoClose.reason);
-          if (closed) {
-            return {
-              ...tradeRowToPaperTrade(closed),
-              realized_pnl: unrealized_pnl,
-            };
-          }
-        }
-
-        return enriched;
+        return { ...trade, unrealized_pnl, days_remaining };
       }
       return trade;
     });
@@ -130,7 +116,7 @@ export async function GET(request: Request) {
   }
 }
 
-// POST — open a new paper trade
+// POST — open a new paper trade OR auto-close expired/target-hit trades
 export async function POST(request: Request) {
   const authErr = await verifyAuth(request); if (authErr) return authErr;
   if (!PAPER_TRADING_ENABLED) {
@@ -139,6 +125,29 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
+
+    // Action: auto-close trades that hit profit target, stop loss, or expiration
+    if (body.action === 'auto-close') {
+      const userId = extractUserId(request);
+      const dbTrades = getUserTrades(userId);
+      let closedCount = 0;
+
+      for (const row of dbTrades) {
+        if (row.status !== 'open' || row.source !== 'user') continue;
+        const trade = tradeRowToPaperTrade(row);
+        const { unrealized_pnl, days_remaining } = calcUnrealizedPnL(trade);
+        const enriched = { ...trade, unrealized_pnl, days_remaining };
+        const autoClose = shouldAutoClose(enriched);
+        if (autoClose.close) {
+          closeUserTrade(trade.id, unrealized_pnl, autoClose.reason, userId);
+          closedCount++;
+        }
+      }
+
+      return NextResponse.json({ success: true, closed: closedCount });
+    }
+
+    // Default: open a new paper trade
     const parsed = PostTradeSchema.safeParse(body);
     if (!parsed.success) {
       return apiError("Validation failed", 400, parsed.error.flatten());
@@ -236,7 +245,7 @@ export async function POST(request: Request) {
   }
 }
 
-// DELETE — close a paper trade
+// DELETE — close a paper trade (with ownership verification)
 export async function DELETE(request: Request) {
   const authErr = await verifyAuth(request); if (authErr) return authErr;
   if (!PAPER_TRADING_ENABLED) {
@@ -252,8 +261,9 @@ export async function DELETE(request: Request) {
       return apiError("Trade ID required", 400);
     }
 
-    // Get current trade to calculate unrealized P&L
     const userId = extractUserId(request);
+
+    // Get current trade to calculate unrealized P&L (filtered by userId)
     const dbTrades = getUserTrades(userId);
     const tradeRow = dbTrades.find(t => t.id === tradeId);
     if (!tradeRow) {
@@ -266,14 +276,18 @@ export async function DELETE(request: Request) {
     const paperTrade = tradeRowToPaperTrade(tradeRow);
     const { unrealized_pnl } = calcUnrealizedPnL(paperTrade);
 
-    const closed = closeUserTrade(tradeId, unrealized_pnl, reason);
+    // Pass userId for ownership verification
+    const closed = closeUserTrade(tradeId, unrealized_pnl, reason, userId);
+    if (!closed) {
+      return apiError("Trade not found or not owned by you", 404);
+    }
 
     return NextResponse.json({
       success: true,
-      trade: closed ? {
+      trade: {
         ...tradeRowToPaperTrade(closed),
         realized_pnl: unrealized_pnl,
-      } : { id: tradeId, realized_pnl: unrealized_pnl },
+      },
     });
   } catch (error) {
     logger.error("Failed to close paper trade", { error: String(error) });

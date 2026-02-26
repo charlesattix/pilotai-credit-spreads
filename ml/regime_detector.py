@@ -205,9 +205,10 @@ class RegimeDetector:
         start_date = end_date - timedelta(days=self.lookback_days + 60)
 
         # Fetch via cache-aware helper (downloads 1y, we slice locally)
-        spy = self._download('SPY', period='1y')
-        vix = self._download('^VIX', period='1y')
-        tlt = self._download('TLT', period='1y')
+        # Copy to avoid mutating yfinance's cached DataFrames
+        spy = self._download('SPY', period='1y').copy()
+        vix = self._download('^VIX', period='1y').copy()
+        tlt = self._download('TLT', period='1y').copy()
 
         # Slice to requested date range
         for name, df in [('spy', spy), ('vix', vix), ('tlt', tlt)]:
@@ -280,10 +281,10 @@ class RegimeDetector:
         Get current market features for regime detection.
         """
         try:
-            # Fetch recent data
-            spy = self._download('SPY', period='3mo')
-            vix = self._download('^VIX', period='3mo')
-            tlt = self._download('TLT', period='3mo')
+            # Fetch recent data — copy to avoid mutating cached DataFrames
+            spy = self._download('SPY', period='3mo').copy()
+            vix = self._download('^VIX', period='3mo').copy()
+            tlt = self._download('TLT', period='3mo').copy()
 
             if spy.empty or vix.empty:
                 return None
@@ -326,6 +327,15 @@ class RegimeDetector:
             logger.error(f"Error computing current features: {e}", exc_info=True)
             return None
 
+    # Heuristic thresholds for mapping HMM states to regime labels
+    CRISIS_VIX = 30
+    CRISIS_RV = 30
+    LOW_VOL_VIX_UPPER = 20
+    LOW_VOL_RV_UPPER = 15
+    HIGH_VOL_VIX_LOWER = 20
+    HIGH_VOL_VIX_UPPER = 30
+    TREND_STRENGTH_MIN = 2
+
     def _map_states_to_regimes(self, features_df: pd.DataFrame, hmm_states: np.ndarray) -> np.ndarray:
         """
         Map HMM states to interpretable regime labels using heuristics.
@@ -340,16 +350,16 @@ class RegimeDetector:
             rv_20 = features_df['realized_vol_20d'].iloc[i]
             trend = abs(features_df['trend_strength'].iloc[i])
 
-            # Crisis: VIX > 30 or RV > 30
-            if vix > 30 or rv_20 > 30:
+            # Crisis: VIX > threshold or RV > threshold
+            if vix > self.CRISIS_VIX or rv_20 > self.CRISIS_RV:
                 regime_labels[i] = 3  # crisis
 
-            # Low vol trending: VIX < 20, RV < 15, strong trend
-            elif vix < 20 and rv_20 < 15 and trend > 2:
+            # Low vol trending: low VIX, low RV, strong trend
+            elif vix < self.LOW_VOL_VIX_UPPER and rv_20 < self.LOW_VOL_RV_UPPER and trend > self.TREND_STRENGTH_MIN:
                 regime_labels[i] = 0  # low_vol_trending
 
-            # High vol trending: VIX 20-30, strong trend
-            elif 20 <= vix < 30 and trend > 2:
+            # High vol trending: moderate VIX, strong trend
+            elif self.HIGH_VOL_VIX_LOWER <= vix < self.HIGH_VOL_VIX_UPPER and trend > self.TREND_STRENGTH_MIN:
                 regime_labels[i] = 1  # high_vol_trending
 
             # Mean reverting: choppy, no clear trend

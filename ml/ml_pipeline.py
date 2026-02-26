@@ -454,7 +454,7 @@ class MLPipeline:
 
             # 2. Pre-compute market features ONCE (SPY/VIX/TLT) to avoid
             #    redundant downloads per ticker.
-            batch_market_features = self.feature_engine._compute_market_features()
+            batch_market_features = self.feature_engine.compute_market_features()
 
             def _analyze_single(opp: Dict) -> Dict:
                 """Analyze a single opportunity (executed in a worker thread)."""

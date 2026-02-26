@@ -9,14 +9,19 @@ import { cn } from '@/lib/utils'
 function useMarketOpen() {
   const [open, setOpen] = useState(false)
   useEffect(() => {
+    const etFormat = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour: 'numeric', minute: 'numeric', hour12: false,
+      weekday: 'short',
+    })
     const check = () => {
-      const now = new Date()
-      const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
-      const day = et.getDay()
-      const h = et.getHours()
-      const m = et.getMinutes()
+      const parts = etFormat.formatToParts(new Date())
+      const weekday = parts.find(p => p.type === 'weekday')?.value ?? ''
+      const h = parseInt(parts.find(p => p.type === 'hour')?.value ?? '0', 10)
+      const m = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0', 10)
       const mins = h * 60 + m
-      setOpen(day >= 1 && day <= 5 && mins >= 570 && mins < 960)
+      const isWeekday = !['Sat', 'Sun'].includes(weekday)
+      setOpen(isWeekday && mins >= 570 && mins < 960)
     }
     check()
     const id = setInterval(check, 60000)

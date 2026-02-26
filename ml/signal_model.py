@@ -106,14 +106,23 @@ class SignalModel:
                 X, y, test_size=0.2, random_state=42, stratify=y
             )
 
-            # Further split training data to create a calibration set,
-            # avoiding data leakage (calibrator must not see test data).
+            # Split training data to create a validation set (for early
+            # stopping) and optionally a calibration set. The held-out test
+            # set is NEVER used during training or early stopping to prevent
+            # data leakage.
             if calibrate:
-                X_train_inner, X_cal, y_train_inner, y_cal = train_test_split(
+                # 60% inner train, 20% validation (early stopping), 20% calibration
+                X_train_rest, X_cal, y_train_rest, y_cal = train_test_split(
                     X_train, y_train, test_size=0.2, random_state=42, stratify=y_train
                 )
+                X_train_inner, X_val, y_train_inner, y_val = train_test_split(
+                    X_train_rest, y_train_rest, test_size=0.25, random_state=42, stratify=y_train_rest
+                )
             else:
-                X_train_inner, y_train_inner = X_train, y_train
+                # 80% inner train, 20% validation (early stopping)
+                X_train_inner, X_val, y_train_inner, y_val = train_test_split(
+                    X_train, y_train, test_size=0.2, random_state=42, stratify=y_train
+                )
 
             # XGBoost parameters (tuned for credit spread prediction)
             params = {
@@ -131,12 +140,13 @@ class SignalModel:
                 'eval_metric': 'logloss',
             }
 
-            # Train model on inner training set only
+            # Train model on inner training set; use validation set for early
+            # stopping (NOT the test set — that would cause data leakage).
             self.model = xgb.XGBClassifier(**params)
 
             self.model.fit(
                 X_train_inner, y_train_inner,
-                eval_set=[(X_test, y_test)],
+                eval_set=[(X_val, y_val)],
                 verbose=False
             )
 
@@ -174,6 +184,7 @@ class SignalModel:
                 'test_auc': float(roc_auc_score(y_test, y_proba_test)),
                 'test_auc_calibrated': float(roc_auc_score(y_test, y_proba_test_cal)) if calibrate else None,
                 'n_train': len(X_train_inner),
+                'n_validation': len(X_val),
                 'n_test': len(X_test),
                 'n_calibration': len(X_cal) if calibrate else 0,
                 'n_features': X.shape[1],
@@ -376,11 +387,18 @@ class SignalModel:
         try:
             # Extract features in correct order
             feature_values = []
+            missing = []
             for name in self.feature_names:
-                value = features.get(name, 0.0)
+                if name not in features:
+                    missing.append(name)
+                    feature_values.append(0.0)
+                    continue
+                value = features[name]
                 if value is None or np.isnan(value):
                     value = 0.0
                 feature_values.append(value)
+            if missing:
+                logger.warning(f"Missing {len(missing)} features (filled with 0.0): {missing}")
 
             X = np.array(feature_values).reshape(1, -1)
             X = sanitize_features(X)
@@ -622,7 +640,8 @@ class SignalModel:
         feature_names = feature_engine.get_feature_names()
 
         # Generate random features with realistic distributions
-        np.random.seed(42)
+        # Use a local RNG to avoid mutating global numpy random state
+        rng = np.random.default_rng(42)
 
         features_list = []
         labels = []
@@ -632,43 +651,43 @@ class SignalModel:
             features = {}
 
             # Technical (mostly neutral with some bias)
-            features['rsi_14'] = np.random.normal(50, 15)
-            features['macd'] = np.random.normal(0, 2)
-            features['macd_signal'] = np.random.normal(0, 2)
+            features['rsi_14'] = rng.normal(50, 15)
+            features['macd'] = rng.normal(0, 2)
+            features['macd_signal'] = rng.normal(0, 2)
             features['macd_histogram'] = features['macd'] - features['macd_signal']
-            features['bollinger_pct_b'] = np.random.beta(2, 2)
-            features['atr_pct'] = np.random.gamma(2, 1)
-            features['volume_ratio'] = np.random.lognormal(0, 0.3)
-            features['return_5d'] = np.random.normal(0, 2)
-            features['return_10d'] = np.random.normal(0, 3)
-            features['return_20d'] = np.random.normal(0, 4)
-            features['dist_from_sma20_pct'] = np.random.normal(0, 3)
-            features['dist_from_sma50_pct'] = np.random.normal(0, 5)
-            features['dist_from_sma200_pct'] = np.random.normal(0, 8)
+            features['bollinger_pct_b'] = rng.beta(2, 2)
+            features['atr_pct'] = rng.gamma(2, 1)
+            features['volume_ratio'] = rng.lognormal(0, 0.3)
+            features['return_5d'] = rng.normal(0, 2)
+            features['return_10d'] = rng.normal(0, 3)
+            features['return_20d'] = rng.normal(0, 4)
+            features['dist_from_sma20_pct'] = rng.normal(0, 3)
+            features['dist_from_sma50_pct'] = rng.normal(0, 5)
+            features['dist_from_sma200_pct'] = rng.normal(0, 8)
 
             # Volatility
-            features['realized_vol_10d'] = np.random.gamma(4, 4)
-            features['realized_vol_20d'] = np.random.gamma(4, 4)
-            features['realized_vol_60d'] = np.random.gamma(4, 4)
-            features['iv_rank'] = np.random.uniform(0, 100)
-            features['iv_percentile'] = np.random.uniform(0, 100)
-            features['current_iv'] = np.random.gamma(4, 5)
+            features['realized_vol_10d'] = rng.gamma(4, 4)
+            features['realized_vol_20d'] = rng.gamma(4, 4)
+            features['realized_vol_60d'] = rng.gamma(4, 4)
+            features['iv_rank'] = rng.uniform(0, 100)
+            features['iv_percentile'] = rng.uniform(0, 100)
+            features['current_iv'] = rng.gamma(4, 5)
             features['rv_iv_spread'] = features['realized_vol_20d'] - features['current_iv']
-            features['put_call_skew_ratio'] = np.random.lognormal(0, 0.2)
-            features['put_skew_steepness'] = np.random.normal(0, 3)
+            features['put_call_skew_ratio'] = rng.lognormal(0, 0.2)
+            features['put_skew_steepness'] = rng.normal(0, 3)
 
             # Market
-            features['vix_level'] = np.random.gamma(3, 5)
-            features['vix_change_1d'] = np.random.normal(0, 10)
-            features['put_call_ratio'] = np.random.lognormal(0, 0.2)
-            features['spy_return_5d'] = np.random.normal(0, 2)
-            features['spy_return_20d'] = np.random.normal(0, 4)
-            features['spy_realized_vol'] = np.random.gamma(3, 5)
+            features['vix_level'] = rng.gamma(3, 5)
+            features['vix_change_1d'] = rng.normal(0, 10)
+            features['put_call_ratio'] = rng.lognormal(0, 0.2)
+            features['spy_return_5d'] = rng.normal(0, 2)
+            features['spy_return_20d'] = rng.normal(0, 4)
+            features['spy_realized_vol'] = rng.gamma(3, 5)
 
             # Event risk
-            features['days_to_earnings'] = np.random.randint(0, 90)
-            features['days_to_fomc'] = np.random.randint(0, 60)
-            features['days_to_cpi'] = np.random.randint(0, 30)
+            features['days_to_earnings'] = rng.integers(0, 90)
+            features['days_to_fomc'] = rng.integers(0, 60)
+            features['days_to_cpi'] = rng.integers(0, 30)
             features['event_risk_score'] = (
                 0.8 if min(features['days_to_earnings'], features['days_to_fomc'], features['days_to_cpi']) < 7
                 else 0.5 if min(features['days_to_earnings'], features['days_to_fomc'], features['days_to_cpi']) < 14
@@ -676,15 +695,15 @@ class SignalModel:
             )
 
             # Seasonal
-            features['day_of_week'] = np.random.randint(0, 5)
-            features['is_opex_week'] = np.random.choice([0, 1], p=[0.75, 0.25])
+            features['day_of_week'] = rng.integers(0, 5)
+            features['is_opex_week'] = rng.choice([0, 1], p=[0.75, 0.25])
             features['is_monday'] = 1 if features['day_of_week'] == 0 else 0
-            features['is_month_end'] = np.random.choice([0, 1], p=[0.8, 0.2])
+            features['is_month_end'] = rng.choice([0, 1], p=[0.8, 0.2])
 
             # Regime
-            regime_id = np.random.choice([0, 1, 2, 3], p=[0.3, 0.2, 0.4, 0.1])
+            regime_id = rng.choice([0, 1, 2, 3], p=[0.3, 0.2, 0.4, 0.1])
             features['regime_id'] = regime_id
-            features['regime_confidence'] = np.random.beta(3, 2)
+            features['regime_confidence'] = rng.beta(3, 2)
             features['regime_low_vol_trending'] = 1 if regime_id == 0 else 0
             features['regime_high_vol_trending'] = 1 if regime_id == 1 else 0
             features['regime_mean_reverting'] = 1 if regime_id == 2 else 0
@@ -731,7 +750,7 @@ class SignalModel:
                 win_score += 10
 
             # Add randomness
-            win_score += np.random.normal(0, 20)
+            win_score += rng.normal(0, 20)
 
             # Convert to binary label
             base_threshold = (1 - win_rate) * 100

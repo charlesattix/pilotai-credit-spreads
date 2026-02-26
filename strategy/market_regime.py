@@ -9,6 +9,9 @@ import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class MarketRegimeDetector:
@@ -147,7 +150,7 @@ class MarketRegimeDetector:
             }
             
         except Exception as e:
-            print(f"Error analyzing {ticker}: {e}")
+            logger.error(f"Error analyzing {ticker}: {e}", exc_info=True)
             return self._error_regime(ticker)
     
     def _calculate_trend(self, close: pd.Series) -> float:
@@ -238,37 +241,51 @@ class MarketRegimeDetector:
         trend = (recent_avg / historical_avg - 1) * 2
         return float(np.clip(trend, -1, 1))
     
+    # Classification thresholds (tune here, not in the branching logic)
+    CRASH_VOL_THRESHOLD = 0.7
+    CRASH_MOMENTUM_THRESHOLD = -0.5
+    HIGH_VOL_THRESHOLD = 0.65
+    LOW_VOL_THRESHOLD = 0.3
+    LOW_VOL_RANGE_THRESHOLD = 0.5
+    RECOVERY_TREND_THRESHOLD = 0.3
+    RECOVERY_MOMENTUM_THRESHOLD = 0.4
+    RECOVERY_VOL_THRESHOLD = 0.5
+    BULL_TREND_THRESHOLD = 0.4
+    BULL_MOMENTUM_THRESHOLD = 0.2
+    BEAR_TREND_THRESHOLD = -0.4
+    BEAR_MOMENTUM_THRESHOLD = -0.2
+
     def _classify_regime(self, metrics: Dict) -> str:
         """Classify regime based on metrics."""
         trend = metrics["trend"]
         vol = metrics["volatility"]
         momentum = metrics["momentum"]
         range_val = metrics["range"]
-        
+
         # Crash detection: high vol + strong down momentum
-        if vol > 0.7 and momentum < -0.5:
+        if vol > self.CRASH_VOL_THRESHOLD and momentum < self.CRASH_MOMENTUM_THRESHOLD:
             return "CRASH"
-        
+
         # High volatility regime
-        if vol > 0.65:
+        if vol > self.HIGH_VOL_THRESHOLD:
             return "HIGH_VOLATILITY"
-        
+
         # Low volatility regime
-        if vol < 0.3 and range_val > 0.5:
+        if vol < self.LOW_VOL_THRESHOLD and range_val > self.LOW_VOL_RANGE_THRESHOLD:
             return "LOW_VOLATILITY"
-        
+
         # Recovery: bouncing from lows
-        if trend > 0.3 and momentum > 0.4 and vol > 0.5:
+        if trend > self.RECOVERY_TREND_THRESHOLD and momentum > self.RECOVERY_MOMENTUM_THRESHOLD and vol > self.RECOVERY_VOL_THRESHOLD:
             return "RECOVERY"
-        
+
         # Trending bull
-        if trend > 0.4 and momentum > 0.2:
+        if trend > self.BULL_TREND_THRESHOLD and momentum > self.BULL_MOMENTUM_THRESHOLD:
             return "TRENDING_BULL"
-        
+
         # Trending bear
-        if trend < -0.4 and momentum < -0.2:
+        if trend < self.BEAR_TREND_THRESHOLD and momentum < self.BEAR_MOMENTUM_THRESHOLD:
             return "TRENDING_BEAR"
-        
+
         # Default: choppy
         return "CHOPPY"
     
@@ -365,18 +382,19 @@ class MarketRegimeDetector:
 
 def main():
     """Run market regime analysis."""
+    logging.basicConfig(level=logging.INFO)
     detector = MarketRegimeDetector()
     analysis = detector.analyze()
-    
-    # Print report
-    print(detector.format_report(analysis))
-    
+
+    # Log report
+    logger.info(detector.format_report(analysis))
+
     # Save to file
     output_path = "output/market_regime.json"
     with open(output_path, "w") as f:
         json.dump(analysis, f, indent=2)
-    
-    print(f"\n💾 Full analysis saved to: {output_path}")
+
+    logger.info(f"Full analysis saved to: {output_path}")
 
 
 if __name__ == "__main__":

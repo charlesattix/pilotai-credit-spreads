@@ -818,8 +818,12 @@ class Backtester:
         max_loss = spread_width - credit
 
         risk_per_spread = max_loss * 100
-        max_risk = self.capital * (self.risk_params['max_risk_per_trade'] / 100)
-        contracts = max(1, int(max_risk / risk_per_spread))
+        # Use starting_capital (not current capital) for consistent sizing
+        # across both real-data and heuristic modes — prevents compounding
+        # from inflating position sizes in later trades.
+        max_risk = self.starting_capital * (self.risk_params['max_risk_per_trade'] / 100)
+        max_contracts_cap = self.risk_params.get('max_contracts', 999)
+        contracts = max(1, min(max_contracts_cap, int(max_risk / risk_per_spread)))
 
         position = {
             'ticker': ticker,
@@ -1074,9 +1078,17 @@ class Backtester:
                 pnl = pos['credit'] * pos['contracts'] * 100 - pos['commission']
                 reason = 'expiration_profit'
         else:
-            # No data at expiration — assume expired worthless
-            pnl = pos['credit'] * pos['contracts'] * 100 - pos['commission']
-            reason = 'expiration_profit'
+            # No data at expiration — conservatively assume max loss.
+            # Previously this assumed full profit, which inflated backtest
+            # results with survivorship bias.
+            max_loss = pos['max_loss'] * pos['contracts'] * 100
+            pnl = -max_loss - pos['commission']
+            reason = 'expiration_no_data'
+            logger.warning(
+                "No expiration data for %s %s/%s exp %s — recording as max loss (conservative)",
+                pos['ticker'], pos['short_strike'], pos['long_strike'],
+                pos['expiration'].strftime('%Y-%m-%d') if hasattr(pos['expiration'], 'strftime') else pos['expiration'],
+            )
 
         self._record_close(pos, expiration_date, pnl, reason)
 
@@ -1269,13 +1281,13 @@ class Backtester:
         else:
             sharpe = 0
 
-        # Profit factor
+        # Profit factor (capped at 999.99 to avoid JSON-invalid Infinity)
         winning_total = winners['pnl'].sum() if len(winners) > 0 else 0
         losing_total = losers['pnl'].sum() if len(losers) > 0 else 0
         if losing_total != 0:
             profit_factor = round(abs(winning_total / losing_total), 2)
         elif winning_total > 0:
-            profit_factor = float('inf')
+            profit_factor = 999.99
         else:
             profit_factor = 0
 

@@ -658,13 +658,13 @@ class BacktesterEnhanced:
         else:
             sharpe = 0
 
-        # Profit factor
+        # Profit factor (capped at 999.99 to avoid JSON-invalid Infinity)
         winning_total = winners['pnl'].sum() if len(winners) > 0 else 0
         losing_total = losers['pnl'].sum() if len(losers) > 0 else 0
         if losing_total != 0:
             profit_factor = round(abs(winning_total / losing_total), 2)
         elif winning_total > 0:
-            profit_factor = float('inf')
+            profit_factor = 999.99
         else:
             profit_factor = 0
 

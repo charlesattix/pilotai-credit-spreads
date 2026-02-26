@@ -162,10 +162,13 @@ export function getTrades(filters: TradeFilters = {}): TradeRow[] {
 export function getUserTrades(userId: string): TradeRow[] {
   const db = getDb()
   if (!db) return []
-  // Return all trades (scanner + user) so the dashboard shows paper-traded positions
+  // Filter by user_id stored in metadata JSON, plus scanner trades (visible to all)
   return db.prepare(
-    "SELECT * FROM trades ORDER BY created_at DESC"
-  ).all() as TradeRow[]
+    `SELECT * FROM trades
+     WHERE source = 'scanner'
+        OR json_extract(metadata, '$.user_id') = ?
+     ORDER BY created_at DESC`
+  ).all(userId) as TradeRow[]
 }
 
 export function upsertUserTrade(trade: {
@@ -207,9 +210,18 @@ export function upsertUserTrade(trade: {
   )
 }
 
-export function closeUserTrade(tradeId: string, pnl: number, reason: string): TradeRow | null {
+export function closeUserTrade(tradeId: string, pnl: number, reason: string, userId?: string): TradeRow | null {
   const db = getDb()
   if (!db) return null
+
+  // Verify ownership if userId is provided
+  if (userId) {
+    const existing = db.prepare('SELECT metadata FROM trades WHERE id = ? AND source = ?').get(tradeId, 'user') as { metadata: string | null } | undefined
+    if (!existing) return null
+    const meta = existing.metadata ? JSON.parse(existing.metadata) : {}
+    if (meta.user_id && meta.user_id !== userId) return null
+  }
+
   const status = pnl > 0 ? 'closed_profit' : pnl < 0 ? 'closed_loss' : reason === 'manual' ? 'closed_manual' : 'closed_expiry'
   db.prepare(`
     UPDATE trades SET status=?, exit_date=datetime('now'), exit_reason=?, pnl=?, updated_at=datetime('now')
@@ -251,8 +263,20 @@ export function getRegimeSnapshot(): { regime: string; confidence: number; featu
 }
 
 /**
+ * Invalidate the cached DB connection (e.g. after replacing the DB file).
+ * The next call to getDb() will re-open a fresh connection.
+ */
+export function resetDb(): void {
+  if (_db) {
+    try { _db.close() } catch { /* ignore */ }
+  }
+  _db = null
+  _dbFailed = false
+}
+
+/**
  * SQLite-based rate limiting. Returns true if the request is allowed.
- * Cleans up expired entries on each call.
+ * Uses a transaction to prevent race conditions under concurrent requests.
  */
 export function checkRateLimit(key: string, limit: number, windowMs: number): boolean {
   const db = getDb()
@@ -260,21 +284,20 @@ export function checkRateLimit(key: string, limit: number, windowMs: number): bo
   const now = Date.now()
   const cutoff = now - windowMs
 
-  // Clean expired entries for this key
-  db.prepare('DELETE FROM rate_limits WHERE key = ? AND ts < ?').run(key, cutoff)
+  const checkAndInsert = db.transaction(() => {
+    db.prepare('DELETE FROM rate_limits WHERE key = ? AND ts < ?').run(key, cutoff)
+    const row = db.prepare('SELECT COUNT(*) as cnt FROM rate_limits WHERE key = ? AND ts >= ?').get(key, cutoff) as { cnt: number }
+    if (row.cnt >= limit) return false
+    db.prepare('INSERT INTO rate_limits (key, ts) VALUES (?, ?)').run(key, now)
+    return true
+  })
 
-  // Count recent entries
-  const row = db.prepare('SELECT COUNT(*) as cnt FROM rate_limits WHERE key = ? AND ts >= ?').get(key, cutoff) as { cnt: number }
-
-  if (row.cnt >= limit) return false
-
-  // Record this request
-  db.prepare('INSERT INTO rate_limits (key, ts) VALUES (?, ?)').run(key, now)
-  return true
+  return checkAndInsert()
 }
 
 /**
  * SQLite-based process lock. Returns true if lock was acquired.
+ * Uses a transaction to prevent race conditions.
  * Automatically expires stale locks after timeoutMs.
  */
 export function acquireProcessLock(name: string, timeoutMs: number): boolean {
@@ -282,18 +305,19 @@ export function acquireProcessLock(name: string, timeoutMs: number): boolean {
   if (!db) return true // Allow if DB unavailable
   const now = Date.now()
 
-  // Clean expired locks
-  db.prepare('DELETE FROM process_locks WHERE expires_at < ?').run(now)
+  const tryAcquire = db.transaction(() => {
+    db.prepare('DELETE FROM process_locks WHERE expires_at < ?').run(now)
+    try {
+      db.prepare(
+        'INSERT INTO process_locks (name, locked_at, expires_at) VALUES (?, ?, ?)'
+      ).run(name, now, now + timeoutMs)
+      return true
+    } catch {
+      return false
+    }
+  })
 
-  // Try to insert (fails if lock already held)
-  try {
-    db.prepare(
-      'INSERT INTO process_locks (name, locked_at, expires_at) VALUES (?, ?, ?)'
-    ).run(name, now, now + timeoutMs)
-    return true
-  } catch {
-    return false
-  }
+  return tryAcquire()
 }
 
 /**

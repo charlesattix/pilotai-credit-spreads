@@ -9,6 +9,11 @@ export function Ticker() {
     if (!containerRef.current) return
     containerRef.current.innerHTML = ''
 
+    // SECURITY: Third-party script loaded without SRI hash. TradingView updates
+    // this script frequently, making static SRI impractical. The script is loaded
+    // from TradingView's CDN and sandboxed in the DOM; it has no access to auth
+    // tokens or API routes. Monitor for CSP violations if a Content-Security-Policy
+    // header is added in the future.
     const script = document.createElement('script')
     script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js'
     script.async = true

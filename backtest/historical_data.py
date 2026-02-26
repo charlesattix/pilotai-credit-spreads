@@ -212,7 +212,7 @@ class HistoricalOptionsData:
         rows = []
         for bar in results:
             ts = bar.get("t", 0)
-            dt = datetime.utcfromtimestamp(ts / 1000).strftime("%Y-%m-%d")
+            dt = datetime.fromtimestamp(ts / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
             rows.append((
                 symbol,
                 dt,
@@ -473,7 +473,7 @@ class HistoricalOptionsData:
         rows = []
         for bar in results:
             ts = bar.get("t", 0)
-            dt_utc = datetime.utcfromtimestamp(ts / 1000).replace(tzinfo=timezone.utc)
+            dt_utc = datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
             dt_et = dt_utc.astimezone(ET)
             bar_time = dt_et.strftime("%H:%M")
             bar_date = dt_et.strftime("%Y-%m-%d")

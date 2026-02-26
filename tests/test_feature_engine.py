@@ -147,14 +147,14 @@ class TestComputeMarketFeatures:
     def test_returns_vix_level(self, mock_dl):
         """Market features should contain vix_level."""
         engine = FeatureEngine()
-        features = engine._compute_market_features()
+        features = engine.compute_market_features()
         assert 'vix_level' in features
 
     @patch('ml.feature_engine.yf.download', return_value=pd.DataFrame())
     def test_returns_defaults_on_empty(self, mock_dl):
         """Should return safe defaults when downloads fail."""
         engine = FeatureEngine()
-        features = engine._compute_market_features()
+        features = engine.compute_market_features()
         assert features['vix_level'] == 15.0
 
 

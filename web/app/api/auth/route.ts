@@ -11,7 +11,8 @@ function timingSafeCompare(a: string, b: string): boolean {
 function getJwtSecret(): Uint8Array {
   const token = process.env.API_AUTH_TOKEN
   if (!token) throw new Error('API_AUTH_TOKEN not configured')
-  return new TextEncoder().encode(token)
+  // Derive a separate key for JWT signing so the raw auth token isn't used as HMAC key
+  return crypto.createHmac('sha256', 'pilotai-jwt-signing-v1').update(token).digest()
 }
 
 export async function POST(request: NextRequest) {

@@ -236,7 +236,7 @@ class CreditSpreadSystem:
                 try:
                     # Compute regime ONCE per ticker (not per-opportunity)
                     regime_data = self.ml_pipeline.regime_detector.detect_regime(ticker=ticker)
-                    market_features = self.ml_pipeline.feature_engine._compute_market_features()
+                    market_features = self.ml_pipeline.feature_engine.compute_market_features()
 
                     # Limit to top 10 opportunities to avoid combinatorial explosion
                     # (iron condors can generate O(N^2) pairs per expiration)

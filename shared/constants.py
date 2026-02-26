@@ -33,7 +33,7 @@ MANAGEMENT_DTE_THRESHOLD = 21
 # ---------------------------------------------------------------------------
 # Options pricing
 # ---------------------------------------------------------------------------
-DEFAULT_RISK_FREE_RATE = 0.045
+DEFAULT_RISK_FREE_RATE = float(os.environ.get('PILOTAI_RISK_FREE_RATE', '0.045'))
 
 # ---------------------------------------------------------------------------
 # Backtesting defaults

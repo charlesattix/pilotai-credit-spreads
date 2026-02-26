@@ -61,11 +61,13 @@ COPY --from=web-build /app/web/public ./web/public
 COPY docker-entrypoint.sh .
 RUN chmod +x docker-entrypoint.sh
 
-# Create data directories
-# NOTE: DB initialization happens at runtime (entrypoint) so it lands on
-# the persistent volume, not the ephemeral build layer.
-# Running as root to ensure volume mount permissions work correctly
-RUN mkdir -p /app/data /app/output /app/logs
+# Create non-root user and data directories
+RUN groupadd --gid 1001 pilotai && \
+    useradd --uid 1001 --gid 1001 --create-home pilotai && \
+    mkdir -p /app/data /app/output /app/logs && \
+    chown -R pilotai:pilotai /app/data /app/output /app/logs
+
+USER pilotai
 
 # Volume is configured via railway.toml (not VOLUME directive, which conflicts
 # with Railway's volume management). For local Docker: use -v flag to mount.
