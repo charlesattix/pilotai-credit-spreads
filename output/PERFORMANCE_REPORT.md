@@ -18,6 +18,8 @@ PilotAI is a systematic options credit-spread strategy trading SPY, QQQ, and IWM
 |------|-------:|--------:|--------:|-------:|-------:|-------:|
 | 2020 | 216 | 94.4% | +$66,593 | +66.3% | −24.5% | 1.17 |
 | 2021 | 89 | 75.3% | +$29,490 | +29.4% | −25.9% | 0.64 |
+| 2022 | 263 | 90.1% | +$111,684 | +111.3% | −25.5% | 1.27 |
+| 2023 | 118 | 86.4% | +$33,680 | +33.5% | −20.5% | 0.78 |
 | 2024 | 150 | 86.7% | +$26,743 | +26.6% | −32.0% | 0.66 |
 | 2025 | 239 | 86.6% | +$48,478 | +48.2% | −19.2% | 0.99 |
 | 2026 YTD | 33 | 75.8% | +$2,752 | +2.7% | −5.7% | 0.11 |
@@ -176,27 +178,89 @@ Both years were backtested on real Polygon.io options data using the identical p
 | 2021-W33 | −$3,228 |
 | 2021-W50 | −$2,041 |
 
-### 2.3 — 2022 (No Full-Year Backtest)
-
-No 2022 full-year real-data backtest is available. A spot verification of October 2022 (VIX ~35, bear market) was run:
-
-| Metric | Oct 2022 Result |
-|--------|--------|
-| Positions | 6 bear call spreads (SPY, $10 wide) |
-| Credits collected | $3.03–$4.83 per spread |
-| Win rate | 100% |
-| Total P&L | +$30,641 |
-| Sharpe ratio | 3.64 |
-
-*$10-wide spreads used in that test; production config uses $5-wide (proportionally smaller credits, same win rate expected).*
-
 ---
 
-## 3. Backtest Results: 2023
+## 3. Backtest Results: 2022–2023
 
-No 2023 full-year real-data backtest is available.
+### 3.1 — 2022 Full Year
 
-**Market context:** VIX averaged ~17, SPY returned +26.3%. Low-volatility environment similar to 2024 — the 2024 sweep findings apply: 3% OTM required; 5%+ OTM produces near-zero credit in VIX 15–17 conditions.
+**Market context:** The worst year for US equities since 2008. Fed raised rates 425bps. SPY fell −18.2%, VIX averaged ~26 (peaked ~39 in March/October). Persistent elevated IV for the full year.
+
+| Metric | Value |
+|--------|-------|
+| Total trades | 263 |
+| Winning trades | 237 |
+| Losing trades | 26 |
+| Win rate | **90.1%** |
+| Total P&L | **+$111,684** |
+| Return on capital | **+111.3%** |
+| Max drawdown | −25.5% |
+| Sharpe ratio | 1.27 |
+| Avg winning trade | +$610.83 |
+| Avg losing trade | −$1,272.43 |
+| Bull put spreads | 129 |
+| Bear call spreads | 134 |
+| Active weeks | 40 / 52 calendar weeks |
+| Profitable weeks | 36 / 40 **(90.0%)** |
+
+**Key observations:**
+- **Best single-year P&L** across all tested periods — +$111,684 (+111%) on the year-long bear market with sustained high VIX.
+- Nearly equal bear calls (134) and bull puts (129) — the system correctly alternated direction as market oscillated around trend.
+- W19 (May 2022, amid Federal Reserve 50bp hike and CPI shock) was the single best week: **+$19,580**.
+- Only 4 losing weeks out of 40 active, with W24 (−$6,795) the worst (June CPI-driven spike).
+- 2022 produced the highest Sharpe (1.27) across all tested years.
+
+**Top/bottom weeks:**
+
+| Week | PnL |
+|------|----:|
+| 2022-W19 (Fed/CPI shock) | +$19,580 |
+| 2022-W51 | +$9,523 |
+| 2022-W35 | +$9,223 |
+| 2022-W18 | +$7,880 |
+| 2022-W20 | +$7,546 |
+| 2022-W24 (worst) | −$6,795 |
+| 2022-W50 | −$3,928 |
+| 2022-W33 | −$2,593 |
+
+### 3.2 — 2023 Full Year
+
+**Market context:** Recovery year after 2022 bear. SPY returned +26.3%, VIX averaged ~17 and drifted lower all year (ended ~13). Low-IV environment challenged credit premiums.
+
+| Metric | Value |
+|--------|-------|
+| Total trades | 118 |
+| Winning trades | 102 |
+| Losing trades | 16 |
+| Win rate | **86.4%** |
+| Total P&L | **+$33,680** |
+| Return on capital | **+33.5%** |
+| Max drawdown | −20.5% |
+| Sharpe ratio | 0.78 |
+| Avg winning trade | +$503.78 |
+| Avg losing trade | −$1,106.61 |
+| Bull put spreads | 54 |
+| Bear call spreads | 64 |
+| Active weeks | 21 / 52 calendar weeks |
+| Profitable weeks | 18 / 21 (85.7%) |
+
+**Key observations:**
+- Only 21 active weeks out of 52 — low VIX for much of H2 2023 suppressed credits below the 10% minimum threshold.
+- W01 (Jan 2023, post-holiday volatility) was the best week: +$8,051; W10 second best at +$7,208.
+- W17 (May 2023, regional bank crisis / debt ceiling fears) worst week: −$5,555.
+- Results comparable to 2024 (+33.5% vs +26.6%) in a similar low-IV regime, confirming consistent performance.
+
+**Top/bottom weeks:**
+
+| Week | PnL |
+|------|----:|
+| 2023-W01 | +$8,051 |
+| 2023-W10 | +$7,208 |
+| 2023-W33 | +$6,332 |
+| 2023-W38 | +$5,436 |
+| 2023-W17 (worst) | −$5,555 |
+| 2023-W11 | −$3,480 |
+| 2023-W42 | −$948 |
 
 ---
 
@@ -367,14 +431,13 @@ Two datasets are available for 2026 YTD. The table below shows both:
 |------|-------:|--------:|----:|-------:|-------:|-------:|--------:|----------:|
 | **2020** | **216** | **94.4%** | **+$66,593** | **+66.3%** | −24.5% | **1.17** | **97%** (32/33) | +18.4% |
 | **2021** | **89** | **75.3%** | **+$29,490** | **+29.4%** | −25.9% | 0.64 | 70% (14/20) | +28.7% |
-| 2022 | — | — | — | — | — | — | — | −18.2% |
-| 2023 | — | — | — | — | — | — | — | +26.3% |
+| **2022** | **263** | **90.1%** | **+$111,684** | **+111.3%** | −25.5% | **1.27** | **90%** (36/40) | −18.2% |
+| 2023 | 118 | 86.4% | +$33,680 | +33.5% | −20.5% | 0.78 | 86% (18/21) | +26.3% |
 | 2024 | 150 | 86.7% | +$26,743 | +26.6% | −32.0% | 0.66 | 82% (23/28) | +24.2% |
 | 2025 | 239 | 86.6% | +$48,478 | +48.2% | −19.2% | 0.99 | 74% (32/43) | +~12% |
 | 2026 YTD | 33 | 75.8% | +$2,752 | +2.7% | −5.7% | 0.11 | 57% (4/7) | ~−4% |
 
-*2022–2023: No full-year real-data backtest available.*
-*All other years: Polygon real options data with intraday slippage modeling. Starting capital $100,000.*
+*All years: Polygon real options data with intraday slippage modeling. Starting capital $100,000.*
 
 ### 4.5 — Alternate Config: Conservative Heuristic (Weekly Scan, SPY Only)
 
@@ -488,7 +551,7 @@ The trade economics match closely. The Feb 24 losses are not outliers; they are 
 
 1. **3% OTM is the critical parameter** — the only strike distance that generates meaningful credit in low-IV environments (VIX 15–20). 5% and 7% OTM are consistently unprofitable despite higher win rates.
 
-2. **High-IV regimes outperform** — 2025 (+48%) beat 2024 (+27%) despite a more volatile market because higher IV generates larger credits and more qualifying signals.
+2. **High-IV regimes dramatically outperform** — 2022 (+111%, VIX avg 26) and 2020 (+66%, VIX avg 30) produced the largest returns. 2025 (+48%) also benefited from elevated IV. Low-IV years (2021, 2023, 2024) still returned 26–33% but with fewer active weeks.
 
 3. **50% profit target + 2.5× stop creates good risk/reward** — the win/loss ratio (avg win / avg loss = ~0.4×) is offset by the high win rate (86%), producing positive expected value.
 
@@ -500,9 +563,7 @@ The trade economics match closely. The Feb 24 losses are not outliers; they are 
 
 1. **Max drawdown of 32% (2024)** remains high for a conservative income strategy — iron condor integration may help fill low-activity weeks
 
-2. **2022–2023 backtest gap** — no validated results for the 2022 bear market / rate-hike selloff or 2023 low-volatility recovery. The 2020 COVID crash and 2021 bull market are now validated.
-
-3. **Low-IV periods generate no trades** — 26 of 52 weeks in 2024 had zero activity. The system is idle roughly half the year in low-IV environments.
+2. **Low-IV periods generate no trades** — 26 of 52 weeks in 2024 had zero activity. The system is idle roughly half the year in low-IV environments.
 
 4. **Stale order bug** in paper trader needs resolution before meaningful live performance tracking can begin
 
@@ -510,7 +571,6 @@ The trade economics match closely. The Feb 24 losses are not outliers; they are 
 
 ### Next Steps
 
-- Run 2022 and 2023 full-year backtests on Polygon data to complete the regime coverage (high-IV bear market + low-IV recovery)
 - Fix stale order tracking in paper trader to capture full position lifecycle P&L
 - Monitor live performance for 30+ closed trades before adjusting any parameters
 - Evaluate iron condor integration for low-IV weeks (2024 condor validation showed modest improvement: −0.11 Sharpe in 2026 YTD with condors, matching backtest baseline)
@@ -520,6 +580,8 @@ The trade economics match closely. The Feb 24 losses are not outliers; they are 
 *Report generated from:*
 - *`output/backtest_results_polygon_REAL_2020.json` — 2020 full-year backtest*
 - *`output/backtest_results_polygon_REAL_2021.json` — 2021 full-year backtest*
+- *`output/backtest_results_polygon_REAL_2022.json` — 2022 full-year backtest*
+- *`output/backtest_results_polygon_REAL_2023.json` — 2023 full-year backtest*
 - *`output/out_of_sample_validation.json` — 2024–2026 production config results*
 - *`output/sweep_2024_fixed_sizing.json` — 54-combo parameter sweep*
 - *`output/condor_validation.json` — iron condor comparison*

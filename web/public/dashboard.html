@@ -548,6 +548,8 @@
   }
   .bt-card.y2020::before { background: linear-gradient(90deg, #ff4757, #f59e0b); }
   .bt-card.y2021::before { background: linear-gradient(90deg, #f59e0b, #00d48c); }
+  .bt-card.y2022::before { background: linear-gradient(90deg, #ff4757, #9f7aea); }
+  .bt-card.y2023::before { background: linear-gradient(90deg, #9f7aea, #4fa3f7); }
   .bt-card.y2024::before { background: linear-gradient(90deg, #4fa3f7, #9f7aea); }
   .bt-card.y2025::before { background: linear-gradient(90deg, #00d48c, #4fa3f7); }
   .bt-card.y2026::before { background: linear-gradient(90deg, #f59e0b, #ff4757); }
@@ -714,9 +716,11 @@ const ALERTS = [
 ];
 
 const BACKTEST = {
-  y2020: { trades:216, win_rate:94.4, pnl:66593, return_pct:66.3, dd:-24.5, sharpe:1.17, period:"Jan–Dec 2020", weekly:"32/33 wks (97%)" },
-  y2021: { trades:89,  win_rate:75.3, pnl:29490, return_pct:29.4, dd:-25.9, sharpe:0.64, period:"Jan–Dec 2021", weekly:"14/20 wks (70%)" },
-  y2024: { trades:150, win_rate:86.7, pnl:26743, return_pct:26.6, dd:-32.0, sharpe:0.66, period:"Jan–Dec 2024", weekly:"23/28 wks (82%)" },
+  y2020: { trades:216, win_rate:94.4, pnl:66593,  return_pct:66.3,  dd:-24.5, sharpe:1.17, period:"Jan–Dec 2020", weekly:"32/33 wks (97%)" },
+  y2021: { trades:89,  win_rate:75.3, pnl:29490,  return_pct:29.4,  dd:-25.9, sharpe:0.64, period:"Jan–Dec 2021", weekly:"14/20 wks (70%)" },
+  y2022: { trades:263, win_rate:90.1, pnl:111684, return_pct:111.3, dd:-25.5, sharpe:1.27, period:"Jan–Dec 2022", weekly:"36/40 wks (90%)" },
+  y2023: { trades:118, win_rate:86.4, pnl:33680,  return_pct:33.5,  dd:-20.5, sharpe:0.78, period:"Jan–Dec 2023", weekly:"18/21 wks (86%)" },
+  y2024: { trades:150, win_rate:86.7, pnl:26743,  return_pct:26.6,  dd:-32.0, sharpe:0.66, period:"Jan–Dec 2024", weekly:"23/28 wks (82%)" },
   y2025: { trades:239, win_rate:86.6, pnl:48478, return_pct:48.2, dd:-19.2, sharpe:0.99, period:"Jan–Dec 2025", weekly:"32/43 wks (74%)" },
   y2026: { trades:6,   win_rate:83.3, pnl:112,   return_pct:0.10, dd:-0.32, sharpe:0.84, period:"Jan 5–Feb 9, 2026", weekly:"—" },
   paper: { trades:42,  open:6, stops:2, stale:34, real_pnl:-2793.6, period:"Feb 23–25, 2026" }
@@ -829,9 +833,9 @@ function buildStatsBar() {
     { label:'Total Credit Open', val: fmt$(totalCredit,0), cls:'pos', sub:'Across all open legs' },
     { label:'Realized P&L', val: (realizedPnl>=0?'+':'-') + fmt$(Math.abs(realizedPnl),0), cls: realizedPnl>=0?'pos':'neg', sub:'Closed positions only' },
     { label:'Avg PoP (Open)', val: avgPop.toFixed(1) + '%', cls:'neu', sub:'Prob of profit' },
-    { label:'2020 Backtest', val: '+66.3%', cls:'pos', sub:'94.4% win rate' },
-    { label:'2025 Backtest', val: '+48.2%', cls:'pos', sub:'86.6% win rate' },
-    { label:'2024 Backtest', val: '+26.6%', cls:'pos', sub:'86.7% win rate' },
+    { label:'2022 Backtest', val: '+111.3%', cls:'pos', sub:'90.1% win rate' },
+    { label:'2025 Backtest', val: '+48.2%',  cls:'pos', sub:'86.6% win rate' },
+    { label:'2024 Backtest', val: '+26.6%',  cls:'pos', sub:'86.7% win rate' },
     { label:'Market Regime', val: 'CHOPPY', cls:'neu', sub:'As of Feb 18, 2026' },
   ].map(s => `
     <div class="stat-cell">
@@ -889,6 +893,8 @@ function buildBacktest() {
   grid.innerHTML =
     btCard('y2020','Full-Year 2020',bt.y2020) +
     btCard('y2021','Full-Year 2021',bt.y2021) +
+    btCard('y2022','Full-Year 2022',bt.y2022) +
+    btCard('y2023','Full-Year 2023',bt.y2023) +
     btCard('y2024','Full-Year 2024',bt.y2024) +
     btCard('y2025','Full-Year 2025',bt.y2025) +
     btCard('y2026','2026 YTD (Real Data)',bt.y2026) +
