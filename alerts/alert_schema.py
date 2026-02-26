@@ -188,8 +188,28 @@ class Alert:
         else:
             confidence = Confidence.SPECULATIVE
 
-        # Expiry: default 4 hours from now
-        expires_at = datetime.now(timezone.utc) + timedelta(hours=4)
+        # 0DTE-aware time sensitivity and expiry
+        dte = opp.get("dte", 999)
+        if dte <= 1:
+            time_sensitivity = TimeSensitivity.IMMEDIATE
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+        else:
+            time_sensitivity = TimeSensitivity.TODAY
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=4)
+
+        # Build thesis — enrich for cash-settled instruments
+        thesis = opp.get("thesis", f"{opp['ticker']} {opp_type} at score {score:.0f}")
+        if opp.get("settlement") == "cash":
+            thesis += " (cash-settled, Section 1256)"
+
+        # Management instructions — use opportunity-provided if available
+        default_instructions = (
+            "Close at 50% profit or stop loss. Roll if challenged before expiration."
+        )
+        if opp.get("alert_source") == "zero_dte" and opp.get("management_instructions"):
+            management_instructions = opp["management_instructions"]
+        else:
+            management_instructions = opp.get("management_instructions", default_instructions)
 
         return cls(
             type=alert_type,
@@ -201,12 +221,9 @@ class Alert:
             profit_target=opp.get("profit_target", 0.0),
             risk_pct=risk_pct,
             confidence=confidence,
-            thesis=opp.get("thesis", f"{opp['ticker']} {opp_type} at score {score:.0f}"),
-            time_sensitivity=TimeSensitivity.TODAY,
-            management_instructions=opp.get(
-                "management_instructions",
-                "Close at 50% profit or stop loss. Roll if challenged before expiration.",
-            ),
+            thesis=thesis,
+            time_sensitivity=time_sensitivity,
+            management_instructions=management_instructions,
             expires_at=expires_at,
             score=score,
         )

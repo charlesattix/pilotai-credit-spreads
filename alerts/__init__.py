@@ -8,6 +8,8 @@ from .alert_schema import Alert, AlertType, Confidence, TimeSensitivity, Leg, Si
 from .risk_gate import RiskGate
 from .alert_position_sizer import AlertPositionSizer
 from .alert_router import AlertRouter
+from .zero_dte_scanner import ZeroDTEScanner
+from .zero_dte_exit_monitor import ZeroDTEExitMonitor
 
 __all__ = [
     'AlertGenerator',
@@ -21,4 +23,12 @@ __all__ = [
     'RiskGate',
     'AlertPositionSizer',
     'AlertRouter',
+    'ZeroDTEScanner',
+    'ZeroDTEExitMonitor',
 ]
+
+
+def get_backtest_validator():
+    """Lazy import to avoid pulling in backtest dependencies at import time."""
+    from .zero_dte_backtest import ZeroDTEBacktestValidator
+    return ZeroDTEBacktestValidator

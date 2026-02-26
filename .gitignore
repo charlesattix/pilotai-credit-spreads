@@ -1,91 +1,81 @@
+
+!data/.gitkeep
+!output/.gitkeep
+!tests/fixtures/*.json
+!web/package-lock.json
+!web/package.json
+!web/tsconfig.json
+# Config with sensitive data
+# Data and output
+# IDE
+# Keep example files
+# Logs
+# ML model artifacts
+# OS
 # Python
-__pycache__/
-*.py[cod]
+# SQLite databases
+# Temporary files
+# Test artifacts
+# Virtual environments
 *$py.class
+*.bak
+*.csv
+*.db
+*.db-shm
+*.db-wal
+*.egg
+*.egg-info/
+*.joblib
+*.json
+*.log
+*.pickle
+*.pkl
+*.py[cod]
+*.pyc
 *.so
+*.swo
+*.swp
+*.tmp
+*~
+.DS_Store
 .Python
+.coverage
+.eggs/
+.env
+.env.local
+.hypothesis/
+.idea/
+.installed.cfg
+.next/
+.pytest_cache/
+.venv
+.vscode/
 /build/
+/lib/
+/lib64/
+CLAUDE-LOCAL.md
+ENV/
+MASTERPLAN-ALERTS.md
+Thumbs.db
+__pycache__/
+config.local.yaml
+config.yaml
+data/
 develop-eggs/
 dist/
 downloads/
 eggs/
-.eggs/
-/lib/
-/lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual environments
-venv/
 env/
-ENV/
-.venv
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Logs
 logs/
-*.log
-
-# Data and output
-data/
-output/
-*.csv
-*.json
-!web/package-lock.json
-!web/package.json
-!web/tsconfig.json
-!tests/fixtures/*.json
-
-# Keep example files
-!data/.gitkeep
-!output/.gitkeep
-
-# ML model artifacts
-*.pkl
-*.joblib
-*.pickle
-ml/models/*.pkl
 ml/models/*.joblib
 ml/models/*.pickle
-
-# SQLite databases
-*.db
-*.db-wal
-*.db-shm
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Config with sensitive data
-config.yaml
-config.local.yaml
-secrets.yaml
-
-# Test artifacts
-.coverage
-.hypothesis/
-.pytest_cache/
-
-# Temporary files
-*.tmp
-*.bak
+ml/models/*.pkl
 node_modules/
-.next/
-__pycache__/
-*.pyc
-data/
 output/
-.env
-.env.local
+parts/
+sdist/
+secrets.yaml
+tasks/
+var/
+venv/
+wheels/

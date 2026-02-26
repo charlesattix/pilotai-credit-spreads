@@ -39,6 +39,8 @@ from alerts.risk_gate import RiskGate
 from alerts.alert_position_sizer import AlertPositionSizer
 from alerts.alert_router import AlertRouter
 from alerts.formatters.telegram import TelegramAlertFormatter
+from alerts.zero_dte_scanner import ZeroDTEScanner
+from alerts.zero_dte_exit_monitor import ZeroDTEExitMonitor
 from backtest import Backtester, HistoricalOptionsData, PerformanceMetrics
 from tracker import TradeTracker, PnLDashboard
 from paper_trader import PaperTrader
@@ -132,6 +134,12 @@ class CreditSpreadSystem:
             formatter=TelegramAlertFormatter(),
         )
 
+        # 0DTE scanner and exit monitor
+        self.zero_dte_scanner = ZeroDTEScanner(self.config, data_cache=self.data_cache)
+        self.zero_dte_exit_monitor = ZeroDTEExitMonitor(
+            self.paper_trader, self.telegram_bot,
+        )
+
         logger.info("All components initialized successfully")
 
     def scan_opportunities(self):
@@ -193,6 +201,25 @@ class CreditSpreadSystem:
             closed = self.paper_trader.check_positions(current_prices)
             if closed:
                 logger.info(f"Closed {len(closed)} paper positions")
+
+        # 0DTE scan (only fires during entry windows)
+        try:
+            zero_dte_opps = self.zero_dte_scanner.scan()
+            if zero_dte_opps:
+                account_state = self._build_account_state()
+                routed = self.alert_router.route_opportunities(zero_dte_opps, account_state)
+                logger.info(f"0DTE alert router dispatched {len(routed)} alerts")
+        except Exception as e:
+            logger.warning(f"0DTE scanner failed (non-fatal): {e}")
+
+        # 0DTE exit monitoring (runs every scan, not just during windows)
+        try:
+            if current_prices:
+                exit_alerts = self.zero_dte_exit_monitor.check_and_alert(current_prices)
+                if exit_alerts:
+                    logger.info(f"0DTE exit monitor fired {len(exit_alerts)} alerts")
+        except Exception as e:
+            logger.warning(f"0DTE exit monitor failed (non-fatal): {e}")
 
         self.paper_trader.print_summary()
 
