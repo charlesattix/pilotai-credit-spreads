@@ -166,6 +166,10 @@ class Backtester:
         # Build per-date realized vol for delta strike selection (fixes σ=25% constant)
         self._realized_vol_by_date = self._build_realized_vol_series(price_data)
 
+        # Store price data for expiration fallback (underlying-based settlement when
+        # option price data is missing — avoids false max-loss recording)
+        self._price_data = price_data
+
         # Strip timezone for consistent date-only comparison
         start_date = start_date.replace(tzinfo=None) if hasattr(start_date, 'tzinfo') and start_date.tzinfo else start_date
         end_date = end_date.replace(tzinfo=None) if hasattr(end_date, 'tzinfo') and end_date.tzinfo else end_date
@@ -1113,19 +1117,87 @@ class Backtester:
                 pnl = pos['credit'] * pos['contracts'] * 100 - pos['commission']
                 reason = 'expiration_profit'
         else:
-            # No data at expiration — conservatively assume max loss.
-            # Previously this assumed full profit, which inflated backtest
-            # results with survivorship bias.
-            max_loss = pos['max_loss'] * pos['contracts'] * 100
-            pnl = -max_loss - pos['commission']
-            reason = 'expiration_no_data'
-            logger.warning(
-                "No expiration data for %s %s/%s exp %s — recording as max loss (conservative)",
-                pos['ticker'], pos['short_strike'], pos['long_strike'],
-                pos['expiration'].strftime('%Y-%m-%d') if hasattr(pos['expiration'], 'strftime') else pos['expiration'],
-            )
+            # No option price data at expiration — use underlying close price to determine
+            # whether the spread expired OTM (worthless → full profit) or ITM (loss).
+            # This is more accurate than blindly assuming max loss, while still being
+            # conservative for edge cases where the underlying price is also unavailable.
+            underlying_price = self._get_underlying_price_at(expiration_date)
+            ot = pos.get('option_type', 'P')
+
+            if underlying_price is not None:
+                short_strike = pos['short_strike']
+                long_strike  = pos['long_strike']
+
+                if ot == 'P':
+                    if underlying_price >= short_strike:
+                        # Both put legs expired OTM — full profit
+                        pnl    = pos['credit'] * pos['contracts'] * 100 - pos['commission']
+                        reason = 'expiration_profit'
+                    elif underlying_price <= long_strike:
+                        # Both put legs deep ITM — max loss
+                        pnl    = -pos['max_loss'] * pos['contracts'] * 100 - pos['commission']
+                        reason = 'expiration_no_data'
+                    else:
+                        # Short put ITM, long put OTM — partial loss
+                        intrinsic = short_strike - underlying_price
+                        pnl    = (pos['credit'] - intrinsic) * pos['contracts'] * 100 - pos['commission']
+                        reason = 'expiration_no_data'
+                else:  # 'C'
+                    if underlying_price <= short_strike:
+                        # Both call legs expired OTM — full profit
+                        pnl    = pos['credit'] * pos['contracts'] * 100 - pos['commission']
+                        reason = 'expiration_profit'
+                    elif underlying_price >= long_strike:
+                        # Both call legs deep ITM — max loss
+                        pnl    = -pos['max_loss'] * pos['contracts'] * 100 - pos['commission']
+                        reason = 'expiration_no_data'
+                    else:
+                        # Short call ITM, long call OTM — partial loss
+                        intrinsic = underlying_price - short_strike
+                        pnl    = (pos['credit'] - intrinsic) * pos['contracts'] * 100 - pos['commission']
+                        reason = 'expiration_no_data'
+
+                logger.debug(
+                    "No option data for %s %s/%s exp %s, underlying=%.2f → %s (pnl=%.2f)",
+                    pos['ticker'], pos['short_strike'], pos['long_strike'],
+                    pos['expiration'].strftime('%Y-%m-%d') if hasattr(pos['expiration'], 'strftime') else pos['expiration'],
+                    underlying_price, reason, pnl,
+                )
+            else:
+                # No underlying data either — fall back to conservative max loss
+                pnl    = -pos['max_loss'] * pos['contracts'] * 100 - pos['commission']
+                reason = 'expiration_no_data'
+                logger.warning(
+                    "No expiration data for %s %s/%s exp %s — recording as max loss (conservative)",
+                    pos['ticker'], pos['short_strike'], pos['long_strike'],
+                    pos['expiration'].strftime('%Y-%m-%d') if hasattr(pos['expiration'], 'strftime') else pos['expiration'],
+                )
 
         self._record_close(pos, expiration_date, pnl, reason)
+
+    def _get_underlying_price_at(self, date: datetime) -> Optional[float]:
+        """Look up the SPY close price on or before *date* from stored price_data.
+
+        Used as a fallback for expiration settlement when option price data is
+        unavailable — allows us to determine whether puts/calls expired OTM
+        (worthless) or ITM (loss) without needing Polygon option data.
+
+        Returns None if price_data is not available or date is out of range.
+        """
+        pd_obj = getattr(self, '_price_data', None)
+        if pd_obj is None or pd_obj.empty:
+            return None
+        try:
+            ts = pd.Timestamp(date.date()) if hasattr(date, 'date') else pd.Timestamp(date)
+            if ts in pd_obj.index:
+                return float(pd_obj.loc[ts, 'Close'])
+            # Search for nearest prior trading day
+            valid = pd_obj.index[pd_obj.index <= ts]
+            if len(valid) == 0:
+                return None
+            return float(pd_obj.loc[valid[-1], 'Close'])
+        except Exception:
+            return None
 
     def _record_close(self, pos: Dict, exit_date: datetime, pnl: float, reason: str):
         """Record a closed position (used by real-data mode)."""
