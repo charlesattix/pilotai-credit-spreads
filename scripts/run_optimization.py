@@ -120,6 +120,7 @@ def _build_config(params: dict) -> dict:
             "min_credit_pct":      params.get("min_credit_pct", 10),
             "direction":           params.get("direction", "both"),
             "trend_ma_period":     params.get("trend_ma_period", 20),
+            "momentum_filter_pct": params.get("momentum_filter_pct", None),
             "iron_condor":         {"enabled": False},
         },
         "risk": {

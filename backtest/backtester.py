@@ -462,6 +462,17 @@ class Backtester:
         if price < trend_ma:
             return None
 
+        # Optional short-term momentum filter: skip if price fell > X% in the past 10 days.
+        # Prevents bull put entries during rapid sell-offs (e.g. early 2022 bear, COVID Feb 2020).
+        _mom_filter = self.strategy_params.get('momentum_filter_pct', None)
+        if _mom_filter is not None:
+            _lookback = min(10, len(recent_data) - 1)
+            if _lookback > 0:
+                price_10d_ago = recent_data['Close'].iloc[-_lookback - 1]
+                mom_pct = (price - price_10d_ago) / price_10d_ago * 100
+                if mom_pct < -abs(_mom_filter):
+                    return None
+
         # Expiration: nearest Friday around target DTE (options only expire on Fridays)
         expiration = _nearest_friday_expiration(date, self._target_dte, self._min_dte)
         date_str = date.strftime("%Y-%m-%d")
