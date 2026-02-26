@@ -20,8 +20,8 @@ PilotAI is a systematic options credit-spread strategy trading SPY, QQQ, and IWM
 | 2021 | 89 | 75.3% | +$29,490 | +29.4% | −25.9% | 0.64 |
 | 2022 | 263 | 90.1% | +$111,684 | +111.3% | −25.5% | 1.27 |
 | 2023 | 118 | 86.4% | +$33,680 | +33.5% | −20.5% | 0.78 |
-| 2024 | 150 | 86.7% | +$26,743 | +26.6% | −32.0% | 0.66 |
-| 2025 | 239 | 86.6% | +$48,478 | +48.2% | −19.2% | 0.99 |
+| 2024 | 154 | 85.7% | +$24,092 | +23.9% | −29.1% | 0.62 |
+| 2025 | 243 | 87.2% | +$54,896 | +54.6% | −18.4% | 1.07 |
 | 2026 YTD | 33 | 75.8% | +$2,752 | +2.7% | −5.7% | 0.11 |
 
 *Starting capital: $100,000. Polygon real options pricing with intraday slippage modeling.*
@@ -284,27 +284,27 @@ Starting capital: $100,000
 
 | Metric | Value |
 |--------|-------|
-| Total trades | 150 |
-| Winning trades | 130 |
-| Losing trades | 20 |
-| Win rate | **86.7%** |
-| Total P&L | **+$26,743** |
-| Return on capital | **+26.6%** |
-| Max drawdown | −32.0% |
-| Sharpe ratio | 0.66 |
-| Avg winning trade | +$398.62 |
-| Avg losing trade | −$1,253.87 |
-| Bull put spreads | 88 |
-| Bear call spreads | 62 |
-| Active weeks | 28 / 52 calendar weeks |
-| Profitable weeks | 23 / 28 (82.1%) |
+| Total trades | 154 |
+| Winning trades | 132 |
+| Losing trades | 22 |
+| Win rate | **85.7%** |
+| Total P&L | **+$24,092** |
+| Return on capital | **+23.9%** |
+| Max drawdown | −29.1% |
+| Sharpe ratio | 0.62 |
+| Avg winning trade | +$399.80 |
+| Avg losing trade | −$1,303.73 |
+| Bull put spreads | 91 |
+| Bear call spreads | 63 |
+| Active weeks | 30 / 52 calendar weeks |
+| Profitable weeks | 24 / 30 (80.0%) |
 
 **Key observations:**
-- Only 28 of 52 calendar weeks had trades — low IV Jan–Jun 2024 generated no signals (correct behavior, not a bug)
+- Only 30 of 52 calendar weeks had trades — low IV Jan–Jun 2024 generated no signals (correct behavior, not a bug)
 - W16 (Apr) worst week: −$13,465 (earnings volatility spike)
-- W22 (Jun): −$4,145 (rate decision week)
-- W51 (Dec): +$4,800 (year-end rally, puts expired worthless)
-- The −32% max drawdown is the largest risk metric concern; driven by concentrated losses in W16 + W22
+- W22 (Jun): −$3,521 (rate decision week)
+- W51 (Dec): +$4,801 (year-end rally, puts expired worthless)
+- The −29.1% max drawdown is driven by concentrated losses in W16; W37 (−$3,611) second worst
 
 **OTM distance sensitivity (2024 sweep, 9 combos each):**
 
@@ -322,40 +322,41 @@ Starting capital: $100,000
 
 | Metric | Value |
 |--------|-------|
-| Total trades | 239 |
-| Winning trades | 207 |
-| Losing trades | 32 |
-| Win rate | **86.6%** |
-| Total P&L | **+$48,478** |
-| Return on capital | **+48.2%** |
-| Max drawdown | −19.2% |
-| Sharpe ratio | 0.99 |
-| Avg winning trade | +$402.84 |
-| Avg losing trade | −$1,090.94 |
-| Bull put spreads | 130 |
-| Bear call spreads | 109 |
+| Total trades | 243 |
+| Winning trades | 212 |
+| Losing trades | 31 |
+| Win rate | **87.2%** |
+| Total P&L | **+$54,896** |
+| Return on capital | **+54.6%** |
+| Max drawdown | −18.4% |
+| Sharpe ratio | 1.07 |
+| Avg winning trade | +$418.89 |
+| Avg losing trade | −$1,093.83 |
+| Bull put spreads | 132 |
+| Bear call spreads | 111 |
 | Active weeks | 43 / 52 calendar weeks |
 | Profitable weeks | 32 / 43 (74.4%) |
 
 **Key observations:**
-- 2025 nearly doubled 2024 returns (+48% vs +27%) in a more volatile, higher-IV environment
-- Higher activity (239 vs 150 trades) because elevated IV generated more qualifying signals
-- W14 (Apr) best week: +$10,722 (short calls expired worthless during Liberation Day selloff)
+- 2025 more than doubled 2024 returns (+55% vs +24%) in a more volatile, higher-IV environment
+- Higher activity (243 vs 154 trades) because elevated IV generated more qualifying signals
+- W15 (Apr) best week: +$14,854 (Liberation Day selloff Apr 7–11, short calls expired worthless)
+- W14 (Apr) second best: +$10,062 (same Liberation Day spike week entry)
 - W47 (Nov): −$5,507 worst week (post-election rally hurt bear calls)
-- W36 (Sep): −$4,869 second worst (September weakness)
-- Max drawdown improved vs 2024 (−19% vs −32%), demonstrating regime adaptability
+- W36 (Sep): −$4,427 second worst (September weakness)
+- Max drawdown improved vs 2024 (−18% vs −29%), demonstrating regime adaptability
 
 **Weekly pnl distribution:**
 
 | Week | PnL |
 |------|----:|
-| 2025-W14 (best) | +$10,722 |
-| 2025-W15 | +$7,873 |
+| 2025-W15 (best, Liberation Day) | +$14,854 |
+| 2025-W14 | +$10,062 |
 | 2025-W17 | +$6,239 |
 | 2025-W10 | +$4,615 |
-| 2025-W41 | +$4,395 |
+| 2025-W41 | +$4,299 |
 | 2025-W47 (worst) | −$5,507 |
-| 2025-W36 | −$4,869 |
+| 2025-W36 | −$4,427 |
 | 2025-W34 | −$3,024 |
 | 2025-W03 | −$3,175 |
 | 2025-W44 | −$583 |
@@ -433,8 +434,8 @@ Two datasets are available for 2026 YTD. The table below shows both:
 | **2021** | **89** | **75.3%** | **+$29,490** | **+29.4%** | −25.9% | 0.64 | 70% (14/20) | +28.7% |
 | **2022** | **263** | **90.1%** | **+$111,684** | **+111.3%** | −25.5% | **1.27** | **90%** (36/40) | −18.2% |
 | 2023 | 118 | 86.4% | +$33,680 | +33.5% | −20.5% | 0.78 | 86% (18/21) | +26.3% |
-| 2024 | 150 | 86.7% | +$26,743 | +26.6% | −32.0% | 0.66 | 82% (23/28) | +24.2% |
-| 2025 | 239 | 86.6% | +$48,478 | +48.2% | −19.2% | 0.99 | 74% (32/43) | +~12% |
+| 2024 | 154 | 85.7% | +$24,092 | +23.9% | −29.1% | 0.62 | 80% (24/30) | +24.2% |
+| 2025 | 243 | 87.2% | +$54,896 | +54.6% | −18.4% | 1.07 | 74% (32/43) | +~12% |
 | 2026 YTD | 33 | 75.8% | +$2,752 | +2.7% | −5.7% | 0.11 | 57% (4/7) | ~−4% |
 
 *All years: Polygon real options data with intraday slippage modeling. Starting capital $100,000.*
@@ -551,7 +552,7 @@ The trade economics match closely. The Feb 24 losses are not outliers; they are 
 
 1. **3% OTM is the critical parameter** — the only strike distance that generates meaningful credit in low-IV environments (VIX 15–20). 5% and 7% OTM are consistently unprofitable despite higher win rates.
 
-2. **High-IV regimes dramatically outperform** — 2022 (+111%, VIX avg 26) and 2020 (+66%, VIX avg 30) produced the largest returns. 2025 (+48%) also benefited from elevated IV. Low-IV years (2021, 2023, 2024) still returned 26–33% but with fewer active weeks.
+2. **High-IV regimes dramatically outperform** — 2022 (+111%, VIX avg 26) and 2025 (+55%, VIX peaked 52) produced the largest returns. 2020 (+66%, VIX avg 30) was the COVID-crash standout. Low-IV years (2021, 2023, 2024) still returned 24–33% but with fewer active weeks.
 
 3. **50% profit target + 2.5× stop creates good risk/reward** — the win/loss ratio (avg win / avg loss = ~0.4×) is offset by the high win rate (86%), producing positive expected value.
 
@@ -582,7 +583,9 @@ The trade economics match closely. The Feb 24 losses are not outliers; they are 
 - *`output/backtest_results_polygon_REAL_2021.json` — 2021 full-year backtest*
 - *`output/backtest_results_polygon_REAL_2022.json` — 2022 full-year backtest*
 - *`output/backtest_results_polygon_REAL_2023.json` — 2023 full-year backtest*
-- *`output/out_of_sample_validation.json` — 2024–2026 production config results*
+- *`output/backtest_results_polygon_REAL_2024.json` — 2024 full-year backtest*
+- *`output/backtest_results_polygon_REAL_2025.json` — 2025 full-year backtest*
+- *`output/out_of_sample_validation.json` — 2024–2026 production config results (earlier run)*
 - *`output/sweep_2024_fixed_sizing.json` — 54-combo parameter sweep*
 - *`output/condor_validation.json` — iron condor comparison*
 - *`data/pilotai.db` — live paper trading positions*

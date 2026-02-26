@@ -720,8 +720,8 @@ const BACKTEST = {
   y2021: { trades:89,  win_rate:75.3, pnl:29490,  return_pct:29.4,  dd:-25.9, sharpe:0.64, period:"Jan–Dec 2021", weekly:"14/20 wks (70%)" },
   y2022: { trades:263, win_rate:90.1, pnl:111684, return_pct:111.3, dd:-25.5, sharpe:1.27, period:"Jan–Dec 2022", weekly:"36/40 wks (90%)" },
   y2023: { trades:118, win_rate:86.4, pnl:33680,  return_pct:33.5,  dd:-20.5, sharpe:0.78, period:"Jan–Dec 2023", weekly:"18/21 wks (86%)" },
-  y2024: { trades:150, win_rate:86.7, pnl:26743,  return_pct:26.6,  dd:-32.0, sharpe:0.66, period:"Jan–Dec 2024", weekly:"23/28 wks (82%)" },
-  y2025: { trades:239, win_rate:86.6, pnl:48478, return_pct:48.2, dd:-19.2, sharpe:0.99, period:"Jan–Dec 2025", weekly:"32/43 wks (74%)" },
+  y2024: { trades:154, win_rate:85.7, pnl:24092,  return_pct:23.9,  dd:-29.1, sharpe:0.62, period:"Jan–Dec 2024", weekly:"24/30 wks (80%)" },
+  y2025: { trades:243, win_rate:87.2, pnl:54896,  return_pct:54.6,  dd:-18.4, sharpe:1.07, period:"Jan–Dec 2025", weekly:"32/43 wks (74%)" },
   y2026: { trades:6,   win_rate:83.3, pnl:112,   return_pct:0.10, dd:-0.32, sharpe:0.84, period:"Jan 5–Feb 9, 2026", weekly:"—" },
   paper: { trades:42,  open:6, stops:2, stale:34, real_pnl:-2793.6, period:"Feb 23–25, 2026" }
 };
@@ -834,8 +834,8 @@ function buildStatsBar() {
     { label:'Realized P&L', val: (realizedPnl>=0?'+':'-') + fmt$(Math.abs(realizedPnl),0), cls: realizedPnl>=0?'pos':'neg', sub:'Closed positions only' },
     { label:'Avg PoP (Open)', val: avgPop.toFixed(1) + '%', cls:'neu', sub:'Prob of profit' },
     { label:'2022 Backtest', val: '+111.3%', cls:'pos', sub:'90.1% win rate' },
-    { label:'2025 Backtest', val: '+48.2%',  cls:'pos', sub:'86.6% win rate' },
-    { label:'2024 Backtest', val: '+26.6%',  cls:'pos', sub:'86.7% win rate' },
+    { label:'2025 Backtest', val: '+54.6%',  cls:'pos', sub:'87.2% win rate' },
+    { label:'2024 Backtest', val: '+23.9%',  cls:'pos', sub:'85.7% win rate' },
     { label:'Market Regime', val: 'CHOPPY', cls:'neu', sub:'As of Feb 18, 2026' },
   ].map(s => `
     <div class="stat-cell">
