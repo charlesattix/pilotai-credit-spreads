@@ -26,13 +26,14 @@ EVENT_IMPORTANCE: Dict[str, float] = {
 class EconomicCalendar:
     """Unified economic event calendar with algorithmic date generation."""
 
-    def __init__(self):
+    def __init__(self, years: Optional[List[int]] = None):
         # FOMC dates imported from shared.constants (hand-maintained)
         self._fomc_dates: List[datetime] = list(FOMC_DATES)
 
-        # Compute algorithmic dates for current and next year
-        now = datetime.now(timezone.utc)
-        years = [now.year, now.year + 1]
+        # Compute algorithmic dates for specified years, or current + next
+        if years is None:
+            now = datetime.now(timezone.utc)
+            years = [now.year, now.year + 1]
 
         self._cpi_dates: List[datetime] = []
         self._ppi_dates: List[datetime] = []
