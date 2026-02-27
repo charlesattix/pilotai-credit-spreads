@@ -23,7 +23,8 @@ DATA_DIR = Path(_DATA_DIR)
 PAPER_LOG = DATA_DIR / "paper_trades.json"  # legacy path, kept for test compatibility
 KILL_SWITCH_FILE = DATA_DIR / "kill_switch.json"
 
-MAX_DRAWDOWN_PCT = 0.20  # 20% portfolio-level max drawdown kill switch
+_DEFAULT_MAX_DRAWDOWN_PCT = 0.20  # fallback when not set in config
+MAX_DRAWDOWN_PCT = _DEFAULT_MAX_DRAWDOWN_PCT  # kept for import compatibility
 EXTRINSIC_DECAY_RATE = 1.2  # Accelerating time-decay multiplier for OTM spreads
 BASE_DECAY_FACTOR = 0.3  # Fraction of extrinsic value remaining when ITM
 
@@ -51,6 +52,9 @@ class PaperTrader:
         self.max_positions = self.risk.get("max_positions", 5)
         self.profit_target_pct = self.risk.get("profit_target", 50) / 100
         self.stop_loss_mult = self.risk.get("stop_loss_multiplier", 2.5)
+        self.max_drawdown_pct = self.risk.get(
+            "drawdown_cb_pct", _DEFAULT_MAX_DRAWDOWN_PCT * 100
+        ) / 100  # e.g. 40 → 0.40
 
         # Lock to protect self.trades mutations from concurrent threads
         self._trades_lock = threading.Lock()
@@ -359,10 +363,10 @@ class PaperTrader:
 
             # EH-TRADE-03: Portfolio-level max drawdown kill switch (peak-based)
             drawdown_pct = (peak_balance - current_balance) / peak_balance if peak_balance > 0 else 0
-            if drawdown_pct >= MAX_DRAWDOWN_PCT:
+            if drawdown_pct >= self.max_drawdown_pct:
                 logger.critical(
                     f"TRADE REFUSED — MAX DRAWDOWN KILL SWITCH ACTIVE: "
-                    f"drawdown {drawdown_pct:.1%} >= {MAX_DRAWDOWN_PCT:.0%} threshold. "
+                    f"drawdown {drawdown_pct:.1%} >= {self.max_drawdown_pct:.0%} threshold. "
                     f"Peak: ${peak_balance:,.2f}, Current: ${current_balance:,.2f}. "
                     f"All new trades are blocked until manual review."
                 )
