@@ -45,6 +45,8 @@ from alerts.iron_condor_scanner import IronCondorScanner
 from alerts.iron_condor_exit_monitor import IronCondorExitMonitor
 from alerts.momentum_scanner import MomentumScanner
 from alerts.momentum_exit_monitor import MomentumExitMonitor
+from alerts.earnings_scanner import EarningsScanner
+from alerts.earnings_exit_monitor import EarningsExitMonitor
 from backtest import Backtester, HistoricalOptionsData, PerformanceMetrics
 from tracker import TradeTracker, PnLDashboard
 from paper_trader import PaperTrader
@@ -153,6 +155,12 @@ class CreditSpreadSystem:
         # Momentum swing scanner and exit monitor
         self.momentum_scanner = MomentumScanner(self.config, data_cache=self.data_cache)
         self.momentum_exit_monitor = MomentumExitMonitor(
+            self.paper_trader, self.telegram_bot,
+        )
+
+        # Earnings volatility play scanner and exit monitor
+        self.earnings_scanner = EarningsScanner(self.config, data_cache=self.data_cache)
+        self.earnings_exit_monitor = EarningsExitMonitor(
             self.paper_trader, self.telegram_bot,
         )
 
@@ -274,6 +282,25 @@ class CreditSpreadSystem:
                     logger.info(f"Momentum exit monitor fired {len(mom_exits)} alerts")
         except Exception as e:
             logger.warning(f"Momentum exit monitor failed (non-fatal): {e}")
+
+        # Earnings volatility play scan (fires when tickers have earnings in 1-3 days)
+        try:
+            earn_opps = self.earnings_scanner.scan()
+            if earn_opps:
+                account_state = self._build_account_state()
+                routed = self.alert_router.route_opportunities(earn_opps, account_state)
+                logger.info(f"Earnings alert router dispatched {len(routed)} alerts")
+        except Exception as e:
+            logger.warning(f"Earnings scanner failed (non-fatal): {e}")
+
+        # Earnings exit monitoring (runs every scan)
+        try:
+            if current_prices:
+                earn_exits = self.earnings_exit_monitor.check_and_alert(current_prices)
+                if earn_exits:
+                    logger.info(f"Earnings exit monitor fired {len(earn_exits)} alerts")
+        except Exception as e:
+            logger.warning(f"Earnings exit monitor failed (non-fatal): {e}")
 
         self.paper_trader.print_summary()
 

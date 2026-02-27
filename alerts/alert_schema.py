@@ -149,6 +149,8 @@ class Alert:
         # Map legacy type → AlertType
         if is_debit:
             alert_type = AlertType.momentum_swing
+        elif alert_source == "earnings_play" or "earnings" in opp_type:
+            alert_type = AlertType.earnings_play
         elif "condor" in opp_type:
             alert_type = AlertType.iron_condor
         elif "put" in opp_type:
@@ -157,7 +159,9 @@ class Alert:
             alert_type = AlertType.credit_spread
 
         # Infer direction
-        if "condor" in opp_type:
+        if alert_source == "earnings_play" or "earnings" in opp_type:
+            direction = Direction.neutral
+        elif "condor" in opp_type:
             direction = Direction.neutral
         elif is_debit:
             direction = Direction.bullish if "bull" in opp_type or "call" in opp_type else Direction.bearish
@@ -226,9 +230,15 @@ class Alert:
             thesis += " (cash-settled, Section 1256)"
 
         # Management instructions — use opportunity-provided if available
-        default_instructions = (
-            "Close at 50% profit or stop loss. Roll if challenged before expiration."
-        )
+        if alert_type == AlertType.earnings_play:
+            default_instructions = (
+                "Earnings iron condor. Close morning after earnings to capture IV crush, "
+                "or at 50% profit / 2x credit stop loss."
+            )
+        else:
+            default_instructions = (
+                "Close at 50% profit or stop loss. Roll if challenged before expiration."
+            )
         if opp.get("alert_source") == "zero_dte" and opp.get("management_instructions"):
             management_instructions = opp["management_instructions"]
         else:
