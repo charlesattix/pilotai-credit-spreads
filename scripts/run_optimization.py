@@ -42,7 +42,7 @@ logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(mes
 logger = logging.getLogger("opt")
 
 YEARS = [2020, 2021, 2022, 2023, 2024, 2025]
-DEFAULT_TICKERS = ["SPY"]
+DEFAULT_TICKERS = ["SPY", "QQQ", "IWM"]
 STARTING_CAPITAL = 100_000
 
 
