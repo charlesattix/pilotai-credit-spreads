@@ -191,10 +191,10 @@ Map the surface and identify whether we're on a plateau or a cliff.
 | P0a | Modify backtester for seeded DTE sampling | ✅ DONE | — |
 | P0b | Build run_monte_carlo.py | ✅ DONE | — |
 | P0c | Run MC at 10% risk (20 seeds) | ✅ DONE — P50=+98.8%, DD P50=-87.5% ❌ | b3i881n24 |
-| P0d | Run MC at 5% risk (20 seeds) | 🔄 RUNNING | b79sf6zac |
+| P0d | Run MC at 5% risk (20 seeds) | ✅ DONE — P50=+60.9%, DD P50=-52.0% ❌ still fails | b79sf6zac |
 | P1  | Portfolio exposure constraint | ✅ DONE | — |
 | P2  | Slippage brutality tests (configs) | ✅ DONE | — |
-| P2r | Run exp_063 (2x) + exp_064 (3x) | 🔄 RUNNING | b00mqxk8o, bka3es7cz |
+| P2r | Run exp_063 (2x) + exp_064 (3x) | ✅ DONE — 2x avg=+138% (-20%), 3x avg=+101% (-41%), both pass 50% gate ✅ | b00mqxk8o, bka3es7cz |
 | P3  | Rework overfit gauntlet | ✅ DONE | — |
 | P4  | Stability grid search script | ✅ DONE | grid_search_plateau.py |
 | P4r | Run grid (144 combos) | ⬜ PENDING | — |
@@ -202,7 +202,7 @@ Map the surface and identify whether we're on a plateau or a cliff.
 | P5b | Add Tue/Thu expirations | ✅ DONE | — |
 | P6  | 2021 100% WR spot-check | ✅ DONE (revealed IC bug) | b66xbhohh |
 | P7  | Strip outlier months (infrastructure) | ✅ DONE | — |
-| P7r | Run exp_065, 066, 067 | 🔄 RUNNING | bf25mftr2, ban7t9v7c, bc1a33sm3 |
+| P7r | Run exp_065, 066, 067 | ✅ DONE — excl both outliers: avg=+156% vs baseline +172% (-9%) ✅ | bf25mftr2, ban7t9v7c, bc1a33sm3 |
 | POR | Probability-of-ruin script | ✅ DONE | prob_of_ruin.py (+ gap-risk stress test pending) |
 
 ## Bug Fixes This Session
@@ -220,14 +220,34 @@ All murder test experiments (slippage, outlier months, MC) use the FIXED code.
 
 ---
 
+## Murder Test Verdicts (Feb 27, 2026)
+
+**Corrected Baseline (ICs now properly enabled, compound, 10% risk):**
+- 6-year avg: ~+172% (was 71.3% with ICs broken) — 2022 is +511% (bear calls)
+
+| Test | Result | Verdict |
+|------|--------|---------|
+| P0c MC 10% | P50=+98.8%, DD=-87.5% | EDGE ✅, DD ❌ |
+| P0d MC 5% compound | P50=+60.9%, DD=-52.0% | EDGE ✅, DD ❌ |
+| P0e MC 5% non-compound | 🔄 RUNNING | ? |
+| P2 Slippage 2x | avg drops -20% | PASSES ✅ |
+| P2 Slippage 3x | avg drops -41% | PASSES ✅ |
+| P3 Walk-forward | WF=0.05–0.25 | FAILS ❌ (2022 outlier dominates) |
+| P7 Outlier excl both | avg drops -9% | ROBUST ✅ |
+| POR P(ruin) | 0.00% | PASSES ✅ |
+
+**Root cause of DD failure**: compound sizing amplifies losses after huge 2022 gains
+**Root cause of WF failure**: 2022's +511% is far above other years — folds that include 2022 look much better than folds without it
+
+**Hypothesis for P0e**: Non-compound mode eliminates the compound DD amplification. Returns will be lower but more stable. If P50 > 30% and DD < 40%, the strategy passes Carlos's success criteria.
+
 ## Updated MASTERPLAN
 
-The MASTERPLAN's 200% avg return target is suspended until:
-1. Monte Carlo P50 is computed at 5% risk
-2. Portfolio exposure constraint is implemented
-3. 2x slippage test passes
+The MASTERPLAN's 200% avg target no longer applies — the IC bug was masking the true strategy.
 
-New success criteria: **P50 Monte Carlo return at 5% risk > 30% with max DD < 40%**
+Carlos's success criteria: **P50 MC return at 5% risk > 30% with max DD < 40%**
+- With compound mode: P50=+60.9% ✅ | DD=-52% ❌
+- With non-compound mode: TBD (P0e running)
 
 ---
 
