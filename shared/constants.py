@@ -30,6 +30,7 @@ WEEKLY_LOSS_LIMIT = 0.15         # 15% weekly loss → 50% size reduction
 MIN_RISK_REWARD = 1.0            # minimum risk/reward ratio
 MAX_CORRELATED_POSITIONS = 3     # max positions with same direction
 COOLDOWN_AFTER_STOP = 30 * 60   # 30 minutes cooldown after stop-out (seconds)
+GAMMA_LOTTO_MAX_RISK_PCT = 0.005 # 0.5% max risk per lotto play
 
 # ---------------------------------------------------------------------------
 # Position sizing

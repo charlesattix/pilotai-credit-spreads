@@ -8,7 +8,7 @@ caps from the MASTERPLAN.
 
 import logging
 
-from shared.constants import MAX_RISK_PER_TRADE
+from shared.constants import MAX_RISK_PER_TRADE, GAMMA_LOTTO_MAX_RISK_PCT
 from ml.position_sizer import calculate_dynamic_risk, get_contract_size
 from alerts.alert_schema import Alert, AlertType, SizeResult
 
@@ -47,6 +47,11 @@ class AlertPositionSizer:
         hard_cap = MAX_RISK_PER_TRADE * account_value
         dollar_risk = min(dollar_risk, hard_cap)
 
+        # 2b. Gamma lotto: tighter cap at 0.5% of account
+        if alert.type == AlertType.gamma_lotto:
+            gamma_cap = GAMMA_LOTTO_MAX_RISK_PCT * account_value
+            dollar_risk = min(dollar_risk, gamma_cap)
+
         # 3. Weekly loss breach → 50% reduction
         if weekly_loss_breach:
             dollar_risk *= 0.5
@@ -59,11 +64,17 @@ class AlertPositionSizer:
         spread_width, credit = self._extract_spread_params(alert)
 
         # 6. Calculate contracts
-        contracts = get_contract_size(dollar_risk, spread_width, credit)
+        if alert.type == AlertType.gamma_lotto:
+            # Single-leg debit: contracts = dollar_risk / (debit * 100)
+            max_loss_per_contract = credit * 100
+            contracts = int(dollar_risk // max_loss_per_contract) if max_loss_per_contract > 0 else 0
+            contracts = min(contracts, 5)
+        else:
+            contracts = get_contract_size(dollar_risk, spread_width, credit)
 
         # 7. Compute max_loss
-        # For debit spreads, max loss = debit paid (credit field holds debit)
-        if alert.type == AlertType.momentum_swing:
+        # For debit plays, max loss = debit paid (credit field holds debit)
+        if alert.type in (AlertType.momentum_swing, AlertType.gamma_lotto):
             max_loss_per_contract = credit * 100
         else:
             max_loss_per_contract = (spread_width - credit) * 100
@@ -87,6 +98,10 @@ class AlertPositionSizer:
             ``(spread_width, credit)`` — both in dollar terms per share.
         """
         credit = alert.entry_price
+
+        # Single-leg (gamma lotto): spread_width = credit (max loss = debit)
+        if len(alert.legs) == 1:
+            return credit, credit
 
         if len(alert.legs) >= 2:
             # Find strikes to compute width (use first two legs as the primary wing)

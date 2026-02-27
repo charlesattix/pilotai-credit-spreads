@@ -140,6 +140,13 @@ class Alert:
         alert_source = opp.get("alert_source", "")
         expiration = str(opp.get("expiration", ""))
 
+        # Detect gamma/lotto (must check before is_debit)
+        is_gamma = (
+            alert_source == "gamma_lotto"
+            or "gamma" in opp_type
+            or "lotto" in opp_type
+        )
+
         # Detect debit spread / momentum swing
         is_debit = (
             "debit" in opp_type
@@ -147,7 +154,9 @@ class Alert:
         )
 
         # Map legacy type → AlertType
-        if is_debit:
+        if is_gamma:
+            alert_type = AlertType.gamma_lotto
+        elif is_debit:
             alert_type = AlertType.momentum_swing
         elif alert_source == "earnings_play" or "earnings" in opp_type:
             alert_type = AlertType.earnings_play
@@ -159,7 +168,10 @@ class Alert:
             alert_type = AlertType.credit_spread
 
         # Infer direction
-        if alert_source == "earnings_play" or "earnings" in opp_type:
+        if is_gamma:
+            gamma_opt_type = opp.get("option_type", "call")
+            direction = Direction.bullish if gamma_opt_type == "call" else Direction.bearish
+        elif alert_source == "earnings_play" or "earnings" in opp_type:
             direction = Direction.neutral
         elif "condor" in opp_type:
             direction = Direction.neutral
@@ -172,7 +184,10 @@ class Alert:
 
         # Build legs
         legs: List[Leg] = []
-        if "condor" in opp_type:
+        if is_gamma:
+            gamma_opt_type = opp.get("option_type", "call")
+            legs.append(Leg(opp["strike"], gamma_opt_type, "buy", expiration))
+        elif "condor" in opp_type:
             # Put side
             legs.append(Leg(opp["short_strike"], "put", "sell", expiration))
             legs.append(Leg(opp["long_strike"], "put", "buy", expiration))
@@ -204,7 +219,9 @@ class Alert:
         score = opp.get("score", 0)
 
         # Confidence mapping based on score
-        if score >= 80:
+        if is_gamma:
+            confidence = Confidence.SPECULATIVE
+        elif score >= 80:
             confidence = Confidence.HIGH
         elif score >= 60:
             confidence = Confidence.MEDIUM
@@ -213,7 +230,10 @@ class Alert:
 
         # Time sensitivity and expiry
         dte = opp.get("dte", 999)
-        if is_debit:
+        if is_gamma:
+            time_sensitivity = TimeSensitivity.IMMEDIATE
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+        elif is_debit:
             # Momentum swings are slower — TODAY, not IMMEDIATE
             time_sensitivity = TimeSensitivity.TODAY
             expires_at = datetime.now(timezone.utc) + timedelta(hours=4)
@@ -230,7 +250,12 @@ class Alert:
             thesis += " (cash-settled, Section 1256)"
 
         # Management instructions — use opportunity-provided if available
-        if alert_type == AlertType.earnings_play:
+        if alert_type == AlertType.gamma_lotto:
+            default_instructions = (
+                "LOTTO \u2014 0.5% max risk. Trailing stop: activates at 3x entry, "
+                "trails at 2x entry. Let expire worthless if no move."
+            )
+        elif alert_type == AlertType.earnings_play:
             default_instructions = (
                 "Earnings iron condor. Close morning after earnings to capture IV crush, "
                 "or at 50% profit / 2x credit stop loss."
@@ -249,7 +274,7 @@ class Alert:
             ticker=opp["ticker"],
             direction=direction,
             legs=legs,
-            entry_price=opp.get("debit", opp.get("credit", 0.01)) if is_debit else opp.get("credit", 0.01),
+            entry_price=opp.get("debit", opp.get("credit", 0.01)) if (is_debit or is_gamma) else opp.get("credit", 0.01),
             stop_loss=opp.get("stop_loss", 0.0),
             profit_target=opp.get("profit_target", 0.0),
             risk_pct=risk_pct,

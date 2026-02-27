@@ -58,7 +58,7 @@ class TelegramAlertFormatter:
             opt = leg.option_type.upper()
             lines.append(f"  {action} ${leg.strike:.2f} {opt}")
         lines.append(f"  Exp: {alert.legs[0].expiration}")
-        if alert.type == AlertType.momentum_swing:
+        if alert.type in (AlertType.momentum_swing, AlertType.gamma_lotto):
             lines.append(f"  Debit: ${alert.entry_price:.2f}")
         else:
             lines.append(f"  Credit: ${alert.entry_price:.2f}")

@@ -47,6 +47,8 @@ from alerts.momentum_scanner import MomentumScanner
 from alerts.momentum_exit_monitor import MomentumExitMonitor
 from alerts.earnings_scanner import EarningsScanner
 from alerts.earnings_exit_monitor import EarningsExitMonitor
+from alerts.gamma_scanner import GammaScanner
+from alerts.gamma_exit_monitor import GammaExitMonitor
 from backtest import Backtester, HistoricalOptionsData, PerformanceMetrics
 from tracker import TradeTracker, PnLDashboard
 from paper_trader import PaperTrader
@@ -161,6 +163,12 @@ class CreditSpreadSystem:
         # Earnings volatility play scanner and exit monitor
         self.earnings_scanner = EarningsScanner(self.config, data_cache=self.data_cache)
         self.earnings_exit_monitor = EarningsExitMonitor(
+            self.paper_trader, self.telegram_bot,
+        )
+
+        # Gamma/lotto play scanner and exit monitor
+        self.gamma_scanner = GammaScanner(self.config, data_cache=self.data_cache)
+        self.gamma_exit_monitor = GammaExitMonitor(
             self.paper_trader, self.telegram_bot,
         )
 
@@ -301,6 +309,25 @@ class CreditSpreadSystem:
                     logger.info(f"Earnings exit monitor fired {len(earn_exits)} alerts")
         except Exception as e:
             logger.warning(f"Earnings exit monitor failed (non-fatal): {e}")
+
+        # Gamma/lotto scan (fires day before major economic events)
+        try:
+            gamma_opps = self.gamma_scanner.scan()
+            if gamma_opps:
+                account_state = self._build_account_state()
+                routed = self.alert_router.route_opportunities(gamma_opps, account_state)
+                logger.info(f"Gamma lotto alert router dispatched {len(routed)} alerts")
+        except Exception as e:
+            logger.warning(f"Gamma scanner failed (non-fatal): {e}")
+
+        # Gamma exit monitoring (runs every scan)
+        try:
+            if current_prices:
+                gamma_exits = self.gamma_exit_monitor.check_and_alert(current_prices)
+                if gamma_exits:
+                    logger.info(f"Gamma exit monitor fired {len(gamma_exits)} alerts")
+        except Exception as e:
+            logger.warning(f"Gamma exit monitor failed (non-fatal): {e}")
 
         self.paper_trader.print_summary()
 
