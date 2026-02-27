@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
+from engine.regime import RegimeClassifier
 from shared.constants import DEFAULT_RISK_FREE_RATE
 from shared.economic_calendar import EconomicCalendar
 from shared.indicators import calculate_iv_rank as _calc_ivr
@@ -73,6 +74,7 @@ class PortfolioBacktester:
         self._realized_vol_by_date: Dict[str, Dict[pd.Timestamp, float]] = {}
         self._rsi_by_date: Dict[str, Dict[pd.Timestamp, float]] = {}
         self._calendar: Optional[EconomicCalendar] = None
+        self._regime_classifier = RegimeClassifier()
 
     # ------------------------------------------------------------------
     # Public API
@@ -358,6 +360,16 @@ class PortfolioBacktester:
             else []
         )
 
+        # Regime classification (use SPY prices if available, else first ticker)
+        regime_val = None
+        spy_key = next((t for t in self.tickers if t.upper() == "SPY"), None)
+        regime_ticker = spy_key or (self.tickers[0] if self.tickers else None)
+        if regime_ticker and regime_ticker in price_data:
+            spy_close = price_data[regime_ticker]["Close"]
+            regime_val = self._regime_classifier.classify(
+                vix_val, spy_close, date_ts,
+            ).value
+
         return MarketSnapshot(
             date=date_dt,
             price_data=price_data,
@@ -368,6 +380,7 @@ class PortfolioBacktester:
             realized_vol=realized_vol,
             rsi=rsi,
             upcoming_events=upcoming_events,
+            regime=regime_val,
         )
 
     # ------------------------------------------------------------------

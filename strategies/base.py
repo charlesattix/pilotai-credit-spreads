@@ -157,6 +157,9 @@ class MarketSnapshot:
     # Economic calendar events within lookahead window
     upcoming_events: List[Dict] = field(default_factory=list)
 
+    # Current market regime (from engine.regime.RegimeClassifier)
+    regime: Optional[str] = None
+
 
 @dataclass
 class PortfolioState:
