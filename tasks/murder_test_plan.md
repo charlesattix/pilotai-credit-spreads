@@ -200,7 +200,7 @@ Map the surface and identify whether we're on a plateau or a cliff.
 | P4r | Run grid (144 combos) | ⬜ PENDING | — |
 | P5a | Quantify Friday fallback (counter in backtester) | ✅ DONE | — |
 | P5b | Add Tue/Thu expirations | ✅ DONE | — |
-| P6  | 2021 100% WR spot-check | 🔄 RUNNING | b66xbhohh |
+| P6  | 2021 100% WR spot-check | ✅ DONE (revealed IC bug) | b66xbhohh |
 | P7  | Strip outlier months (infrastructure) | ✅ DONE | — |
 | P7r | Run exp_065, 066, 067 | 🔄 RUNNING | bf25mftr2, ban7t9v7c, bc1a33sm3 |
 | POR | Probability-of-ruin script | ✅ DONE | prob_of_ruin.py (+ gap-risk stress test pending) |
@@ -209,6 +209,14 @@ Map the surface and identify whether we're on a plateau or a cliff.
 - **run_monte_carlo.py**: Wrong key names (`total_return_pct` → `return_pct`, `max_drawdown_pct` → `max_drawdown`, `trade_count` → `total_trades`) — MC was reporting all-zero percentile tables
 - **run_optimization.py + run_monte_carlo.py**: Missing `load_dotenv()` — both scripts fell back to heuristic mode when API key not exported in shell
 - Previous heuristic slippage results (exp_063, exp_064) are INVALID — being rerun in real data mode
+
+## CRITICAL BUG: iron_condor hardcoded disabled (FIXED, committed 1f34f0d)
+`_build_config` in `run_optimization.py` had `"iron_condor": {"enabled": False}` HARDCODED.
+**ALL prior leaderboard entries were computed without iron condors**, even when `iron_condor_enabled: true` was in config.
+Impact discovered via P6 spot-check: 2021 went from 40 trades/+18.8% (old) → 173 trades/+188.8% (with ICs).
+Fix: `_build_config` now correctly reads `params.get("iron_condor_enabled", False)`.
+Re-run as `exp_059_ic_fixed` (PID 5533, running) to establish corrected 6-year baseline.
+All murder test experiments (slippage, outlier months, MC) use the FIXED code.
 
 ---
 
