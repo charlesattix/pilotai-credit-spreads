@@ -145,6 +145,12 @@ class MarketSnapshot:
     # Current close prices (convenience)
     prices: Dict[str, float]
 
+    # Current open prices (for gap detection)
+    open_prices: Dict[str, float] = field(default_factory=dict)
+
+    # Overnight gap percentages per ticker (only when |gap| >= threshold)
+    gaps: Dict[str, float] = field(default_factory=dict)
+
     # VIX
     vix: float = 20.0
     vix_history: Optional[pd.Series] = None
@@ -159,6 +165,9 @@ class MarketSnapshot:
 
     # Economic events that recently occurred (within last 2 days)
     recent_events: List[Dict] = field(default_factory=list)
+
+    # Risk-free rate for this date (dynamic by year)
+    risk_free_rate: float = 0.045
 
     # Current market regime (from engine.regime.RegimeClassifier)
     regime: Optional[str] = None

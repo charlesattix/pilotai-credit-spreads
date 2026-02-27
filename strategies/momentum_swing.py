@@ -89,7 +89,7 @@ class MomentumSwingStrategy(BaseStrategy):
             if bullish:
                 sig = self._build_entry(
                     ticker, price, iv, market_data.date, "long",
-                    adx=adx, rsi=rsi,
+                    adx=adx, rsi=rsi, vix=market_data.vix, rfr=market_data.risk_free_rate,
                 )
                 if sig:
                     signals.append(sig)
@@ -106,7 +106,7 @@ class MomentumSwingStrategy(BaseStrategy):
             if bearish:
                 sig = self._build_entry(
                     ticker, price, iv, market_data.date, "short",
-                    adx=adx, rsi=rsi,
+                    adx=adx, rsi=rsi, vix=market_data.vix, rfr=market_data.risk_free_rate,
                 )
                 if sig:
                     signals.append(sig)
@@ -116,13 +116,14 @@ class MomentumSwingStrategy(BaseStrategy):
     def _build_entry(
         self, ticker: str, price: float, iv: float,
         date, direction: str, adx: float = 0, rsi: float = 50,
+        vix: float = 20.0, rfr: float = DEFAULT_RISK_FREE_RATE,
     ) -> Signal | None:
         mode = self._p("mode", "equity")
 
         if mode == "equity":
             return self._build_equity(ticker, price, date, direction, adx, rsi)
         else:
-            return self._build_itm_debit(ticker, price, iv, date, direction, adx, rsi)
+            return self._build_itm_debit(ticker, price, iv, date, direction, adx, rsi, vix=vix, rfr=rfr)
 
     def _build_equity(
         self, ticker: str, price: float, date,
@@ -167,6 +168,7 @@ class MomentumSwingStrategy(BaseStrategy):
     def _build_itm_debit(
         self, ticker: str, price: float, iv: float,
         date, direction: str, adx: float, rsi: float,
+        vix: float = 20.0, rfr: float = DEFAULT_RISK_FREE_RATE,
     ) -> Signal | None:
         target_dte = 21
         spread_width = 10.0
@@ -192,11 +194,11 @@ class MomentumSwingStrategy(BaseStrategy):
 
         long_iv = skew_adjusted_iv(iv, price, long_strike, opt_type)
         short_iv = skew_adjusted_iv(iv, price, short_strike, opt_type)
-        long_mid = bs_price(price, long_strike, T, DEFAULT_RISK_FREE_RATE, long_iv, opt_type)
-        short_mid = bs_price(price, short_strike, T, DEFAULT_RISK_FREE_RATE, short_iv, opt_type)
+        long_mid = bs_price(price, long_strike, T, rfr, long_iv, opt_type)
+        short_mid = bs_price(price, short_strike, T, rfr, short_iv, opt_type)
 
-        long_fill = get_fill_price(long_mid, price, long_strike, T, long_iv, "buy")
-        short_fill = get_fill_price(short_mid, price, short_strike, T, short_iv, "sell")
+        long_fill = get_fill_price(long_mid, price, long_strike, T, long_iv, "buy", vix=vix)
+        short_fill = get_fill_price(short_mid, price, short_strike, T, short_iv, "sell", vix=vix)
 
         debit = long_fill - short_fill
         if debit <= 0 or debit >= spread_width:

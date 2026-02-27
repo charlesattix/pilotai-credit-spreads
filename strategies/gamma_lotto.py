@@ -54,6 +54,7 @@ class GammaLottoStrategy(BaseStrategy):
                 if direction in ("both", "call"):
                     sig = self._build_lotto(
                         ticker, price, iv, market_data.date, "call", event,
+                        vix=market_data.vix, rfr=market_data.risk_free_rate,
                     )
                     if sig:
                         signals.append(sig)
@@ -61,6 +62,7 @@ class GammaLottoStrategy(BaseStrategy):
                 if direction in ("both", "put"):
                     sig = self._build_lotto(
                         ticker, price, iv, market_data.date, "put", event,
+                        vix=market_data.vix, rfr=market_data.risk_free_rate,
                     )
                     if sig:
                         signals.append(sig)
@@ -70,6 +72,7 @@ class GammaLottoStrategy(BaseStrategy):
     def _build_lotto(
         self, ticker: str, price: float, iv: float,
         date, opt_direction: str, event: Dict,
+        vix: float = 20.0, rfr: float = DEFAULT_RISK_FREE_RATE,
     ) -> Signal | None:
         min_otm_pct = self._p("min_otm_pct", 0.02)
         max_otm_pct = self._p("max_otm_pct", 0.10)
@@ -94,7 +97,7 @@ class GammaLottoStrategy(BaseStrategy):
             opt_type = "P"
 
         strike_iv = skew_adjusted_iv(iv, price, strike, opt_type)
-        option_mid = bs_price(price, strike, T, DEFAULT_RISK_FREE_RATE, strike_iv, opt_type)
+        option_mid = bs_price(price, strike, T, rfr, strike_iv, opt_type)
 
         # Price filter: option must be between price_min and price_max
         if option_mid < price_min or option_mid > price_max:
@@ -104,7 +107,7 @@ class GammaLottoStrategy(BaseStrategy):
         if option_mid <= 0:
             return None
 
-        option_fill = get_fill_price(option_mid, price, strike, T, strike_iv, "buy")
+        option_fill = get_fill_price(option_mid, price, strike, T, strike_iv, "buy", vix=vix)
 
         legs = [TradeLeg(leg_type, strike, expiration, entry_price=option_fill)]
 
@@ -149,7 +152,7 @@ class GammaLottoStrategy(BaseStrategy):
         T = dte / 365.0
         opt_type = "C" if "call" in leg.leg_type.value else "P"
         leg_iv = skew_adjusted_iv(iv, price, leg.strike, opt_type)
-        current_price = bs_price(price, leg.strike, T, DEFAULT_RISK_FREE_RATE, leg_iv, opt_type)
+        current_price = bs_price(price, leg.strike, T, market_data.risk_free_rate, leg_iv, opt_type)
 
         entry_price = abs(position.net_credit)
         if entry_price <= 0:

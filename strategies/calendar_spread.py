@@ -41,7 +41,7 @@ class CalendarSpreadStrategy(BaseStrategy):
 
             iv = market_data.realized_vol.get(ticker, 0.20)
 
-            sig = self._build_calendar(ticker, price, iv, market_data.date)
+            sig = self._build_calendar(ticker, price, iv, market_data.date, vix=market_data.vix, rfr=market_data.risk_free_rate)
             if sig:
                 signals.append(sig)
 
@@ -49,6 +49,7 @@ class CalendarSpreadStrategy(BaseStrategy):
 
     def _build_calendar(
         self, ticker: str, price: float, iv: float, date,
+        vix: float = 20.0, rfr: float = DEFAULT_RISK_FREE_RATE,
     ) -> Signal | None:
         front_dte = self._p("front_dte", 7)
         back_dte = self._p("back_dte", 35)
@@ -81,12 +82,12 @@ class CalendarSpreadStrategy(BaseStrategy):
         opt = option_type[0].upper()
 
         strike_iv = skew_adjusted_iv(iv, price, strike, opt)
-        front_mid = bs_price(price, strike, T_front, DEFAULT_RISK_FREE_RATE, strike_iv, opt)
-        back_mid = bs_price(price, strike, T_back, DEFAULT_RISK_FREE_RATE, strike_iv, opt)
+        front_mid = bs_price(price, strike, T_front, rfr, strike_iv, opt)
+        back_mid = bs_price(price, strike, T_back, rfr, strike_iv, opt)
 
         # Fill: sell front at bid, buy back at ask
-        front_fill = get_fill_price(front_mid, price, strike, T_front, strike_iv, "sell")
-        back_fill = get_fill_price(back_mid, price, strike, T_back, strike_iv, "buy")
+        front_fill = get_fill_price(front_mid, price, strike, T_front, strike_iv, "sell", vix=vix)
+        back_fill = get_fill_price(back_mid, price, strike, T_back, strike_iv, "buy", vix=vix)
 
         # Debit = back leg cost - front leg credit
         debit = back_fill - front_fill
@@ -128,8 +129,8 @@ class CalendarSpreadStrategy(BaseStrategy):
                 "strike": strike,
                 "front_exp": str(front_exp.date()),
                 "back_exp": str(back_exp.date()),
-                "front_price": front_price,
-                "back_price": back_price,
+                "front_price": front_fill,
+                "back_price": back_fill,
                 "debit": debit,
             },
         )

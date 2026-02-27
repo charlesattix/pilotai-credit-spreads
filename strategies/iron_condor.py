@@ -91,15 +91,17 @@ class IronCondorStrategy(BaseStrategy):
         cs_iv = skew_adjusted_iv(iv, price, call_short, "C")
         cl_iv = skew_adjusted_iv(iv, price, call_long, "C")
 
-        put_short_mid = bs_price(price, put_short, T, DEFAULT_RISK_FREE_RATE, ps_iv, "P")
-        put_long_mid = bs_price(price, put_long, T, DEFAULT_RISK_FREE_RATE, pl_iv, "P")
-        call_short_mid = bs_price(price, call_short, T, DEFAULT_RISK_FREE_RATE, cs_iv, "C")
-        call_long_mid = bs_price(price, call_long, T, DEFAULT_RISK_FREE_RATE, cl_iv, "C")
+        rfr = market_data.risk_free_rate
+        put_short_mid = bs_price(price, put_short, T, rfr, ps_iv, "P")
+        put_long_mid = bs_price(price, put_long, T, rfr, pl_iv, "P")
+        call_short_mid = bs_price(price, call_short, T, rfr, cs_iv, "C")
+        call_long_mid = bs_price(price, call_long, T, rfr, cl_iv, "C")
 
-        put_short_fill = get_fill_price(put_short_mid, price, put_short, T, ps_iv, "sell")
-        put_long_fill = get_fill_price(put_long_mid, price, put_long, T, pl_iv, "buy")
-        call_short_fill = get_fill_price(call_short_mid, price, call_short, T, cs_iv, "sell")
-        call_long_fill = get_fill_price(call_long_mid, price, call_long, T, cl_iv, "buy")
+        vix = market_data.vix
+        put_short_fill = get_fill_price(put_short_mid, price, put_short, T, ps_iv, "sell", vix=vix)
+        put_long_fill = get_fill_price(put_long_mid, price, put_long, T, pl_iv, "buy", vix=vix)
+        call_short_fill = get_fill_price(call_short_mid, price, call_short, T, cs_iv, "sell", vix=vix)
+        call_long_fill = get_fill_price(call_long_mid, price, call_long, T, cl_iv, "buy", vix=vix)
 
         put_credit = put_short_fill - put_long_fill
         call_credit = call_short_fill - call_long_fill

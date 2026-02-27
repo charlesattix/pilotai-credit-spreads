@@ -53,14 +53,14 @@ class StraddleStrangleStrategy(BaseStrategy):
             # Long pre-event: use upcoming events
             if mode in ("long_pre_event", "both"):
                 for event in upcoming:
-                    sig = self._build_long(ticker, price, iv, market_data.date, event)
+                    sig = self._build_long(ticker, price, iv, market_data.date, event, vix=market_data.vix, rfr=market_data.risk_free_rate)
                     if sig:
                         signals.append(sig)
 
             # Short post-event: use recent (just-passed) events
             if mode in ("short_post_event", "both"):
                 for event in recent:
-                    sig = self._build_short(ticker, price, iv, market_data.date, event)
+                    sig = self._build_short(ticker, price, iv, market_data.date, event, vix=market_data.vix, rfr=market_data.risk_free_rate)
                     if sig:
                         signals.append(sig)
 
@@ -68,7 +68,8 @@ class StraddleStrangleStrategy(BaseStrategy):
 
     def _build_long(
         self, ticker: str, price: float, iv: float,
-        date, event: Dict,
+        date, event: Dict, vix: float = 20.0,
+        rfr: float = DEFAULT_RISK_FREE_RATE,
     ) -> Signal | None:
         """Buy straddle/strangle before event."""
         target_dte = self._p("target_dte", 7)
@@ -87,11 +88,11 @@ class StraddleStrangleStrategy(BaseStrategy):
 
         call_iv = skew_adjusted_iv(boosted_iv, price, call_strike, "C")
         put_iv = skew_adjusted_iv(boosted_iv, price, put_strike, "P")
-        call_mid = bs_price(price, call_strike, T, DEFAULT_RISK_FREE_RATE, call_iv, "C")
-        put_mid = bs_price(price, put_strike, T, DEFAULT_RISK_FREE_RATE, put_iv, "P")
+        call_mid = bs_price(price, call_strike, T, rfr, call_iv, "C")
+        put_mid = bs_price(price, put_strike, T, rfr, put_iv, "P")
 
-        call_fill = get_fill_price(call_mid, price, call_strike, T, call_iv, "buy")
-        put_fill = get_fill_price(put_mid, price, put_strike, T, put_iv, "buy")
+        call_fill = get_fill_price(call_mid, price, call_strike, T, call_iv, "buy", vix=vix)
+        put_fill = get_fill_price(put_mid, price, put_strike, T, put_iv, "buy", vix=vix)
 
         total_debit = call_fill + put_fill
         if total_debit <= 0:
@@ -125,7 +126,8 @@ class StraddleStrangleStrategy(BaseStrategy):
 
     def _build_short(
         self, ticker: str, price: float, iv: float,
-        date, event: Dict,
+        date, event: Dict, vix: float = 20.0,
+        rfr: float = DEFAULT_RISK_FREE_RATE,
     ) -> Signal | None:
         """Sell straddle/strangle after event (IV crush).
 
@@ -148,11 +150,11 @@ class StraddleStrangleStrategy(BaseStrategy):
 
         call_iv = skew_adjusted_iv(iv, price, call_strike, "C")
         put_iv = skew_adjusted_iv(iv, price, put_strike, "P")
-        call_mid = bs_price(price, call_strike, T, DEFAULT_RISK_FREE_RATE, call_iv, "C")
-        put_mid = bs_price(price, put_strike, T, DEFAULT_RISK_FREE_RATE, put_iv, "P")
+        call_mid = bs_price(price, call_strike, T, rfr, call_iv, "C")
+        put_mid = bs_price(price, put_strike, T, rfr, put_iv, "P")
 
-        call_fill = get_fill_price(call_mid, price, call_strike, T, call_iv, "sell")
-        put_fill = get_fill_price(put_mid, price, put_strike, T, put_iv, "sell")
+        call_fill = get_fill_price(call_mid, price, call_strike, T, call_iv, "sell", vix=vix)
+        put_fill = get_fill_price(put_mid, price, put_strike, T, put_iv, "sell", vix=vix)
 
         total_credit = call_fill + put_fill
         if total_credit <= 0.10:

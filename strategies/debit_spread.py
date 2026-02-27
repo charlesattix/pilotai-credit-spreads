@@ -55,6 +55,7 @@ class DebitSpreadStrategy(BaseStrategy):
                 if price > trend_ma and mom_pct >= min_mom:
                     sig = self._build_debit(
                         ticker, price, iv, market_data.date, "bull_call",
+                        vix=market_data.vix, rfr=market_data.risk_free_rate,
                     )
                     if sig:
                         signals.append(sig)
@@ -64,6 +65,7 @@ class DebitSpreadStrategy(BaseStrategy):
                 if price < trend_ma and mom_pct <= -min_mom:
                     sig = self._build_debit(
                         ticker, price, iv, market_data.date, "bear_put",
+                        vix=market_data.vix, rfr=market_data.risk_free_rate,
                     )
                     if sig:
                         signals.append(sig)
@@ -72,7 +74,8 @@ class DebitSpreadStrategy(BaseStrategy):
 
     def _build_debit(
         self, ticker: str, price: float, iv: float,
-        date, spread_type: str,
+        date, spread_type: str, vix: float = 20.0,
+        rfr: float = DEFAULT_RISK_FREE_RATE,
     ) -> Signal | None:
         target_dte = self._p("target_dte", 14)
         spread_width = self._p("spread_width", 5.0)
@@ -100,11 +103,11 @@ class DebitSpreadStrategy(BaseStrategy):
 
         long_iv = skew_adjusted_iv(iv, price, long_strike, opt_type)
         short_iv = skew_adjusted_iv(iv, price, short_strike, opt_type)
-        long_mid = bs_price(price, long_strike, T, DEFAULT_RISK_FREE_RATE, long_iv, opt_type)
-        short_mid = bs_price(price, short_strike, T, DEFAULT_RISK_FREE_RATE, short_iv, opt_type)
+        long_mid = bs_price(price, long_strike, T, rfr, long_iv, opt_type)
+        short_mid = bs_price(price, short_strike, T, rfr, short_iv, opt_type)
 
-        long_fill = get_fill_price(long_mid, price, long_strike, T, long_iv, "buy")
-        short_fill = get_fill_price(short_mid, price, short_strike, T, short_iv, "sell")
+        long_fill = get_fill_price(long_mid, price, long_strike, T, long_iv, "buy", vix=vix)
+        short_fill = get_fill_price(short_mid, price, short_strike, T, short_iv, "sell", vix=vix)
 
         debit = long_fill - short_fill
         if debit <= 0 or debit >= spread_width:

@@ -203,14 +203,20 @@ def estimate_bid_ask_spread(
     T: float,
     sigma: float,
     option_price: float,
+    vix: float = 20.0,
 ) -> float:
     """Estimate full bid-ask spread width for an option.
 
     Conservative model:
     - Base: $0.03 ATM, scaling to $0.12 for deep OTM (moneyness > 10%)
     - Short DTE (<7d): 1.3x wider
+    - VIX scaling: spreads widen proportionally with VIX (baseline VIX=20)
     - Cheap options (<$0.50): min 8% of price
     - Capped at 40% of option price
+
+    VIX scaling rationale: market-maker risk widens spreads during
+    elevated volatility. Empirically, SPY option spreads roughly double
+    when VIX goes from 15 to 30 (source: CBOE market-making studies).
     """
     if option_price <= 0:
         return 0.0
@@ -224,6 +230,11 @@ def estimate_bid_ask_spread(
     # Short DTE penalty: wider spreads near expiration
     if T < 7 / 365.0:
         base *= 1.3
+
+    # VIX scaling: normalize to baseline VIX of 20, clamp to [0.6, 3.0]
+    # VIX=12 → 0.6x (tighter), VIX=20 → 1.0x, VIX=40 → 2.0x, VIX=60 → 3.0x
+    vix_scalar = max(0.6, min(3.0, vix / 20.0))
+    base *= vix_scalar
 
     # Cheap option floor: at least 8% of option price
     base = max(base, option_price * 0.08)
@@ -241,6 +252,7 @@ def get_fill_price(
     T: float,
     sigma: float,
     side: str,
+    vix: float = 20.0,
 ) -> float:
     """Return realistic fill price given bid-ask spread.
 
@@ -251,6 +263,7 @@ def get_fill_price(
         T: Time to expiration in years.
         sigma: Implied volatility.
         side: "buy" (pay ask) or "sell" (receive bid).
+        vix: Current VIX level for spread scaling (default 20).
 
     Returns:
         Fill price adjusted for half the bid-ask spread.
@@ -258,7 +271,7 @@ def get_fill_price(
     if mid_price <= 0:
         return 0.0
 
-    spread = estimate_bid_ask_spread(S, K, T, sigma, mid_price)
+    spread = estimate_bid_ask_spread(S, K, T, sigma, mid_price, vix=vix)
     half = spread / 2.0
 
     if side == "buy":
@@ -274,6 +287,7 @@ def estimate_spread_value_with_friction(
     current_date: datetime,
     r: float = DEFAULT_RISK_FREE_RATE,
     closing: bool = True,
+    vix: float = 20.0,
 ) -> float:
     """Like estimate_spread_value but applies bid-ask friction.
 
@@ -298,11 +312,11 @@ def estimate_spread_value_with_friction(
         if closing:
             if "long" in leg.leg_type.value:
                 # Closing a long leg = selling at bid
-                fill = get_fill_price(mid_price, underlying_price, leg.strike, T, leg_iv, "sell")
+                fill = get_fill_price(mid_price, underlying_price, leg.strike, T, leg_iv, "sell", vix=vix)
                 total += fill
             else:
                 # Closing a short leg = buying back at ask
-                fill = get_fill_price(mid_price, underlying_price, leg.strike, T, leg_iv, "buy")
+                fill = get_fill_price(mid_price, underlying_price, leg.strike, T, leg_iv, "buy", vix=vix)
                 total -= fill
         else:
             if "long" in leg.leg_type.value:

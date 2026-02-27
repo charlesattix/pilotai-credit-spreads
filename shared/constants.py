@@ -47,6 +47,33 @@ MANAGEMENT_DTE_THRESHOLD = 21
 # ---------------------------------------------------------------------------
 DEFAULT_RISK_FREE_RATE = float(os.environ.get('PILOTAI_RISK_FREE_RATE', '0.045'))
 
+# Historical average Fed Funds effective rate by year (for dynamic BS pricing).
+# Source: FRED (DFF series) — annual averages rounded to 3 decimal places.
+# 2020: near-zero after emergency COVID cuts (Mar 2020)
+# 2021: near-zero throughout
+# 2022: rapid hiking cycle (0.08% Jan → 4.33% Dec)
+# 2023-2024: plateau at 5.25-5.50%
+# 2025-2026: estimated easing
+RISK_FREE_RATE_BY_YEAR = {
+    2020: 0.004,   # ~0.4% avg (0% from Mar onward)
+    2021: 0.001,   # ~0.1% (near zero all year)
+    2022: 0.017,   # ~1.7% avg (0% Jan → 4.3% Dec, weighted)
+    2023: 0.051,   # ~5.1% avg
+    2024: 0.053,   # ~5.3% avg
+    2025: 0.045,   # ~4.5% est (rate cuts beginning)
+    2026: 0.038,   # ~3.8% est
+}
+
+
+def get_risk_free_rate(date) -> float:
+    """Return the risk-free rate appropriate for a given date.
+
+    Uses year-level granularity from RISK_FREE_RATE_BY_YEAR.
+    Falls back to DEFAULT_RISK_FREE_RATE for unknown years.
+    """
+    year = date.year if hasattr(date, 'year') else date
+    return RISK_FREE_RATE_BY_YEAR.get(year, DEFAULT_RISK_FREE_RATE)
+
 # ---------------------------------------------------------------------------
 # Backtesting defaults
 # ---------------------------------------------------------------------------

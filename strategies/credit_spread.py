@@ -65,6 +65,7 @@ class CreditSpreadStrategy(BaseStrategy):
                 if mom_pct >= -abs(mom_filter):
                     sig = self._build_spread(
                         ticker, price, iv, market_data.date, "bull_put",
+                        vix=market_data.vix, rfr=market_data.risk_free_rate,
                     )
                     if sig:
                         signals.append(sig)
@@ -72,6 +73,7 @@ class CreditSpreadStrategy(BaseStrategy):
             if direction in ("both", "bear_call") and price <= trend_ma:
                 sig = self._build_spread(
                     ticker, price, iv, market_data.date, "bear_call",
+                    vix=market_data.vix, rfr=market_data.risk_free_rate,
                 )
                 if sig:
                     signals.append(sig)
@@ -80,7 +82,8 @@ class CreditSpreadStrategy(BaseStrategy):
 
     def _build_spread(
         self, ticker: str, price: float, iv: float,
-        date: datetime, spread_type: str,
+        date: datetime, spread_type: str, vix: float = 20.0,
+        rfr: float = DEFAULT_RISK_FREE_RATE,
     ) -> Signal | None:
         target_dte = self._p("target_dte", 35)
         min_dte = self._p("min_dte", 25)
@@ -107,12 +110,12 @@ class CreditSpreadStrategy(BaseStrategy):
 
         short_iv = skew_adjusted_iv(iv, price, short_strike, opt_type)
         long_iv = skew_adjusted_iv(iv, price, long_strike, opt_type)
-        short_mid = bs_price(price, short_strike, T, DEFAULT_RISK_FREE_RATE, short_iv, opt_type)
-        long_mid = bs_price(price, long_strike, T, DEFAULT_RISK_FREE_RATE, long_iv, opt_type)
+        short_mid = bs_price(price, short_strike, T, rfr, short_iv, opt_type)
+        long_mid = bs_price(price, long_strike, T, rfr, long_iv, opt_type)
 
         # Fill at bid for short leg, ask for long leg
-        short_fill = get_fill_price(short_mid, price, short_strike, T, short_iv, "sell")
-        long_fill = get_fill_price(long_mid, price, long_strike, T, long_iv, "buy")
+        short_fill = get_fill_price(short_mid, price, short_strike, T, short_iv, "sell", vix=vix)
+        long_fill = get_fill_price(long_mid, price, long_strike, T, long_iv, "buy", vix=vix)
         credit = short_fill - long_fill
 
         # Fallback: use heuristic credit if BS gives unreasonable result

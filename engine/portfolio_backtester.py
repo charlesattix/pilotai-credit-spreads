@@ -17,7 +17,7 @@ import pandas as pd
 import yfinance as yf
 
 from engine.regime import RegimeClassifier
-from shared.constants import DEFAULT_RISK_FREE_RATE
+from shared.constants import DEFAULT_RISK_FREE_RATE, get_risk_free_rate
 from shared.economic_calendar import EconomicCalendar
 from shared.indicators import calculate_iv_rank as _calc_ivr
 from strategies.base import (
@@ -428,6 +428,7 @@ class PortfolioBacktester:
             rsi=rsi,
             upcoming_events=upcoming_events,
             recent_events=recent_events,
+            risk_free_rate=get_risk_free_rate(date_dt),
             regime=regime_val,
         )
 
@@ -538,7 +539,8 @@ class PortfolioBacktester:
         if action == PositionAction.CLOSE_EXPIRY:
             pnl = self._settle_at_expiration(pos, price)
         else:
-            pnl = self._compute_exit_pnl(pos, action, price, iv, snapshot.date)
+            pnl = self._compute_exit_pnl(pos, action, price, iv, snapshot.date,
+                                        vix=snapshot.vix, r=snapshot.risk_free_rate)
 
         # Exit commission
         num_legs = len(pos.legs)
@@ -572,7 +574,7 @@ class PortfolioBacktester:
 
         iv = snapshot.realized_vol.get(pos.ticker, 0.20)
         spread_value = estimate_spread_value(
-            pos, open_price, iv, snapshot.date, DEFAULT_RISK_FREE_RATE,
+            pos, open_price, iv, snapshot.date, snapshot.risk_free_rate,
         )
 
         is_credit = pos.net_credit > 0
@@ -602,6 +604,7 @@ class PortfolioBacktester:
 
         pnl = self._compute_exit_pnl(
             pos, PositionAction.CLOSE_STOP, open_price, iv, snapshot.date,
+            vix=snapshot.vix, r=snapshot.risk_free_rate,
         )
 
         # Exit commission
@@ -697,6 +700,8 @@ class PortfolioBacktester:
         price: float,
         iv: float,
         current_date: datetime,
+        vix: float = 20.0,
+        r: float = DEFAULT_RISK_FREE_RATE,
     ) -> float:
         """Compute mid-trade P&L for non-expiration exits.
 
@@ -726,7 +731,7 @@ class PortfolioBacktester:
         else:
             # Mark-to-market with friction for ALL exit types
             current_value = estimate_spread_value_with_friction(
-                pos, price, iv, current_date, DEFAULT_RISK_FREE_RATE, closing=True,
+                pos, price, iv, current_date, r, closing=True, vix=vix,
             )
 
         is_credit = pos.net_credit > 0
@@ -780,7 +785,8 @@ class PortfolioBacktester:
                 else:
                     iv = snapshot.realized_vol.get(pos.ticker, 0.20)
                     current_value = estimate_spread_value_with_friction(
-                        pos, price, iv, date, DEFAULT_RISK_FREE_RATE, closing=True,
+                        pos, price, iv, date, snapshot.risk_free_rate, closing=True,
+                        vix=snapshot.vix,
                     )
                 if pos.net_credit > 0:
                     # Credit: collected premium, now would cost -current_value to close
