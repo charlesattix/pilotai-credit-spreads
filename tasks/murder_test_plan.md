@@ -194,21 +194,22 @@ Map the surface and identify whether we're on a plateau or a cliff.
 | P0d | Run MC at 5% risk (20 seeds) | ✅ DONE — P50=+60.9%, DD P50=-52.0% ❌ still fails | b79sf6zac |
 | P1  | Portfolio exposure constraint | ✅ DONE | — |
 | P2  | Slippage brutality tests (configs) | ✅ DONE | — |
-| P2r | Run exp_063 (2x) + exp_064 (3x) | ✅ DONE — 2x avg=+138% (-20%), 3x avg=+101% (-41%), both pass 50% gate ✅ | b00mqxk8o, bka3es7cz |
+| P2r | Run exp_063 (2x) + exp_064 (3x) | ✅ DONE (real data confirmed) — 2x avg=+138.1% (-20%), 3x avg=+100.9% (-41%), both pass 50% gate ✅ | b00mqxk8o, bka3es7cz |
 | P3  | Rework overfit gauntlet | ✅ DONE | — |
 | P4  | Stability grid search script | ✅ DONE | grid_search_plateau.py |
-| P4r | Run grid (144 combos) | ⬜ PENDING | — |
+| P4r | Run grid (144 combos) | ⚠️ DONE w/ CAVEAT — heuristic mode INVALID for DTE sensitivity | bd5hfgg0s |
 | P5a | Quantify Friday fallback (counter in backtester) | ✅ DONE | — |
 | P5b | Add Tue/Thu expirations | ✅ DONE | — |
 | P6  | 2021 100% WR spot-check | ✅ DONE (revealed IC bug) | b66xbhohh |
 | P7  | Strip outlier months (infrastructure) | ✅ DONE | — |
-| P7r | Run exp_065, 066, 067 | ✅ DONE — excl both outliers: avg=+156% vs baseline +172% (-9%) ✅ | bf25mftr2, ban7t9v7c, bc1a33sm3 |
+| P7r | Run exp_065/066/067 | ✅ DONE (real data confirmed) — excl Mar2020: +159.6%, excl Jan2023: +168.5%, excl both: +156.3% vs baseline +172% ✅ | bf25mftr2, ban7t9v7c, bc1a33sm3 |
 | POR | Probability-of-ruin script | ✅ DONE | prob_of_ruin.py (+ gap-risk stress test pending) |
 
 ## Bug Fixes This Session
 - **run_monte_carlo.py**: Wrong key names (`total_return_pct` → `return_pct`, `max_drawdown_pct` → `max_drawdown`, `trade_count` → `total_trades`) — MC was reporting all-zero percentile tables
 - **run_optimization.py + run_monte_carlo.py**: Missing `load_dotenv()` — both scripts fell back to heuristic mode when API key not exported in shell
-- Previous heuristic slippage results (exp_063, exp_064) are INVALID — being rerun in real data mode
+- Previous heuristic slippage results (exp_063, exp_064) were initially flagged INVALID; real-data reruns confirmed same numbers (2x=+138.1%, 3x=+100.9%) — original heuristic numbers were accurate
+- Stuck processes (PIDs 3311-3326): completed 6-year baselines but got stuck in sensitivity jitter at 2024 — caused by SQLite write contention when 5 concurrent processes all tried to cache Polygon data for 2024 options simultaneously. Killed after 13 hours. Baseline results recovered from output files.
 
 ## CRITICAL BUG: iron_condor hardcoded disabled (FIXED, committed 1f34f0d)
 `_build_config` in `run_optimization.py` had `"iron_condor": {"enabled": False}` HARDCODED.
@@ -236,10 +237,13 @@ All murder test experiments (slippage, outlier months, MC) use the FIXED code.
 | P0f MC 5% + exposure cap 30% | ✅ DONE — P50=+61.0%, DD P50=-51.8% ❌ (IDENTICAL — cap not the cause) | baqn3ff3q |
 | P0g MC 5% + drawdown CB=20% | ✅ DONE — P50=+60.9%, DD P50=-52.0% ❌ (IDENTICAL — CB never fires) | bn1qcvypk |
 | P0h MC 5% + excl Mar2020 | ✅ DONE — P50=+57.9%, DD P50=-57.8% ❌ (WORSE — March trades were the recovery!) | b0sie4n26 |
-| P2 Slippage 2x | avg drops -20% | PASSES ✅ |
-| P2 Slippage 3x | avg drops -41% | PASSES ✅ |
+| P2r Slippage 2x | +138.1% vs +172% baseline (−20%) | PASSES ✅ |
+| P2r Slippage 3x | +100.9% vs +172% baseline (−41%) | PASSES ✅ |
+| P4r Grid search | Heuristic mode INVALID: DTE has zero effect in BS pricing — all 144 combos show identical DTE surface. Real-data grid would take ~2 days. Source of truth = MC jitter: DTE IS a cliff (target_dte=28 drops avg to +1.3%). | ⚠️ SEE NOTES |
 | P3 Walk-forward | WF=0.05–0.25 | FAILS ❌ (2022 outlier dominates) |
-| P7 Outlier excl both | avg drops -9% | ROBUST ✅ |
+| P7r Outlier excl Mar2020 | +159.6% vs +172% (−7%) | ROBUST ✅ |
+| P7r Outlier excl Jan2023 | +168.5% vs +172% (−2%) | ROBUST ✅ |
+| P7r Outlier excl both | +156.3% vs +172% (−9%) | ROBUST ✅ |
 | POR P(ruin) | 0.00% | PASSES ✅ |
 
 **Root cause of WF failure**: 2022's +511% is far above other years — folds that include 2022 look much better than folds without it
