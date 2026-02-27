@@ -132,6 +132,7 @@ def run_backtest(
     start: datetime,
     end: datetime,
     capital: float = STARTING_CAPITAL,
+    use_cache: bool = True,
 ) -> Dict:
     """Run PortfolioBacktester with given strategy configs."""
     from engine.portfolio_backtester import PortfolioBacktester
@@ -142,12 +143,25 @@ def run_backtest(
         cls = STRATEGY_REGISTRY[name]
         strategy_list.append((name, cls(params)))
 
+    # Auto-load options cache if Polygon API key is available
+    options_cache = None
+    if use_cache:
+        try:
+            import os
+            from backtest.historical_data import HistoricalOptionsData
+            api_key = os.environ.get("POLYGON_API_KEY", "")
+            if api_key:
+                options_cache = HistoricalOptionsData(api_key)
+        except Exception:
+            pass
+
     bt = PortfolioBacktester(
         strategies=strategy_list,
         tickers=tickers,
         start_date=start,
         end_date=end,
         starting_capital=capital,
+        options_cache=options_cache,
     )
     return bt.run()
 
@@ -473,6 +487,12 @@ def main():
     parser.add_argument("--run-id",         help="Override auto-generated run ID")
     parser.add_argument("--auto",           type=int, default=0,
                         help="Run N auto-experiments using Optimizer")
+    parser.add_argument("--walk-forward",   action="store_true",
+                        help="Use walk-forward validation in optimizer")
+    parser.add_argument("--min-train-years", type=int, default=3,
+                        help="Minimum training years per fold (default: 3)")
+    parser.add_argument("--experiments-per-fold", type=int, default=0,
+                        help="Experiments per WF fold (default: --auto value)")
     args = parser.parse_args()
 
     from strategies import STRATEGY_REGISTRY
@@ -521,6 +541,45 @@ def main():
             print(f"\n  [{name}]")
             for k, v in params.items():
                 print(f"    {k}: {v}")
+        return
+
+    # Walk-forward optimization mode
+    if args.walk_forward:
+        from engine.walk_forward import WalkForwardOptimizer
+        n_exp = args.experiments_per_fold or args.auto or 20
+        wfo = WalkForwardOptimizer(all_years=years, min_train_years=args.min_train_years)
+        wf_results = wfo.run(
+            strategy_names=strategy_names,
+            tickers=tickers,
+            n_experiments_per_fold=n_exp,
+            base_overrides=param_overrides,
+        )
+
+        # Save to leaderboard
+        wf_entry = {
+            "run_id": run_id,
+            "experiment_id": f"wf_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
+            "timestamp": datetime.utcnow().isoformat(),
+            "strategies": strategy_names,
+            "tickers": tickers,
+            "mode": "walk_forward",
+            "years_run": years,
+            "note": args.note or "walk-forward optimization",
+            "walk_forward": wf_results.get("walk_forward", {}),
+            "summary": {
+                "avg_return": wf_results.get("walk_forward", {}).get("avg_oos_annual_return", 0),
+                "avg_trades": 0,
+                "years_profitable": wf_results.get("walk_forward", {}).get("folds_profitable", 0),
+                "years_total": wf_results.get("walk_forward", {}).get("total_folds", 0),
+                "consistency_score": (
+                    wf_results.get("walk_forward", {}).get("folds_profitable", 0)
+                    / max(1, wf_results.get("walk_forward", {}).get("total_folds", 1))
+                ),
+            },
+            "elapsed_sec": wf_results.get("elapsed_sec", 0),
+        }
+        append_to_leaderboard(wf_entry)
+        print(f"  Walk-forward results saved -> output/leaderboard.json")
         return
 
     # Auto-optimization mode

@@ -48,6 +48,8 @@ class PortfolioBacktester:
         max_positions: int = 10,
         max_positions_per_strategy: int = 5,
         max_portfolio_risk_pct: float = 0.40,
+        gap_threshold: float = 0.005,
+        options_cache=None,
     ):
         self.strategies = strategies
         self.tickers = tickers
@@ -58,6 +60,10 @@ class PortfolioBacktester:
         self.max_positions = max_positions
         self.max_positions_per_strategy = max_positions_per_strategy
         self.max_portfolio_risk_pct = max_portfolio_risk_pct
+        self.gap_threshold = gap_threshold
+        self._options_cache = options_cache  # Optional[HistoricalOptionsData]
+        self._cache_hits = 0
+        self._cache_misses = 0
 
         # State
         self.capital = starting_capital
@@ -109,6 +115,12 @@ class PortfolioBacktester:
             date_dt = date_ts.to_pydatetime().replace(tzinfo=None)
             snapshot = self._build_market_snapshot(date_ts, date_dt)
 
+            # --- Gap-stop check: close positions gapped through stops ---
+            if snapshot.gaps:
+                for pos in list(self.open_positions):
+                    if pos.ticker in snapshot.gaps and self._gap_triggers_stop(pos, snapshot):
+                        self._close_position_at_gap(pos, snapshot)
+
             # --- Exit check: each strategy manages its own positions ---
             positions_to_close: List[Tuple[Position, PositionAction]] = []
             for name, strategy in self.strategies:
@@ -155,6 +167,21 @@ class PortfolioBacktester:
                 self._close_position(pos, PositionAction.CLOSE_EXPIRY, last_snapshot)
 
         results = self._calculate_results()
+
+        # Log cache stats if options cache was used
+        if self._options_cache is not None:
+            total_lookups = self._cache_hits + self._cache_misses
+            hit_rate = (self._cache_hits / total_lookups * 100) if total_lookups else 0
+            results["cache_stats"] = {
+                "hits": self._cache_hits,
+                "misses": self._cache_misses,
+                "hit_rate_pct": round(hit_rate, 1),
+            }
+            logger.info(
+                "Cache stats: %d hits, %d misses (%.1f%% hit rate)",
+                self._cache_hits, self._cache_misses, hit_rate,
+            )
+
         logger.info(
             "Backtest complete: %d trades, %.2f%% return, %.2f Sharpe",
             results["combined"]["total_trades"],
@@ -313,6 +340,8 @@ class PortfolioBacktester:
         # Per-ticker price data (history up to this date)
         price_data: Dict[str, pd.DataFrame] = {}
         prices: Dict[str, float] = {}
+        open_prices: Dict[str, float] = {}
+        gaps: Dict[str, float] = {}
         iv_rank: Dict[str, float] = {}
         realized_vol: Dict[str, float] = {}
         rsi: Dict[str, float] = {}
@@ -328,6 +357,17 @@ class PortfolioBacktester:
                 continue
             price_data[ticker] = sliced
             prices[ticker] = float(sliced["Close"].iloc[-1])
+
+            # Open price and gap detection
+            if "Open" in sliced.columns:
+                open_prices[ticker] = float(sliced["Open"].iloc[-1])
+            if len(sliced) >= 2 and "Open" in sliced.columns:
+                today_open = float(sliced["Open"].iloc[-1])
+                prev_close = float(sliced["Close"].iloc[-2])
+                if prev_close > 0:
+                    gap_pct = (today_open - prev_close) / prev_close
+                    if abs(gap_pct) >= self.gap_threshold:
+                        gaps[ticker] = gap_pct
 
             # IV rank — use the global VIX-based rank for all tickers
             iv_rank[ticker] = self._iv_rank_by_date.get(date_ts, 25.0)
@@ -379,6 +419,8 @@ class PortfolioBacktester:
             date=date_dt,
             price_data=price_data,
             prices=prices,
+            open_prices=open_prices,
+            gaps=gaps,
             vix=vix_val,
             vix_history=vix_history,
             iv_rank=iv_rank,
@@ -516,6 +558,70 @@ class PortfolioBacktester:
             self.open_positions.remove(pos)
         self.closed_trades.append(pos)
 
+    def _gap_triggers_stop(
+        self, pos: Position, snapshot: MarketSnapshot,
+    ) -> bool:
+        """Check if the gap open price would trigger this position's stop.
+
+        Mirrors strategy stop logic using estimate_spread_value (no friction)
+        at the open price instead of the close price.
+        """
+        open_price = snapshot.open_prices.get(pos.ticker)
+        if open_price is None:
+            return False
+
+        iv = snapshot.realized_vol.get(pos.ticker, 0.20)
+        spread_value = estimate_spread_value(
+            pos, open_price, iv, snapshot.date, DEFAULT_RISK_FREE_RATE,
+        )
+
+        is_credit = pos.net_credit > 0
+
+        if is_credit:
+            cost_to_close = -spread_value
+            credit = pos.net_credit
+            loss = cost_to_close - credit
+            return loss >= credit * pos.stop_loss_pct
+        else:
+            entry_debit = abs(pos.net_credit)
+            if entry_debit <= 0:
+                return False
+            loss = entry_debit - spread_value
+            return loss >= entry_debit * pos.stop_loss_pct
+
+    def _close_position_at_gap(
+        self, pos: Position, snapshot: MarketSnapshot,
+    ) -> None:
+        """Close a position at the gap open price (stop gapped through).
+
+        Uses open price with friction for realistic fill. Exit reason is
+        'close_gap_stop' to distinguish from normal stop losses.
+        """
+        open_price = snapshot.open_prices.get(pos.ticker, 0)
+        iv = snapshot.realized_vol.get(pos.ticker, 0.20)
+
+        pnl = self._compute_exit_pnl(
+            pos, PositionAction.CLOSE_STOP, open_price, iv, snapshot.date,
+        )
+
+        # Exit commission
+        num_legs = len(pos.legs)
+        exit_commission = self.commission_per_leg * num_legs * pos.contracts
+        pnl -= exit_commission
+
+        # Credit back debit reservation before adding P&L
+        debit_reserved = pos.metadata.pop("_debit_reserved", 0.0)
+        self.capital += debit_reserved
+
+        self.capital += pnl
+        pos.realized_pnl = pnl
+        pos.exit_date = snapshot.date
+        pos.exit_reason = "close_gap_stop"
+
+        if pos in self.open_positions:
+            self.open_positions.remove(pos)
+        self.closed_trades.append(pos)
+
     def _settle_at_expiration(self, pos: Position, underlying_price: float) -> float:
         """Compute P&L at expiration based on whether legs are ITM/OTM."""
         total_pnl = 0.0
@@ -547,6 +653,43 @@ class PortfolioBacktester:
 
         return total_pnl
 
+    def _get_cached_spread_value(self, pos: Position, date_str: str) -> Optional[float]:
+        """Look up spread value from Polygon options cache.
+
+        For each leg, builds the OCC symbol and looks up the close price.
+        Returns net spread value (short legs negative, long legs positive)
+        if ALL legs are found, else None (fall back to BS).
+        """
+        if self._options_cache is None:
+            return None
+
+        from backtest.historical_data import HistoricalOptionsData
+
+        net_value = 0.0
+        for leg in pos.legs:
+            if leg.leg_type in (LegType.LONG_STOCK, LegType.SHORT_STOCK):
+                return None  # Stock legs: use equity pricing, not options cache
+
+            is_call = "call" in leg.leg_type.value
+            is_long = "long" in leg.leg_type.value
+            option_type = "C" if is_call else "P"
+
+            symbol = HistoricalOptionsData.build_occ_symbol(
+                pos.ticker, leg.expiration, leg.strike, option_type,
+            )
+            price = self._options_cache.get_contract_price(symbol, date_str)
+            if price is None:
+                self._cache_misses += 1
+                return None
+
+            if is_long:
+                net_value += price
+            else:
+                net_value -= price
+
+        self._cache_hits += 1
+        return net_value
+
     def _compute_exit_pnl(
         self,
         pos: Position,
@@ -576,10 +719,15 @@ class PortfolioBacktester:
                     pnl += (leg.entry_price - price) * pos.contracts
             return pnl
 
-        # Mark-to-market with friction for ALL exit types
-        current_value = estimate_spread_value_with_friction(
-            pos, price, iv, current_date, DEFAULT_RISK_FREE_RATE, closing=True,
-        )
+        # Try cached Polygon prices first, fall back to BS model
+        cached = self._get_cached_spread_value(pos, current_date.strftime("%Y-%m-%d"))
+        if cached is not None:
+            current_value = cached
+        else:
+            # Mark-to-market with friction for ALL exit types
+            current_value = estimate_spread_value_with_friction(
+                pos, price, iv, current_date, DEFAULT_RISK_FREE_RATE, closing=True,
+            )
 
         is_credit = pos.net_credit > 0
 
@@ -625,10 +773,15 @@ class PortfolioBacktester:
                     elif leg.leg_type == LegType.SHORT_STOCK:
                         unrealized += (leg.entry_price - price) * pos.contracts
             else:
-                iv = snapshot.realized_vol.get(pos.ticker, 0.20)
-                current_value = estimate_spread_value_with_friction(
-                    pos, price, iv, date, DEFAULT_RISK_FREE_RATE, closing=True,
-                )
+                # Try cached Polygon prices first, fall back to BS
+                cached = self._get_cached_spread_value(pos, date.strftime("%Y-%m-%d"))
+                if cached is not None:
+                    current_value = cached
+                else:
+                    iv = snapshot.realized_vol.get(pos.ticker, 0.20)
+                    current_value = estimate_spread_value_with_friction(
+                        pos, price, iv, date, DEFAULT_RISK_FREE_RATE, closing=True,
+                    )
                 if pos.net_credit > 0:
                     # Credit: collected premium, now would cost -current_value to close
                     unrealized += (pos.net_credit + current_value) * pos.contracts * 100
@@ -689,6 +842,11 @@ class PortfolioBacktester:
         else:
             combined["sharpe_ratio"] = 0.0
             combined["max_drawdown"] = 0.0
+
+        # Gap stop statistics
+        gap_stopped = [t for t in trades if t.exit_reason == "close_gap_stop"]
+        combined["gap_stop_count"] = len(gap_stopped)
+        combined["gap_stop_pnl"] = round(sum(t.realized_pnl for t in gap_stopped), 2)
 
         # Monthly P&L
         combined["monthly_pnl"] = self._monthly_pnl(trades)

@@ -101,6 +101,19 @@ class HistoricalOptionsData:
                 PRIMARY KEY (contract_symbol, date, bar_time)
             )
         """)
+        # Bulk download progress tracking
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS download_progress (
+                underlying          TEXT NOT NULL,
+                year                INTEGER NOT NULL,
+                month               INTEGER NOT NULL,
+                status              TEXT DEFAULT 'pending',
+                contracts_found     INTEGER DEFAULT 0,
+                contracts_downloaded INTEGER DEFAULT 0,
+                last_updated        TEXT,
+                PRIMARY KEY (underlying, year, month)
+            )
+        """)
         self._conn.commit()
 
     # ------------------------------------------------------------------
@@ -399,6 +412,139 @@ class HistoricalOptionsData:
         }
 
     # ------------------------------------------------------------------
+    # Bulk download helpers
+    # ------------------------------------------------------------------
+
+    def enumerate_month_contracts(
+        self, ticker: str, year: int, month: int,
+    ) -> List[Dict]:
+        """Fetch all option contracts for a (ticker, year, month) range.
+
+        Queries Polygon /v3/reference/options/contracts with pagination
+        for all expired contracts whose expiration falls in the given month.
+
+        Returns:
+            List of contract dicts from Polygon (ticker, strike_price,
+            expiration_date, contract_type, etc.).
+        """
+        from calendar import monthrange
+        _, last_day = monthrange(year, month)
+        exp_gte = f"{year}-{month:02d}-01"
+        exp_lte = f"{year}-{month:02d}-{last_day:02d}"
+
+        all_contracts: List[Dict] = []
+        params = {
+            "underlying_ticker": ticker,
+            "expiration_date.gte": exp_gte,
+            "expiration_date.lte": exp_lte,
+            "expired": "true",
+            "limit": 1000,
+        }
+
+        while True:
+            data = self._api_get("/v3/reference/options/contracts", params=params)
+            results = data.get("results", [])
+            all_contracts.extend(results)
+
+            # Pagination: follow next_url if present
+            next_url = data.get("next_url")
+            if not next_url:
+                break
+            # next_url is a full URL — extract path and params
+            from urllib.parse import urlparse, parse_qs
+            parsed = urlparse(next_url)
+            params = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+            # _api_get adds apiKey, remove if already in params
+            params.pop("apiKey", None)
+
+        logger.info(
+            "Enumerated %d contracts for %s %d-%02d",
+            len(all_contracts), ticker, year, month,
+        )
+        return all_contracts
+
+    def get_download_progress(self, underlying: str, year: int, month: int) -> Optional[str]:
+        """Check download progress status for a (underlying, year, month)."""
+        cur = self._conn.cursor()
+        cur.execute(
+            "SELECT status FROM download_progress WHERE underlying = ? AND year = ? AND month = ?",
+            (underlying, year, month),
+        )
+        row = cur.fetchone()
+        return row[0] if row else None
+
+    def update_download_progress(
+        self, underlying: str, year: int, month: int,
+        status: str, contracts_found: int = 0, contracts_downloaded: int = 0,
+    ):
+        """Update download progress for a (underlying, year, month)."""
+        cur = self._conn.cursor()
+        cur.execute(
+            "INSERT OR REPLACE INTO download_progress "
+            "(underlying, year, month, status, contracts_found, contracts_downloaded, last_updated) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (underlying, year, month, status, contracts_found, contracts_downloaded,
+             datetime.now().isoformat()),
+        )
+        self._conn.commit()
+
+    def stats(self) -> Dict:
+        """Return summary statistics about the cache."""
+        cur = self._conn.cursor()
+
+        cur.execute("SELECT COUNT(DISTINCT contract_symbol) FROM option_daily WHERE date != '0000-00-00'")
+        total_contracts = cur.fetchone()[0]
+
+        cur.execute("SELECT COUNT(*) FROM option_daily WHERE date != '0000-00-00'")
+        total_bars = cur.fetchone()[0]
+
+        # Per-underlying stats from option_contracts table
+        cur.execute(
+            "SELECT ticker, COUNT(DISTINCT contract_symbol), MIN(expiration), MAX(expiration) "
+            "FROM option_contracts GROUP BY ticker"
+        )
+        per_underlying = {}
+        for row in cur.fetchall():
+            per_underlying[row[0]] = {
+                "contracts": row[1],
+                "earliest_exp": row[2],
+                "latest_exp": row[3],
+            }
+
+        # Download progress summary
+        cur.execute(
+            "SELECT underlying, status, COUNT(*) FROM download_progress GROUP BY underlying, status"
+        )
+        progress = {}
+        for row in cur.fetchall():
+            if row[0] not in progress:
+                progress[row[0]] = {}
+            progress[row[0]][row[1]] = row[2]
+
+        # Cache file size
+        import os
+        cache_size_mb = os.path.getsize(self._db_path) / (1024 * 1024)
+
+        return {
+            "total_contracts": total_contracts,
+            "total_bars": total_bars,
+            "per_underlying": per_underlying,
+            "download_progress": progress,
+            "cache_size_mb": round(cache_size_mb, 1),
+        }
+
+    def has_data(self, underlying: str, date: str) -> bool:
+        """Quick check whether we have any cached option data for an underlying on a date."""
+        cur = self._conn.cursor()
+        cur.execute(
+            "SELECT 1 FROM option_daily od "
+            "JOIN option_contracts oc ON od.contract_symbol = oc.contract_symbol "
+            "WHERE oc.ticker = ? AND od.date = ? LIMIT 1",
+            (underlying, date),
+        )
+        return cur.fetchone() is not None
+
+    # ------------------------------------------------------------------
     # Intraday 5-min bar support
     # ------------------------------------------------------------------
 
@@ -565,11 +711,11 @@ class HistoricalOptionsData:
 
     def _api_get(self, path: str, params: Optional[Dict] = None) -> Dict:
         """Make an authenticated GET request to Polygon with rate limiting."""
-        # Enforce minimum 1s between API calls
+        # Enforce minimum 0.2s between API calls (Polygon allows 5/sec)
         now = time.time()
         elapsed = now - self._last_api_call
-        if elapsed < 1.0:
-            time.sleep(1.0 - elapsed)
+        if elapsed < 0.2:
+            time.sleep(0.2 - elapsed)
 
         p = (params or {}).copy()
         p["apiKey"] = self.api_key
@@ -613,5 +759,6 @@ class HistoricalOptionsData:
         cur.execute("DELETE FROM option_daily")
         cur.execute("DELETE FROM option_contracts")
         cur.execute("DELETE FROM option_intraday")
+        cur.execute("DELETE FROM download_progress")
         self._conn.commit()
         logger.info("Options cache cleared")
