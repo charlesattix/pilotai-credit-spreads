@@ -63,13 +63,20 @@
 - [x] Also: engine/__init__.py, scripts/run_portfolio_backtest.py (CLI with argparse)
 
 ### 0.4 — Optimization Engine
-- [ ] Implement Bayesian optimization or genetic algorithm
-- [ ] Support optimizing: strategy params, allocation weights, regime thresholds
-- [ ] `scripts/run_optimization.py` — config → backtest → JSON results
-- [ ] `scripts/validate_params.py` — all overfit checks automated
-- [ ] `output/leaderboard.json` — runs + scores + overfit_scores
-- [ ] `output/optimization_log.json` — hypotheses & outcomes
-- [ ] `output/optimization_state.json` — session recovery
+- [x] Implement Bayesian optimization or genetic algorithm
+  - Result: engine/optimizer.py — Optimizer class with random search + Bayesian-lite exploitation (sample_params, sample_near_best, suggest). Pure Python + numpy, no scipy/optuna.
+- [x] Support optimizing: strategy params, allocation weights, regime thresholds
+  - Result: Optimizer samples from per-strategy ParamDef spaces. Supports single-strategy or multi-strategy optimization. suggest() uses explore/exploit (random first 10, then 70% perturb best + 30% random).
+- [x] `scripts/run_optimization.py` — config → backtest → JSON results
+  - Result: Refactored to use PortfolioBacktester. Supports --strategies flag, --strategy-params JSON, --auto N for auto-experiments. Removed old single-strategy Backtester dependency.
+- [x] `scripts/validate_params.py` — all overfit checks automated
+  - Result: Check C (jitter) refactored to use PortfolioBacktester via run_fn callback. CLI updated for multi-strategy. All 7 checks (A-G) working.
+- [x] `output/leaderboard.json` — runs + scores + overfit_scores
+  - Result: Leaderboard records multi-strategy configs, per-strategy params, combined + yearly results.
+- [x] `output/optimization_log.json` — hypotheses & outcomes
+  - Result: Pre/post experiment logging with hypothesis, strategies, outcome.
+- [x] `output/optimization_state.json` — session recovery
+  - Result: Tracks total_runs, best_run_id, best_avg_return, best_overfit_score.
 
 ### 0.5 — Regime Detection
 - [ ] Build regime classifier (VIX levels + price trends)

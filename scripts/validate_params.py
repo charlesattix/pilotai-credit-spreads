@@ -107,16 +107,42 @@ def check_b_walkforward(params: dict, use_real: bool, ticker: str,
 
 # ── Check C — Parameter sensitivity (jitter test) ───────────────────────────
 
-def check_c_sensitivity(params: dict, base_results: dict, use_real: bool, ticker: str) -> dict:
-    """
-    Perturb each numeric param by ±10% and ±20%. Run 4 jittered variants.
-    Score = avg_jittered_return / base_return. Must be ≥0.60.
-    """
-    from scripts.run_optimization import run_all_years
+def _default_run_fn(params: dict, years: list, tickers: list) -> dict:
+    """Default run function using PortfolioBacktester.
 
-    jitter_params = ["target_delta", "target_dte", "spread_width",
-                     "stop_loss_multiplier", "profit_target", "max_risk_per_trade"]
-    perturb_pcts = [-0.20, -0.10, +0.10, +0.20]
+    Returns results_by_year dict compatible with validation checks.
+    """
+    from scripts.run_optimization import (
+        build_strategies_config, run_full, extract_yearly_results,
+    )
+    # Detect if params is multi-strategy (keys are strategy names with dict values)
+    # or flat single-strategy params
+    if any(isinstance(v, dict) for v in params.values()):
+        strategies_config = params
+    else:
+        # Flat params — assume credit_spread for backward compat
+        strategies_config = build_strategies_config(["credit_spread"], {"credit_spread": params})
+
+    results = run_full(strategies_config, years, tickers)
+    return extract_yearly_results(results)
+
+
+def check_c_sensitivity(params: dict, base_results: dict, use_real: bool, ticker: str,
+                         run_fn=None) -> dict:
+    """
+    Perturb each numeric param by +/-10%. Run jittered variants.
+    Score = avg_jittered_return / base_return. Must be >=0.60.
+
+    Args:
+        run_fn: Optional callback(params, years, tickers) -> results_by_year.
+            Defaults to PortfolioBacktester-based runner.
+    """
+    if run_fn is None:
+        run_fn = lambda p, yrs: _default_run_fn(p, yrs, [ticker])
+
+    # Identify numeric params to jitter
+    jitter_params = [k for k, v in params.items() if isinstance(v, (int, float))]
+    perturb_pcts = [-0.10, +0.10]
 
     base_avg = sum(r.get("return_pct", 0) for r in base_results.values()
                    if "error" not in r) / max(1, sum(1 for r in base_results.values() if "error" not in r))
@@ -130,27 +156,23 @@ def check_c_sensitivity(params: dict, base_results: dict, use_real: bool, ticker
     cliff_params = []
 
     # Only jitter the 3 highest-impact params to keep run count low
-    params_to_test = [p for p in jitter_params if p in params][:3]
+    params_to_test = jitter_params[:3]
 
     for param in params_to_test:
         base_val = params[param]
-        if not isinstance(base_val, (int, float)):
-            continue
 
         param_jitter_rets = []
-        for pct in perturb_pcts[:2]:  # only ±10% to keep it fast
+        for pct in perturb_pcts:
             jittered = copy.deepcopy(params)
             new_val = base_val * (1 + pct)
-            # Clamp reasonable ranges
-            if param == "target_delta":   new_val = max(0.05, min(0.40, new_val))
-            if param == "target_dte":     new_val = max(7, min(90, int(new_val)))
-            if param == "spread_width":   new_val = max(1, int(round(new_val)))
-            if param == "profit_target":  new_val = max(10, min(100, new_val))
+            # Keep int params as int
+            if isinstance(base_val, int):
+                new_val = max(1, int(round(new_val)))
             jittered[param] = new_val
 
             t0 = time.time()
             try:
-                j_results = run_all_years(jittered, years, use_real, ticker)
+                j_results = run_fn(jittered, years)
                 j_avg = sum(r.get("return_pct", 0) for r in j_results.values()
                             if "error" not in r) / max(1, len(j_results))
                 elapsed = time.time() - t0
@@ -162,7 +184,7 @@ def check_c_sensitivity(params: dict, base_results: dict, use_real: bool, ticker
             except Exception as e:
                 logger.warning("Jitter run failed for %s=%s: %s", param, new_val, e)
 
-        # Detect cliff: ±10% change causes >50% return drop
+        # Detect cliff: +/-10% change causes >50% return drop
         if param_jitter_rets and base_avg != 0:
             worst_ratio = min(r / base_avg if base_avg > 0 else 0 for r in param_jitter_rets)
             if worst_ratio < 0.50:
@@ -186,7 +208,7 @@ def check_c_sensitivity(params: dict, base_results: dict, use_real: bool, ticker
         "cliff_params": cliff_params,
         "jitter_runs": jitter_results,
         "note": (f"Jitter avg={jitter_avg:+.1f}% vs base={base_avg:+.1f}%"
-                 + (f" ⚠️ CLIFF PARAMS: {cliff_params}" if cliff_params else "")),
+                 + (f" CLIFF PARAMS: {cliff_params}" if cliff_params else "")),
     }
 
 
@@ -346,28 +368,30 @@ def compute_overfit_score(checks: dict) -> tuple:
 
 def validate_params(params: dict, results_by_year: dict, years: list,
                     use_real: bool, ticker: str = "SPY",
-                    skip_jitter: bool = False) -> dict:
+                    skip_jitter: bool = False, run_fn=None) -> dict:
     """
     Run all overfit checks and return a full validation report.
 
     Args:
-        params:           Strategy params dict.
+        params:           Strategy params dict (flat or multi-strategy).
         results_by_year:  Already-computed results (keyed by str year).
         years:            List of int years that were run.
         use_real:         Whether to use real Polygon data for jitter runs.
         ticker:           Ticker symbol.
         skip_jitter:      If True, skip check C (saves time).
+        run_fn:           Optional callback for jitter runs: fn(params, years) -> results_by_year.
 
     Returns:
         Dict with per-check results, overfit_score, and verdict.
     """
     print("  [A] Cross-year consistency...", end=" ", flush=True)
     check_a = check_a_consistency(results_by_year)
-    print(f"{check_a['score']:.2f}  {'✓' if check_a['passed'] else '✗'}")
+    print(f"{check_a['score']:.2f}  {'pass' if check_a['passed'] else 'fail'}")
 
     print("  [B] Walk-forward validation...", end=" ", flush=True)
     check_b = check_b_walkforward(params, use_real, ticker, results_by_year)
-    print(f"{check_b['score']:.2f}  {'✓' if check_b['passed'] else '✗' if check_b['passed'] is False else '?'}")
+    passed_str = "pass" if check_b['passed'] else ("fail" if check_b['passed'] is False else "?")
+    print(f"{check_b['score']:.2f}  {passed_str}")
 
     print("  [C] Parameter sensitivity...", end=" ", flush=True)
     if skip_jitter:
@@ -375,20 +399,21 @@ def validate_params(params: dict, results_by_year: dict, years: list,
                    "note": "Skipped", "jitter_runs": []}
         print("skipped")
     else:
-        check_c = check_c_sensitivity(params, results_by_year, use_real, ticker)
-        print(f"{check_c['score']:.2f}  {'✓' if check_c['passed'] else '✗' if check_c['passed'] is False else '?'}")
+        check_c = check_c_sensitivity(params, results_by_year, use_real, ticker, run_fn=run_fn)
+        passed_str = "pass" if check_c['passed'] else ("fail" if check_c['passed'] is False else "?")
+        print(f"{check_c['score']:.2f}  {passed_str}")
 
     print("  [D] Trade count gate...", end=" ", flush=True)
     check_d = check_d_trade_count(results_by_year)
-    print(f"{check_d['score']:.2f}  {'✓' if check_d['passed'] else '✗'}")
+    print(f"{check_d['score']:.2f}  {'pass' if check_d['passed'] else 'fail'}")
 
     print("  [E] Regime diversity...", end=" ", flush=True)
     check_e = check_e_regime_diversity(results_by_year)
-    print(f"{check_e['score']:.2f}  {'✓' if check_e['passed'] else '✗'}")
+    print(f"{check_e['score']:.2f}  {'pass' if check_e['passed'] else 'fail'}")
 
     print("  [F] Drawdown reality...", end=" ", flush=True)
     check_f = check_f_drawdown(results_by_year)
-    print(f"{check_f['score']:.2f}  {'✓' if check_f['passed'] else '✗'}")
+    print(f"{check_f['score']:.2f}  {'pass' if check_f['passed'] else 'fail'}")
 
     checks = {
         "A_consistency":      check_a,
@@ -401,8 +426,7 @@ def validate_params(params: dict, results_by_year: dict, years: list,
 
     overfit_score, verdict = compute_overfit_score(checks)
 
-    icon = "✅ ROBUST" if verdict == "ROBUST" else ("⚠️  SUSPECT" if verdict == "SUSPECT" else "❌ OVERFIT")
-    print(f"  Overfit score: {overfit_score:.3f}  →  {icon}")
+    print(f"  Overfit score: {overfit_score:.3f}  -> {verdict}")
 
     return {
         "checks":        checks,
@@ -420,6 +444,7 @@ def main():
     parser.add_argument("--heuristic",   action="store_true", help="Fast heuristic mode")
     parser.add_argument("--skip-jitter", action="store_true", help="Skip check C (faster)")
     parser.add_argument("--ticker",      default="SPY")
+    parser.add_argument("--strategies",  help="Comma-separated strategy names (default: credit_spread)")
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -430,11 +455,27 @@ def main():
             results_by_year = json.load(f)
         years = [int(y) for y in results_by_year.keys()]
     else:
-        from scripts.run_optimization import run_all_years, YEARS
-        use_real = not args.heuristic
+        from scripts.run_optimization import (
+            build_strategies_config, run_full, extract_yearly_results, YEARS,
+        )
+
+        strategy_names = (
+            [s.strip() for s in args.strategies.split(",")]
+            if args.strategies
+            else ["credit_spread"]
+        )
+
+        # If params is a flat dict, wrap for first strategy
+        if not any(isinstance(v, dict) for v in params.values()):
+            param_overrides = {strategy_names[0]: params}
+        else:
+            param_overrides = params
+
+        strategies_config = build_strategies_config(strategy_names, param_overrides)
         years = YEARS
-        print(f"Running backtests for {years}...")
-        results_by_year = run_all_years(params, years, use_real, args.ticker)
+        print(f"Running portfolio backtest for {years}...")
+        results = run_full(strategies_config, years, [args.ticker])
+        results_by_year = extract_yearly_results(results)
 
     print("\nRunning overfit checks...")
     result = validate_params(params, results_by_year, years,
