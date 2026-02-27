@@ -144,7 +144,7 @@ class PortfolioBacktester:
                     self._open_position(signal, contracts, date_dt)
 
             # --- Record equity ---
-            self._record_equity(date_dt)
+            self._record_equity(date_dt, snapshot)
 
         # Close any remaining open positions at backtest end
         if self.open_positions:
@@ -597,12 +597,46 @@ class PortfolioBacktester:
     # Equity Tracking
     # ------------------------------------------------------------------
 
-    def _record_equity(self, date: datetime) -> None:
-        """Record end-of-day equity (cash + unrealized position value)."""
-        # For simplicity, use cash as equity (unrealized P&L is complex to
-        # estimate daily across all position types).  Open position risk is
-        # already reflected in capital via debit deductions.
-        self.equity_curve.append((date, self.capital))
+    def _record_equity(
+        self, date: datetime, snapshot: MarketSnapshot,
+    ) -> None:
+        """Record end-of-day equity (cash + mark-to-market open positions).
+
+        True portfolio value = cash + unrealized value of every open position.
+        Credit positions: unrealized = (net_credit + current_value) * contracts * 100
+        Debit positions:  unrealized = (current_value - |net_credit|) * contracts * 100
+        Stock positions:  unrealized = (price - entry) * contracts  (or inverse for short)
+        """
+        unrealized = 0.0
+        for pos in self.open_positions:
+            price = snapshot.prices.get(pos.ticker)
+            if price is None:
+                continue
+
+            has_stock = any(
+                leg.leg_type in (LegType.LONG_STOCK, LegType.SHORT_STOCK)
+                for leg in pos.legs
+            )
+
+            if has_stock:
+                for leg in pos.legs:
+                    if leg.leg_type == LegType.LONG_STOCK:
+                        unrealized += (price - leg.entry_price) * pos.contracts
+                    elif leg.leg_type == LegType.SHORT_STOCK:
+                        unrealized += (leg.entry_price - price) * pos.contracts
+            else:
+                iv = snapshot.realized_vol.get(pos.ticker, 0.20)
+                current_value = estimate_spread_value_with_friction(
+                    pos, price, iv, date, DEFAULT_RISK_FREE_RATE, closing=True,
+                )
+                if pos.net_credit > 0:
+                    # Credit: collected premium, now would cost -current_value to close
+                    unrealized += (pos.net_credit + current_value) * pos.contracts * 100
+                else:
+                    # Debit: paid |net_credit|, position now worth current_value
+                    unrealized += (current_value - abs(pos.net_credit)) * pos.contracts * 100
+
+        self.equity_curve.append((date, self.capital + unrealized))
 
     # ------------------------------------------------------------------
     # Performance Metrics
