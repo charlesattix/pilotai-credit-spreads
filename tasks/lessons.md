@@ -151,6 +151,22 @@
 - **Fix**: Changed to `polygon_api_key = os.getenv("POLYGON_API_KEY", "")` then `HistoricalOptionsData(polygon_api_key)`.
 - **Rule**: Always verify the TYPE of arguments you're passing, not just that they're non-None. A dict where a string is expected silently corrupts URL params.
 
+### Lesson 019: iron_condor hardcoded False in _build_config
+- **Date**: 2026-02-27
+- **What happened**: `_build_config` in `run_optimization.py` had `"iron_condor": {"enabled": False}` hardcoded. Even though `iron_condor_enabled: true` was in every IC config, the backtester never saw it.
+- **Impact**: ALL leaderboard entries before the fix (including the "ROBUST" exp_059 at 71.3% avg) were computed WITHOUT iron condors. The 2021 year went from 40 trades/+18.8% → 173 trades/+188.8% when ICs were properly enabled. Every year's result is likely significantly different. The entire optimization history is invalid.
+- **Root cause**: `_build_config` was initially written without IC support, and when IC support was added to the config files and backtester, the mapping in `_build_config` was not updated — the old `{"enabled": False}` line was simply left in place.
+- **Fix**: Changed to `params.get("iron_condor_enabled", False)` and `params.get("ic_min_combined_credit_pct", 20)` in `_build_config`.
+- **Rule**: When adding a new feature to the backtester (new strategy params, new risk params), ALWAYS trace the full config pipeline: JSON config file → `_build_config` dict → backtester constructor → internal state. Test that the new param actually reaches the backtester by adding a debug log at the constructor that prints all enabled features.
+
+### Lesson 020: Missing fields in _record_close break downstream consumers
+- **Date**: 2026-02-27
+- **What happened**: `_record_close` in the backtester didn't include `expiration` or `option_type` in the trade dict. `replay_2021_trades.py` tried to use `trade.get("expiration", "")` and got empty string, then `datetime.strptime("", "%Y-%m-%d")` threw ValueError. The `except` block only set `contract_symbol = "UNKNOWN"`, leaving `exp_dt` undefined. Later use of `exp_dt` caused "local variable referenced before assignment".
+- **Impact**: P6 spot-check was unable to verify any trade against Polygon data. All 5 spot-checked trades showed "ERROR" instead of actual verification results.
+- **Root cause**: `_record_close` was written when only the essential accounting fields were needed. Downstream analysis scripts were added later without checking what `_record_close` stored.
+- **Fix**: Added `expiration: pos.get('expiration')` and `option_type: 'C' if pos_type == 'bear_call_spread' else 'P'` to the trade dict. Added a guard in `replay_2021_trades.py` to skip Polygon check if contract_symbol == "UNKNOWN".
+- **Rule**: `_record_close` is the source of truth for all closed trade data. When writing any analysis tool that reads `self.trades`, first check what fields `_record_close` actually stores. If a field is needed, add it to `_record_close`, not as a workaround in the consumer.
+
 ## 📐 Template for New Lessons
 
 ```markdown
@@ -166,9 +182,10 @@
 ---
 
 ## Summary Stats
-- Total lessons: 13
-- Backtester accuracy: 3
+- Total lessons: 20
+- Backtester accuracy: 4
 - System architecture: 3
-- Optimization process: 4
+- Optimization process: 5 (+1: IC bug)
 - Process & management: 3
-- Last review: 2026-02-26
+- Backtester data integrity: 2 (+1: _record_close)
+- Last review: 2026-02-27
