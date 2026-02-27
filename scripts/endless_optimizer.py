@@ -54,7 +54,7 @@ from strategies import STRATEGY_REGISTRY
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("endless")
 
-DEFAULT_TICKERS = ["SPY"]
+DEFAULT_TICKERS = ["SPY", "QQQ", "IWM"]
 
 # Phase escalation thresholds
 PLATEAU_WINDOW = 20       # Check last N runs for improvement
