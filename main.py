@@ -41,6 +41,8 @@ from alerts.alert_router import AlertRouter
 from alerts.formatters.telegram import TelegramAlertFormatter
 from alerts.zero_dte_scanner import ZeroDTEScanner
 from alerts.zero_dte_exit_monitor import ZeroDTEExitMonitor
+from alerts.iron_condor_scanner import IronCondorScanner
+from alerts.iron_condor_exit_monitor import IronCondorExitMonitor
 from backtest import Backtester, HistoricalOptionsData, PerformanceMetrics
 from tracker import TradeTracker, PnLDashboard
 from paper_trader import PaperTrader
@@ -140,6 +142,12 @@ class CreditSpreadSystem:
             self.paper_trader, self.telegram_bot,
         )
 
+        # Iron condor scanner and exit monitor
+        self.iron_condor_scanner = IronCondorScanner(self.config, data_cache=self.data_cache)
+        self.iron_condor_exit_monitor = IronCondorExitMonitor(
+            self.paper_trader, self.telegram_bot,
+        )
+
         logger.info("All components initialized successfully")
 
     def scan_opportunities(self):
@@ -220,6 +228,25 @@ class CreditSpreadSystem:
                     logger.info(f"0DTE exit monitor fired {len(exit_alerts)} alerts")
         except Exception as e:
             logger.warning(f"0DTE exit monitor failed (non-fatal): {e}")
+
+        # Iron condor scan (only fires on Mon/Tue entry days)
+        try:
+            ic_opps = self.iron_condor_scanner.scan()
+            if ic_opps:
+                account_state = self._build_account_state()
+                routed = self.alert_router.route_opportunities(ic_opps, account_state)
+                logger.info(f"Iron condor alert router dispatched {len(routed)} alerts")
+        except Exception as e:
+            logger.warning(f"Iron condor scanner failed (non-fatal): {e}")
+
+        # Iron condor exit monitoring (runs every scan)
+        try:
+            if current_prices:
+                ic_exits = self.iron_condor_exit_monitor.check_and_alert(current_prices)
+                if ic_exits:
+                    logger.info(f"Iron condor exit monitor fired {len(ic_exits)} alerts")
+        except Exception as e:
+            logger.warning(f"Iron condor exit monitor failed (non-fatal): {e}")
 
         self.paper_trader.print_summary()
 
