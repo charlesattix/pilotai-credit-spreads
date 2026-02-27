@@ -26,23 +26,31 @@ def calculate_dynamic_risk(
     account_value: float,
     iv_rank: float,
     current_portfolio_risk: float,
+    flat_risk_pct: Optional[float] = None,
 ) -> float:
-    """Return the dollar risk budget for one new trade based on IV Rank.
+    """Return the dollar risk budget for one new trade.
 
-    Sizing tiers:
+    When flat_risk_pct is provided, it is used directly as the per-trade risk
+    percentage (matching backtester flat/sizing_mode behaviour).  When omitted,
+    the IV-Rank tier schedule is applied instead.
+
+    Sizing tiers (IV-rank mode only):
       IVR < 20  (low edge)      → 0.5× baseline = 1% of account
       IVR 20-50 (standard edge) → 1× baseline    = 2% of account
       IVR > 50  (high edge)     → up to 1.5×     = up to 3% (linear)
 
-    Also enforces a 40% portfolio heat cap: if adding this trade would push
-    total open risk above 40% of account_value, the budget is reduced to
-    whatever room is left in the heat cap (floored at 0).
+    In both modes a 40% portfolio heat cap is enforced: if adding this trade
+    would push total open risk above 40% of account_value, the budget is
+    reduced to whatever room remains (floored at 0).
 
     Args:
         account_value: Current account balance in dollars.
         iv_rank: Current IV Rank 0-100.
         current_portfolio_risk: Dollar value of max-loss exposure already
                                  committed across all open positions.
+        flat_risk_pct: If set, use this fixed percentage (e.g. 10.0 for 10%)
+                       instead of the IV-rank tiers.  Matches
+                       max_risk_per_trade from config.yaml.
 
     Returns:
         Dollar risk budget for the new trade (>= 0).
@@ -50,7 +58,9 @@ def calculate_dynamic_risk(
     base_risk_pct = 0.02
     max_portfolio_heat = 0.40
 
-    if iv_rank < 20:
+    if flat_risk_pct is not None:
+        target_risk_pct = flat_risk_pct / 100.0
+    elif iv_rank < 20:
         target_risk_pct = base_risk_pct * 0.5
     elif iv_rank <= 50:
         target_risk_pct = base_risk_pct

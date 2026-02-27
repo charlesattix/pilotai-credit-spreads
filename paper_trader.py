@@ -410,22 +410,26 @@ class PaperTrader:
                 )
                 return None
 
-            # IV-scaled position sizing (Upgrade 3)
-            # IVR < 20 → 1% risk; IVR 20-50 → 2% risk; IVR > 50 → up to 3% risk.
-            # 40% portfolio heat cap enforced inside calculate_dynamic_risk.
+            # Position sizing: use flat max_risk_per_trade from config when set,
+            # otherwise fall back to IV-rank tiers.  40% portfolio heat cap always
+            # enforced inside calculate_dynamic_risk.
             from ml.position_sizer import calculate_dynamic_risk, get_contract_size
             iv_rank = float(opp.get("iv_rank") or opp.get("iv_percentile") or 25.0)
             spread_width = abs(opp.get("short_strike", 0) - opp.get("long_strike", 0))
             if spread_width <= 0:
                 spread_width = self.risk.get("spread_width", 5)
-            trade_dollar_risk = calculate_dynamic_risk(current_balance, iv_rank, open_risk)
+            flat_risk_pct = self.risk.get("max_risk_per_trade")  # e.g. 10.0 for 10%
+            trade_dollar_risk = calculate_dynamic_risk(
+                current_balance, iv_rank, open_risk, flat_risk_pct=flat_risk_pct
+            )
             if trade_dollar_risk <= 0:
                 logger.warning(
                     f"TRADE REFUSED: portfolio heat cap reached "
                     f"(open_risk=${open_risk:,.0f}, balance=${current_balance:,.0f})"
                 )
                 return None
-            contracts = get_contract_size(trade_dollar_risk, spread_width, credit)
+            max_contracts = self.risk.get("max_contracts", 5)
+            contracts = get_contract_size(trade_dollar_risk, spread_width, credit, max_contracts)
             if contracts < 1:
                 contracts = 1  # always trade at least 1 contract if other checks passed
 

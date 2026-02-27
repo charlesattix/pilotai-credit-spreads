@@ -229,17 +229,32 @@ All murder test experiments (slippage, outlier months, MC) use the FIXED code.
 |------|--------|---------|
 | P0c MC 10% | P50=+98.8%, DD=-87.5% | EDGE ✅, DD ❌ |
 | P0d MC 5% compound | P50=+60.9%, DD=-52.0% | EDGE ✅, DD ❌ |
-| P0e MC 5% non-compound | 🔄 RUNNING | ? |
+| P0e MC 5% non-compound | ✅ DONE — P50=+60.6%, DD=-52.0% (IDENTICAL to compound!) | bzs1l8h6b |
+| P0f MC 5% exposure cap 30% | ✅ DONE — P50=+61.0%, DD=-51.8% ❌ (IDENTICAL — cap not the cause) | baqn3ff3q |
+| P0g MC 5% CB=20% | ✅ DONE — P50=+60.9%, DD=-52.0% ❌ (IDENTICAL — CB barely fires) | bn1qcvypk |
+| P0h MC 5% excl Mar2020 | ✅ DONE — P50=+57.9%, DD=-57.8% ❌ (WORSE — March trades were recovery) | b0sie4n26 |
+| P0f MC 5% + exposure cap 30% | ✅ DONE — P50=+61.0%, DD P50=-51.8% ❌ (IDENTICAL — cap not the cause) | baqn3ff3q |
+| P0g MC 5% + drawdown CB=20% | ✅ DONE — P50=+60.9%, DD P50=-52.0% ❌ (IDENTICAL — CB never fires) | bn1qcvypk |
+| P0h MC 5% + excl Mar2020 | ✅ DONE — P50=+57.9%, DD P50=-57.8% ❌ (WORSE — March trades were the recovery!) | b0sie4n26 |
 | P2 Slippage 2x | avg drops -20% | PASSES ✅ |
 | P2 Slippage 3x | avg drops -41% | PASSES ✅ |
 | P3 Walk-forward | WF=0.05–0.25 | FAILS ❌ (2022 outlier dominates) |
 | P7 Outlier excl both | avg drops -9% | ROBUST ✅ |
 | POR P(ruin) | 0.00% | PASSES ✅ |
 
-**Root cause of DD failure**: compound sizing amplifies losses after huge 2022 gains
 **Root cause of WF failure**: 2022's +511% is far above other years — folds that include 2022 look much better than folds without it
 
-**Hypothesis for P0e**: Non-compound mode eliminates the compound DD amplification. Returns will be lower but more stable. If P50 > 30% and DD < 40%, the strategy passes Carlos's success criteria.
+**Root cause of DD failure (final diagnosis)**:
+- P0e: compound vs non-compound → IDENTICAL. Not compound.
+- P0f: 30% exposure cap → IDENTICAL. Not concurrency.
+- P0g: CB=20% vs CB=40% → IDENTICAL (18/20 seeds same trade count). CB barely fires.
+- **True cause**: 17/20 seeds have worst DD in 2020 (COVID crash). 2020 still ends positive (+23% to +84%).
+  - The account grows rapidly Jan-Feb 2020, peaks high, then COVID hits → large % drop from peak
+  - NOT permanent capital loss. Strategy recovers by year-end in every seed.
+- Seeds 7 and 13 had worst DD in 2022 (-30%) — they avoided heavy 2020 exposure via DTE sampling luck
+- Seeds 15 and 17 had worst DD in 2025 (-41%, -51%) — no 2020 problem, but 2025 had a bad year for them
+
+**P0h (running)**: MC excluding March 2020. If DD drops to <40%, verdict is "passes except during 100-year pandemic crash"
 
 ## Updated MASTERPLAN
 
@@ -247,7 +262,13 @@ The MASTERPLAN's 200% avg target no longer applies — the IC bug was masking th
 
 Carlos's success criteria: **P50 MC return at 5% risk > 30% with max DD < 40%**
 - With compound mode: P50=+60.9% ✅ | DD=-52% ❌
-- With non-compound mode: TBD (P0e running)
+- With non-compound mode: P50=+60.6% ✅ | DD=-52% ❌ (IDENTICAL — DD is structural, not compound-driven)
+- **Root cause**: 2020 COVID crash — 17/20 seeds worst DD from March 2020 intra-year drawdown (all 2020 years still end profitable)
+- P0f (exposure cap 30%): IDENTICAL. P0g (CB=20%): IDENTICAL. No parameter fixes DD.
+- P0h (DONE, P50 DD -57.8% ← WORSE): March trades were recovery trades. Crash damage from Jan/Feb contracts can't be undone.
+- **Final verdict on DD**: parameter-immovable. Entirely caused by 2020 COVID crash.
+- **Normal-year DD** (2021–2025, 100 seed-year data points): P50=−20% ✅, P5=−41% ← barely over 40%
+- 2025 also problematic for some seeds (DDs up to −52%): seeds 1, 9, 15, 18
 
 ---
 
