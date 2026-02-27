@@ -1,0 +1,194 @@
+# Credit Spread Trading System Configuration
+
+# Tickers to monitor
+tickers:
+  - SPY
+  - QQQ
+  - IWM
+
+# Strategy Parameters
+strategy:
+  # Days to expiration range for new positions
+  min_dte: 25   # exp_059: min_dte=25 (target_dte=35, min_dte=25 in backtest config)
+  max_dte: 45
+
+  # Manage positions at this DTE or earlier
+  manage_dte: 21
+
+  # Delta-based strike selection (replaces static OTM% in both live and backtester)
+  # Backtester uses Black-Scholes approximation with constant IV (no historical Greeks on free tier)
+  use_delta_selection: false  # exp_059: use OTM% / delta-range filter (legacy), not target-delta
+  target_delta: 0.12          # Target short-strike |delta| (12-delta ≈ 3-5% OTM for SPY)
+
+  # Legacy range filter — kept for backward compat; ignored when use_delta_selection: true
+  min_delta: 0.20
+  max_delta: 0.30
+
+  # Width of spreads in dollars (dynamic based on IV)
+  # P0 #2 sweep: $5 wide validated profitable; $10 wide loses at every OTM level in low-IV
+  spread_width: 5             # Default width (validated by 2024 sweep)
+  spread_width_high_iv: 10    # When IV rank > 50 (larger credits offset wider width)
+  spread_width_low_iv: 5      # When IV rank 25-50
+
+  # IV Rank filters (enter when IV is elevated)
+  min_iv_rank: 12  # IV Rank minimum (0-100) - lowered for more opportunities
+  min_iv_percentile: 12  # IV Percentile minimum (0-100) - lowered for more opportunities
+
+  # Iron condor parameters — exp_059: enabled with 12% combined credit floor
+  iron_condor:
+    enabled: false               # exp_036: no iron condors
+    prefer_in_low_iv: false      # exp_036: no iron condors
+    low_iv_threshold: 30         # IV rank below this = prefer condors
+    min_combined_credit_pct: 12  # exp_059: ic_min_combined_credit_pct=12 (was 20)
+    max_wing_width: 10           # Each wing matches spread_width
+    rsi_min: 30                  # Relaxed from 35
+    rsi_max: 70                  # Relaxed from 65
+
+  # Technical filters
+  technical:
+    use_trend_filter: true
+    use_rsi_filter: true
+    use_support_resistance: true
+
+    # Moving averages for trend
+    fast_ma: 20
+    slow_ma: 200  # exp_059: trend_ma_period=200 (MA200 direction filter)
+
+    # RSI parameters
+    rsi_period: 14
+    rsi_oversold: 30
+    rsi_overbought: 70
+
+# Risk Management
+risk:
+  # Account size (USD)
+  account_size: 100000
+
+  # Max risk per trade as % of account
+  # exp_059: 10% risk per trade (backtested at 10% with flat sizing)
+  # NOTE: paper_trader.py uses dynamic IV-rank sizer (1-3%), not this value directly
+  max_risk_per_trade: 10.0
+
+  # Contract limits
+  min_contracts: 1
+  max_contracts: 25  # exp_059 target; NOTE: paper_trader sizing caps internally via position_sizer
+
+  # Max number of concurrent positions (no hard cap — limited by capital/risk per trade)
+  max_positions: 50
+  max_positions_per_ticker: 2  # Allow 2 per ticker for more opportunity
+
+  # Scan days (0=Mon ... 4=Fri) — scan every trading day for maximum opportunity
+  scan_days: [0, 1, 2, 3, 4]
+
+  # Profit target (% of credit received)
+  profit_target: 50  # Close at 50% profit
+
+  # Stop loss — width-based (used by backtester_fixed only)
+  # Exit when spread value reaches this % of spread width
+  stop_loss_pct_of_width: 75  # Wide stop — let positions breathe (75% of $5 = $3.75)
+  # Credit-multiplier stop (used by backtester.py and paper_trader.py)
+  # P0 #2 sweep: 2.5x and 3.0x gave identical results — stops rarely trigger
+  stop_loss_multiplier: 2.5   # Exit when loss > credit × 2.5x
+
+  # Delta threshold for early exit
+  delta_threshold: 0.30  # Exit if short strike delta exceeds this
+
+  # Minimum credit to collect (% of spread width)
+  # exp_059: 8% credit floor (was 10%)
+  min_credit_pct: 8  # Collect at least 8% of spread width ($0.40 min on $5 wide)
+
+  # Portfolio-level risk limits
+  portfolio_risk:
+    max_portfolio_risk_pct: 40   # Max 40% of account at risk across all positions
+    max_single_ticker_pct: 16    # Max 16% in any single underlying
+    max_same_expiration: 4       # Max 4 positions expiring same week
+
+  # Correlation groups: tickers in same group share a combined position cap
+  # SPY, QQQ, IWM are all equity indices and highly correlated in drawdowns
+  correlation_groups:
+    equity_indices:
+      tickers: [SPY, QQQ, IWM]
+      max_correlated_positions: 5  # Max 5 positions across all correlated tickers
+
+  # Drawdown circuit breaker: halt new entries when peak-to-trough exceeds this %
+  # exp_059: drawdown_cb_pct=40 (backtested value; was hardcoded 20% before this fix)
+  drawdown_cb_pct: 40
+
+  # Rolling — disabled: data shows 85-91% of rolled losers still lost
+  enable_rolling: false
+  max_rolls_per_position: 0      # No rolls — accept loss and redeploy capital
+  min_roll_credit: 0.30          # N/A when rolling disabled
+
+# Alert Settings
+alerts:
+  # Output formats
+  output_json: true
+  output_text: true
+  output_csv: true
+
+  # Alert file paths (relative to project root)
+  json_file: "alerts.json"
+  text_file: "alerts.txt"
+  csv_file: "alerts.csv"
+
+  # Telegram settings
+  telegram:
+    enabled: true
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
+
+# Alpaca Paper Trading
+alpaca:
+  enabled: true
+  api_key: "${ALPACA_API_KEY}"
+  api_secret: "${ALPACA_API_SECRET}"
+  paper: true  # true = paper trading, false = live
+
+# Data Settings
+data:
+  # Data provider: "yfinance" (free, 15-min delay), "tradier" (real-time), or "polygon" (real-time)
+  provider: "polygon"
+
+  # Tradier API settings (get free key at https://developer.tradier.com)
+  tradier:
+    api_key: "${TRADIER_API_KEY}"
+
+  # Polygon.io / Massive API settings
+  polygon:
+    api_key: "${POLYGON_API_KEY}"
+    sandbox: true  # true = sandbox (free), false = production
+
+  # Historical data lookback for backtesting (days)
+  backtest_lookback: 365
+
+  # Cache settings
+  use_cache: true
+  cache_expiry_minutes: 15
+
+# Logging
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  file: "logs/trading_system.log"
+  console: true
+
+# Backtesting
+backtest:
+  # Starting capital
+  starting_capital: 100000
+
+  # Commission per contract (one side)
+  commission_per_contract: 0.65
+
+  # Entry slippage fallback (dollars per spread) — used when no intraday bar data
+  slippage: 0.05
+
+  # Additional exit friction on stop-loss closes (dollars per spread).
+  # Stop exits happen in adverse, fast markets where bid/ask is wider than at entry.
+  exit_slippage: 0.10
+
+  # Score threshold for backtest opportunities
+  score_threshold: 25
+
+  # Generate reports
+  generate_reports: true
+  report_dir: "output/backtest_reports"

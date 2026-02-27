@@ -988,4 +988,61 @@ class PaperTrader:
                       f"${t.get('short_strike', 0)}/{t.get('long_strike', 0)} "
                       f"x{t.get('contracts', 1)} | Credit: ${t.get('total_credit', 0):.0f} | "
                       f"P&L: ${t.get('current_pnl', 0):+.2f}")
-        print()
+
+
+if __name__ == "__main__":
+    import argparse
+    import signal
+    import sys
+    from dotenv import load_dotenv
+
+    parser = argparse.ArgumentParser(description="Credit Spread Paper Trader")
+    parser.add_argument("--config", default="config.yaml", help="Config file (default: config.yaml)")
+    parser.add_argument("--env-file", default=".env", help="Env file to load (default: .env)")
+    parser.add_argument("--db", default=None, help="SQLite DB path (default: data/pilotai.db)")
+    args = parser.parse_args()
+
+    # 1) Load env vars FIRST — must happen before Alpaca client init
+    load_dotenv(dotenv_path=args.env_file, override=True)
+
+    # 2) Load config
+    from utils import load_config, setup_logging, validate_config
+    config = load_config(args.config)
+    validate_config(config)
+    setup_logging(config)
+
+    # 3) Override DB_PATH module-level so ALL database calls (including those
+    #    inside CreditSpreadSystem/PaperTrader) use the specified path.
+    if args.db:
+        from pathlib import Path as _Path
+        import shared.database as _db_mod
+        _db_mod.DB_PATH = _Path(args.db)
+
+    init_db(path=args.db)
+
+    # Run the full scheduler loop (same as main.py scheduler command)
+    from main import CreditSpreadSystem
+    from shared.scheduler import ScanScheduler
+
+    system = CreditSpreadSystem(config=config)
+
+    _scan_count = 0
+
+    def _scan_and_sync():
+        global _scan_count
+        system.scan_opportunities()
+        system.paper_trader.sync_alpaca_orders()
+        _scan_count += 1
+        if _scan_count % 3 == 0:
+            system.paper_trader.reconcile_positions()
+
+    def _stop(signum, frame):
+        logger.info("Received signal %s — stopping", signal.Signals(signum).name)
+        scheduler.stop()
+
+    signal.signal(signal.SIGTERM, _stop)
+    signal.signal(signal.SIGINT, _stop)
+
+    scheduler = ScanScheduler(scan_fn=_scan_and_sync)
+    logger.info("Starting paper trader | config=%s env=%s db=%s", args.config, args.env_file, args.db or "default")
+    scheduler.run_forever()
