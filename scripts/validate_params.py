@@ -53,55 +53,91 @@ def check_a_consistency(results_by_year: dict) -> dict:
     }
 
 
-# ── Check B — Walk-forward validation ────────────────────────────────────────
+# ── Check B — Rolling walk-forward validation ────────────────────────────────
 
 def check_b_walkforward(params: dict, use_real: bool, ticker: str,
                          existing_results: dict) -> dict:
     """
-    Train on 2020-2022, test on 2023-2025.
-    Test avg return must be ≥50% of train avg return.
-    Uses existing results if available (avoids re-running).
-    """
-    train_years = ["2020", "2021", "2022"]
-    test_years  = ["2023", "2024", "2025"]
+    Rolling walk-forward: 3 folds, each with growing train + 1-year test.
+      Fold 1: Train 2020-2022 → Test 2023
+      Fold 2: Train 2020-2023 → Test 2024
+      Fold 3: Train 2020-2024 → Test 2025
 
+    For each fold: test_return / train_avg >= 0.50 → passes.
+    Score = avg ratio across folds (capped 0-1).
+
+    Uses existing_results for all years — no re-running required.
+    This replaces the single 3+3 split with a selection-aware multi-fold approach.
+    """
     def avg_ret(ys):
         rets = [existing_results[y]["return_pct"]
                 for y in ys if y in existing_results and "error" not in existing_results[y]]
         return sum(rets) / len(rets) if rets else None
 
-    train_avg = avg_ret(train_years)
-    test_avg  = avg_ret(test_years)
+    folds = [
+        {"train": ["2020", "2021", "2022"],            "test": "2023"},
+        {"train": ["2020", "2021", "2022", "2023"],    "test": "2024"},
+        {"train": ["2020", "2021", "2022", "2023", "2024"], "test": "2025"},
+    ]
 
-    if train_avg is None or test_avg is None:
+    fold_results = []
+    for fold in folds:
+        train_avg = avg_ret(fold["train"])
+        test_yr   = fold["test"]
+        if test_yr not in existing_results or "error" in existing_results.get(test_yr, {}):
+            continue
+        test_ret = existing_results[test_yr]["return_pct"]
+
+        if train_avg is None:
+            continue
+
+        if train_avg <= 0:
+            ratio = 1.0 if test_ret >= train_avg else 0.0
+        else:
+            ratio = min(1.0, max(0.0, test_ret / train_avg))
+
+        fold_results.append({
+            "train_years": fold["train"],
+            "test_year": test_yr,
+            "train_avg": round(train_avg, 2),
+            "test_return": round(test_ret, 2),
+            "ratio": round(ratio, 3),
+            "passed": ratio >= 0.50,
+        })
+
+    if not fold_results:
         return {
             "check": "B_walkforward",
-            "score": 0.5,   # neutral when data missing
+            "score": 0.5,
             "passed": None,
-            "note": "Insufficient years for walk-forward split",
-            "train_avg": train_avg,
-            "test_avg": test_avg,
+            "note": "Insufficient years for rolling walk-forward",
+            "folds": [],
         }
 
-    # Ratio: test / train (capped at 1.0 so outperforming train doesn't over-reward)
-    if train_avg <= 0:
-        # Train was negative — if test is also negative or zero, score 0
-        ratio = 1.0 if test_avg >= train_avg else 0.0
+    # CARLOS FIX: Use MEDIAN fold ratio (not mean) to neutralize 2022 outlier effect.
+    # A monster year like 2022 (+203%) inflates the train_avg for Folds 2 and 3,
+    # making it artificially hard for test years to meet the 50% threshold.
+    ratios = sorted(f["ratio"] for f in fold_results)
+    n = len(ratios)
+    if n % 2 == 1:
+        median_ratio = ratios[n // 2]
     else:
-        ratio = min(1.0, test_avg / train_avg)
+        median_ratio = (ratios[n // 2 - 1] + ratios[n // 2]) / 2.0
 
-    passed = ratio >= 0.50
+    folds_passed = sum(1 for f in fold_results if f["passed"])
+    score = round(median_ratio, 3)
+    passed = folds_passed >= 2  # at least 2 of 3 folds must pass (GATE — see compute_overfit_score)
 
     return {
         "check": "B_walkforward",
-        "train_years": train_years,
-        "test_years": test_years,
-        "train_avg_return": round(train_avg, 2),
-        "test_avg_return": round(test_avg, 2),
-        "ratio": round(ratio, 3),
-        "score": round(ratio, 3),
+        "folds": fold_results,
+        "folds_passed": folds_passed,
+        "folds_total": len(fold_results),
+        "median_ratio": round(median_ratio, 3),
+        "score": score,
         "passed": passed,
-        "note": f"Test={test_avg:+.1f}% vs Train={train_avg:+.1f}% (ratio={ratio:.2f}, need ≥0.50)",
+        "note": (f"Rolling WF: {folds_passed}/{len(fold_results)} folds pass (median ratio={median_ratio:.2f})"
+                 + (" ✓" if passed else " ✗ GATE FAIL — composite capped at SUSPECT")),
     }
 
 
@@ -128,6 +164,11 @@ def check_c_sensitivity(params: dict, base_results: dict, use_real: bool, ticker
 
     jitter_results = []
     cliff_params = []
+    trade_count_cliff = []
+
+    base_total_trades = sum(
+        r.get("total_trades", 0) for r in base_results.values() if "error" not in r
+    )
 
     # Only jitter the 3 highest-impact params to keep run count low
     params_to_test = [p for p in jitter_params if p in params][:3]
@@ -153,12 +194,21 @@ def check_c_sensitivity(params: dict, base_results: dict, use_real: bool, ticker
                 j_results = run_all_years(jittered, years, use_real, ticker)
                 j_avg = sum(r.get("return_pct", 0) for r in j_results.values()
                             if "error" not in r) / max(1, len(j_results))
+                j_trades = sum(r.get("total_trades", 0) for r in j_results.values()
+                               if "error" not in r)
                 elapsed = time.time() - t0
                 jitter_results.append({
                     "param": param, "delta_pct": pct, "new_val": new_val,
-                    "avg_return": round(j_avg, 2), "elapsed_sec": round(elapsed),
+                    "avg_return": round(j_avg, 2), "total_trades": j_trades,
+                    "elapsed_sec": round(elapsed),
                 })
                 param_jitter_rets.append(j_avg)
+                # Flag if trade count drops by >80% on a ±10% param change — signals
+                # high fragility (this is the root of "160 vs 7 trades" discrepancies).
+                if base_total_trades > 0 and j_trades < base_total_trades * 0.20:
+                    trade_count_cliff.append(
+                        f"{param}{pct:+.0%}: {j_trades} vs {base_total_trades} base"
+                    )
             except Exception as e:
                 logger.warning("Jitter run failed for %s=%s: %s", param, new_val, e)
 
@@ -177,6 +227,12 @@ def check_c_sensitivity(params: dict, base_results: dict, use_real: bool, ticker
     score = max(0.0, score)
     passed = score >= 0.60 and not cliff_params
 
+    note = f"Jitter avg={jitter_avg:+.1f}% vs base={base_avg:+.1f}%"
+    if cliff_params:
+        note += f" ⚠️ CLIFF PARAMS: {cliff_params}"
+    if trade_count_cliff:
+        note += f" ⚠️ TRADE COUNT CLIFF: {trade_count_cliff}"
+
     return {
         "check": "C_sensitivity",
         "base_avg_return": round(base_avg, 2),
@@ -184,9 +240,9 @@ def check_c_sensitivity(params: dict, base_results: dict, use_real: bool, ticker
         "score": round(score, 3),
         "passed": passed,
         "cliff_params": cliff_params,
+        "trade_count_cliff": trade_count_cliff,
         "jitter_runs": jitter_results,
-        "note": (f"Jitter avg={jitter_avg:+.1f}% vs base={base_avg:+.1f}%"
-                 + (f" ⚠️ CLIFF PARAMS: {cliff_params}" if cliff_params else "")),
+        "note": note,
     }
 
 
@@ -304,13 +360,77 @@ def check_f_drawdown(results_by_year: dict, max_dd_limit: float = -50.0,
     }
 
 
+# ── Check H — Data consistency ────────────────────────────────────────────────
+
+def check_h_data_consistency(results_by_year: dict) -> dict:
+    """
+    Verify internal accounting consistency per year:
+      return_pct must match (ending_capital - starting_capital) / starting_capital * 100
+    within 1%.  Mismatch signals a double-counting or capital tracking bug.
+    Also flags years where 0 trades were recorded — useful for spotting
+    data pipeline holes (e.g. 'exp_031: 160 trades vs 7 trades' discrepancy).
+    """
+    inconsistencies = []
+    zero_trade_years = []
+
+    for yr, r in results_by_year.items():
+        if "error" in r:
+            continue
+
+        end   = r.get("ending_capital", 0)
+        start = r.get("starting_capital", 0)
+        ret   = r.get("return_pct", 0)
+
+        if start > 0 and end > 0:
+            implied = (end - start) / start * 100
+            if abs(implied - ret) > 1.0:
+                inconsistencies.append({
+                    "year":      yr,
+                    "reported_return_pct":  round(ret, 2),
+                    "implied_return_pct":   round(implied, 2),
+                    "delta":                round(abs(implied - ret), 2),
+                })
+
+        trades = r.get("total_trades", 0)
+        if trades == 0:
+            zero_trade_years.append(yr)
+
+    passed = len(inconsistencies) == 0
+    score  = 1.0 if passed else 0.0
+
+    note = "All metrics internally consistent"
+    if inconsistencies:
+        note = f"⚠️  {len(inconsistencies)} metric inconsistencies — check capital tracking"
+    if zero_trade_years:
+        note += f" | 0-trade years: {zero_trade_years}"
+
+    return {
+        "check":              "H_data_consistency",
+        "inconsistencies":    inconsistencies,
+        "zero_trade_years":   zero_trade_years,
+        "score":              score,
+        "passed":             passed,
+        "note":               note,
+    }
+
+
 # ── Check G — Composite score ─────────────────────────────────────────────────
 
 def compute_overfit_score(checks: dict) -> tuple:
     """
-    Weighted composite per MASTERPLAN:
+    Weighted composite per MASTERPLAN (CARLOS UPDATED RULES):
       consistency × 0.25 + walkforward × 0.30 + sensitivity × 0.25
       + trade_count × 0.10 + regime_diversity × 0.10
+
+    HARD GATES (Carlos critique §1, §4):
+      - Walk-forward (B) FAIL → composite capped at 0.59 (always SUSPECT)
+      - Sensitivity (C) FAIL → composite capped at 0.59 (always SUSPECT)
+      - Drawdown (F) FAIL → composite capped at 0.59 (always SUSPECT)
+
+    These are not "partial credit" failures — they are disqualifying.
+    Motivation: B and C are the FORWARD-LOOKING checks. A strategy that
+    fails out-of-sample and can't survive parameter jitter will NOT work
+    in live trading regardless of in-sample performance.
     """
     weights = {
         "A_consistency":    0.25,
@@ -325,10 +445,25 @@ def compute_overfit_score(checks: dict) -> tuple:
         s = c.get("score", 0.5) if c.get("score") is not None else 0.5
         score += s * w
 
-    # Drawdown check (F) is a gate — violations cap the composite at 0.60
+    gates_failed = []
+
+    # Walk-forward GATE (B) — must pass to be ROBUST
+    b = checks.get("B_walkforward", {})
+    if b.get("passed") is False:
+        gates_failed.append("B_walkforward")
+
+    # Sensitivity GATE (C) — must pass to be ROBUST
+    c_check = checks.get("C_sensitivity", {})
+    if c_check.get("passed") is False:
+        gates_failed.append("C_sensitivity")
+
+    # Drawdown GATE (F) — violations cap the composite
     f = checks.get("F_drawdown", {})
     if not f.get("passed", True):
-        score = min(score, 0.60)
+        gates_failed.append("F_drawdown")
+
+    if gates_failed:
+        score = min(score, 0.59)
 
     score = round(score, 3)
 
@@ -339,7 +474,7 @@ def compute_overfit_score(checks: dict) -> tuple:
     else:
         verdict = "OVERFIT"
 
-    return score, verdict
+    return score, verdict, gates_failed
 
 
 # ── Main validation entry point ───────────────────────────────────────────────
@@ -361,6 +496,11 @@ def validate_params(params: dict, results_by_year: dict, years: list,
     Returns:
         Dict with per-check results, overfit_score, and verdict.
     """
+    # Run consistency check first — flag problems before computing overfit score
+    print("  [H] Data consistency...", end=" ", flush=True)
+    check_h = check_h_data_consistency(results_by_year)
+    print(f"{check_h['score']:.2f}  {'✓' if check_h['passed'] else '⚠️  ' + check_h['note']}")
+
     print("  [A] Cross-year consistency...", end=" ", flush=True)
     check_a = check_a_consistency(results_by_year)
     print(f"{check_a['score']:.2f}  {'✓' if check_a['passed'] else '✗'}")
@@ -391,6 +531,7 @@ def validate_params(params: dict, results_by_year: dict, years: list,
     print(f"{check_f['score']:.2f}  {'✓' if check_f['passed'] else '✗'}")
 
     checks = {
+        "H_data_consistency": check_h,
         "A_consistency":      check_a,
         "B_walkforward":      check_b,
         "C_sensitivity":      check_c,
@@ -399,15 +540,17 @@ def validate_params(params: dict, results_by_year: dict, years: list,
         "F_drawdown":         check_f,
     }
 
-    overfit_score, verdict = compute_overfit_score(checks)
+    overfit_score, verdict, gates_failed = compute_overfit_score(checks)
 
     icon = "✅ ROBUST" if verdict == "ROBUST" else ("⚠️  SUSPECT" if verdict == "SUSPECT" else "❌ OVERFIT")
-    print(f"  Overfit score: {overfit_score:.3f}  →  {icon}")
+    gate_note = f" [GATES FAILED: {', '.join(gates_failed)}]" if gates_failed else ""
+    print(f"  Overfit score: {overfit_score:.3f}  →  {icon}{gate_note}")
 
     return {
         "checks":        checks,
         "overfit_score": overfit_score,
         "verdict":       verdict,
+        "gates_failed":  gates_failed,
     }
 
 

@@ -23,10 +23,18 @@ import time
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Optional
 
 # ── paths ───────────────────────────────────────────────────────────────────
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
+
+# Load .env so POLYGON_API_KEY is available when running via Claude or cron
+try:
+    from dotenv import load_dotenv
+    load_dotenv(ROOT / ".env")
+except ImportError:
+    pass
 OUTPUT = ROOT / "output"
 OUTPUT.mkdir(exist_ok=True)
 
@@ -51,10 +59,18 @@ BASELINE_PARAMS = {
     # Risk
     "stop_loss_multiplier": 2.5,
     "profit_target":     50,      # % of credit received
-    "max_risk_per_trade": 2.0,    # % of starting capital
+    "max_risk_per_trade": 2.0,    # % of account per trade
     "max_contracts":     5,
     # Mode
     "direction":         "both",  # both | bull_put | bear_call
+    # Phase 2: compounding
+    "compound":          False,   # True → use current equity for sizing
+    "sizing_mode":       "iv_scaled",  # iv_scaled | flat
+    # Phase 4: iron condors
+    "iron_condor_enabled":          False,
+    "ic_min_combined_credit_pct":   20,   # % of spread width combined credit floor
+    # Phase 4 (CRITIQUE): IV Rank entry gate — only sell when IVR >= threshold
+    "iv_rank_min_entry":            0,    # 0 = disabled; 20-25 recommended floor
 }
 
 YEARS = [2020, 2021, 2022, 2023, 2024, 2025]
@@ -121,7 +137,11 @@ def _build_config(params: dict) -> dict:
             "direction":           params.get("direction", "both"),
             "trend_ma_period":     params.get("trend_ma_period", 20),
             "momentum_filter_pct": params.get("momentum_filter_pct", None),
-            "iron_condor":         {"enabled": False},
+            "iron_condor": {
+                "enabled":                 params.get("iron_condor_enabled", False),
+                "min_combined_credit_pct": params.get("ic_min_combined_credit_pct", 20),
+            },
+            "iv_rank_min_entry":   params.get("iv_rank_min_entry", 0),
         },
         "risk": {
             "stop_loss_multiplier": params.get("stop_loss_multiplier", 2.5),
@@ -129,17 +149,25 @@ def _build_config(params: dict) -> dict:
             "max_risk_per_trade":   params.get("max_risk_per_trade", 2.0),
             "max_contracts":        params.get("max_contracts", 5),
             "max_positions":        50,
+            "drawdown_cb_pct":      params.get("drawdown_cb_pct", 20),
         },
         "backtest": {
             "starting_capital":   100_000,
             "commission_per_contract": 0.65,
             "slippage":           0.05,
             "exit_slippage":      0.10,
+            "compound":           params.get("compound", False),
+            "sizing_mode":        params.get("sizing_mode", "iv_scaled"),
+            "slippage_multiplier": params.get("slippage_multiplier", 1.0),
+            "max_portfolio_exposure_pct": params.get("max_portfolio_exposure_pct", 100.0),
+            "exclude_months": params.get("exclude_months", []),
+            # Monte Carlo DTE range (forwarded when run_monte_carlo.py injects it into params)
+            "monte_carlo": params.get("monte_carlo", {}),
         },
     }
 
 
-def run_year(ticker: str, year: int, params: dict, use_real_data: bool) -> dict:
+def run_year(ticker: str, year: int, params: dict, use_real_data: bool, seed: Optional[int] = None) -> dict:
     """Run a single-year backtest and return the results dict."""
     from backtest.backtester import Backtester
 
@@ -151,13 +179,12 @@ def run_year(ticker: str, year: int, params: dict, use_real_data: bool) -> dict:
     if use_real_data:
         try:
             from backtest.historical_data import HistoricalOptionsData
-            hd_config = {"polygon": {"api_key": os.getenv("POLYGON_API_KEY", "")},
-                         "backtest": config["backtest"]}
-            hd = HistoricalOptionsData(hd_config)
+            polygon_api_key = os.getenv("POLYGON_API_KEY", "")
+            hd = HistoricalOptionsData(polygon_api_key)
         except Exception as e:
             logger.warning("Could not init HistoricalOptionsData: %s — falling back to heuristic", e)
 
-    bt = Backtester(config, historical_data=hd, otm_pct=params.get("otm_pct", 0.05))
+    bt = Backtester(config, historical_data=hd, otm_pct=params.get("otm_pct", 0.05), seed=seed)
     result = bt.run_backtest(ticker, start, end)
     result = result or {}
 

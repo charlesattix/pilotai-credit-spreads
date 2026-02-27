@@ -113,6 +113,44 @@
 
 ---
 
+### Lesson 014: IC fallback missing _entered_today dedup causes overtrading
+- **Date**: 2026-02-26
+- **What happened**: Iron condor fallback (lines 354-360) had no `_entered_today` add and no `continue`. In 2024 with IC enabled, 133 trades were recorded instead of ~22 (expected). 2024 MaxDD hit -61%.
+- **Impact**: exp_052 results are invalid. Any IC backtest before the fix is over-counting IC trades per day.
+- **Root cause**: Put and call paths both have `_entered_today.add(_key)` + `continue`. IC path had neither.
+- **Fix**: Added `_ic_key = (expiration, short_strike, call_short_strike, 'IC')` dedup check + `continue` after opening IC.
+- **Rule**: EVERY position-opening branch in the scan loop MUST: (1) check `_entered_today` before appending, (2) add the key after appending, (3) `continue` to advance to next scan time.
+
+### Lesson 015: Lowering credit floor increases trades but reduces quality in high-vol years
+- **Date**: 2026-02-26
+- **What happened**: Dropped min_credit_pct from 8% to 6% in exp_051. Trade count improved in 2021 (5→15) and 2023 (13→19) BUT 2024 went from +1.48% to -6.1%. 2020 dropped from +5.83% to +0.3%.
+- **Impact**: avg_return dropped from 8.9% to 7.0% — WORSE than baseline.
+- **Root cause**: 6% credit floor admits marginal trades with negative edge in bull years. At 6% credit with 2.5x stop loss: stop at 15% while credit is only 6% → negative expected value after a few stops.
+- **Rule**: Lowering credit floor is a "volume trap" — more trades with worse edge. Keep 8% floor. Trade generation must come from different strategy (IC, calendar spreads) not diluted credit requirements.
+
+### Lesson 016: Pre-hardening returns were execution-cost illusions
+- **Date**: 2026-02-26
+- **What happened**: exp_036 showed 103.1% avg return with 10% risk, compound, MA200. Same params through hardened backtester (exp_053) show 14.9% avg.
+- **Impact**: ~85% of the "alpha" was not paying for slippage or commissions.
+- **Root cause**: Each round-trip trade costs $0.05 entry slippage + $0.10 exit slippage + $0.65 × 4 legs = $2.60+/contract commissions. At 25 contracts, that's $65/trade easily.
+- **Rule**: NEVER trust backtests that don't include full execution costs. 5% risk results scale roughly 2x per doubling of risk (10% → ~14.9%, 5% → ~8.9%). 2022 with bear calls at 10% risk = 59.8% even with hardening.
+
+### Lesson 017: Same-expiration duplicate positions inflate trade counts across days
+- **Date**: 2026-02-26
+- **What happened**: `_entered_today` prevents same-day duplication but resets each morning. If day-1 and day-2 both target the same Friday expiration (common when Friday fallback is active), two positions open for the same (expiration, strike) — effectively doubling size invisibly.
+- **Impact**: Friday fallback experiment showed 127 trades in 2024 (real: ~40-50). Returns inflated. exp_058 results INVALID.
+- **Root cause**: `_entered_today` only covers within-day dedup. Cross-day dedup (against `open_positions` list) was missing.
+- **Fix**: Added `_open_keys` set at start of each trading day (built from all currently open positions). Any new position must clear BOTH `_entered_today` AND `_open_keys` before being added.
+- **Rule**: ANY position-opening system with continuous overlapping positions MUST check against ALL currently open positions, not just same-day activity. One unique (expiration, strike, type) allowed at a time.
+
+### Lesson 018: HistoricalOptionsData passed dict instead of api_key string
+- **Date**: 2026-02-26
+- **What happened**: `run_optimization.py` passed entire config dict to `HistoricalOptionsData(hd_config)` instead of the string API key
+- **Impact**: URL had `apiKey=polygon&apiKey=backtest` (dict keys, not real key). All experiments with uncached data got 401 errors. Previous experiments ONLY worked because their data was warm in SQLite cache.
+- **Root cause**: `hd_config = {"polygon": {...}, "backtest": {...}}` was passed as `api_key` param. Python accepted it (dict is truthy). When requests serialized `params={"apiKey": dict}`, it iterated dict keys → `apiKey=polygon&apiKey=backtest`.
+- **Fix**: Changed to `polygon_api_key = os.getenv("POLYGON_API_KEY", "")` then `HistoricalOptionsData(polygon_api_key)`.
+- **Rule**: Always verify the TYPE of arguments you're passing, not just that they're non-None. A dict where a string is expected silently corrupts URL params.
+
 ## 📐 Template for New Lessons
 
 ```markdown

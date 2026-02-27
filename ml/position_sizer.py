@@ -71,6 +71,7 @@ def get_contract_size(
     trade_dollar_risk: float,
     spread_width: float,
     credit_received: float,
+    max_contracts: int = 5,
 ) -> int:
     """Convert a dollar risk budget into a contract count.
 
@@ -78,15 +79,16 @@ def get_contract_size(
         trade_dollar_risk: Dollar risk budget from calculate_dynamic_risk().
         spread_width: Width of the spread in dollars (e.g. 5 for a $5-wide spread).
         credit_received: Net credit per spread in dollars (e.g. 0.65).
+        max_contracts: Hard cap on contract count (default 5 for backward compat).
 
     Returns:
-        Number of contracts (integer, minimum 0, maximum 5).
+        Number of contracts (integer, minimum 0, capped at max_contracts).
     """
     max_loss_per_contract = (spread_width - credit_received) * 100
     if max_loss_per_contract <= 0:
         return 0
     contracts = int(trade_dollar_risk // max_loss_per_contract)
-    return min(contracts, 5)
+    return min(contracts, max_contracts)
 
 
 class PositionSizer:

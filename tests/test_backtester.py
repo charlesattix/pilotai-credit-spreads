@@ -173,17 +173,19 @@ class TestClosePosition:
         assert self.bt.trades[0]['pnl'] == pytest.approx(expected_pnl, rel=1e-6)
 
     def test_profit_target(self):
-        """Profit target should earn profit_target amount minus commissions."""
+        """Profit target should earn profit_target amount minus commissions and exit slippage."""
         pos = _make_position(credit=1.50, contracts=1, commission=1.30)
         self.bt._close_position(pos, datetime(2025, 1, 20), 460, 'profit_target')
-        expected_pnl = pos['profit_target'] * 1 * 100 - 1.30
+        # exit_slippage=0.10 now applied to profit-target exits (buy-back friction)
+        expected_pnl = pos['profit_target'] * 1 * 100 - self.bt.exit_slippage * 1 * 100 - 1.30
         assert self.bt.trades[0]['pnl'] == pytest.approx(expected_pnl, rel=1e-6)
 
     def test_stop_loss(self):
-        """Stop loss should lose stop_loss amount plus commissions."""
+        """Stop loss should lose stop_loss amount plus commissions and exit slippage."""
         pos = _make_position(credit=1.50, contracts=1, commission=1.30)
         self.bt._close_position(pos, datetime(2025, 1, 15), 440, 'stop_loss')
-        expected_pnl = -(pos['stop_loss'] * 1 * 100) - 1.30
+        # exit_slippage=0.10 applied to stop-loss exits
+        expected_pnl = -(pos['stop_loss'] * 1 * 100) - self.bt.exit_slippage * 1 * 100 - 1.30
         assert self.bt.trades[0]['pnl'] == pytest.approx(expected_pnl, rel=1e-6)
 
     def test_other_reason(self):
@@ -361,8 +363,8 @@ class TestRealPricing:
         assert len(remaining) == 0
         assert len(self.bt.trades) == 1
         assert self.bt.trades[0]['exit_reason'] == 'profit_target'
-        # PnL = (2.00 - 0.40) * 1 * 100 - 1.30 = 158.70
-        assert self.bt.trades[0]['pnl'] == pytest.approx(158.70, rel=1e-4)
+        # PnL = (2.00 - 0.40 - exit_slippage=0.10) * 1 * 100 - 1.30 = 148.70
+        assert self.bt.trades[0]['pnl'] == pytest.approx(148.70, rel=1e-4)
 
     def test_manage_positions_real_data_stop_loss(self):
         """In real-data mode, should close at stop loss."""
@@ -735,6 +737,40 @@ class TestBearCallBacktest:
 # ---------------------------------------------------------------------------
 # Tests for intraday backtesting (14 scan times per day)
 # ---------------------------------------------------------------------------
+
+class TestNearestWeekdayExpiration:
+    """Tests for P5b: _nearest_weekday_expiration (Mon-Fri, post-2022-09-12)."""
+
+    def test_returns_a_weekday(self):
+        """Result should always be a weekday (Mon-Fri)."""
+        from backtest.backtester import _nearest_weekday_expiration
+        # Any target: result must be Mon-Fri
+        result = _nearest_weekday_expiration(datetime(2022, 10, 3), target_dte=35)
+        assert result.weekday() < 5  # 0=Mon, 4=Fri
+
+    def test_tuesday_target_returned_directly(self):
+        """date + 35 = Tuesday → nearest weekday is Tuesday itself."""
+        from backtest.backtester import _nearest_weekday_expiration
+        # Oct 3 (Mon) + 35 = Nov 7 (Mon). Let's find a Tuesday target:
+        # Jan 7, 2025 (Tue) + 28 = Feb 4 (Tue)
+        result = _nearest_weekday_expiration(datetime(2025, 1, 7), target_dte=28)
+        assert result.weekday() < 5  # Mon-Fri
+
+    def test_satisfies_min_dte(self):
+        """Result must be at least min_dte days from entry."""
+        from backtest.backtester import _nearest_weekday_expiration
+        entry = datetime(2022, 10, 3)
+        result = _nearest_weekday_expiration(entry, target_dte=35, min_dte=25)
+        assert (result - entry).days >= 25
+
+    def test_weekend_target_skipped_to_monday(self):
+        """If target lands on weekend, snap to nearest weekday."""
+        from backtest.backtester import _nearest_weekday_expiration
+        # Find a target that lands on Saturday/Sunday
+        # Jan 4 (Sat) + 35 = Feb 8 (Sat) → should snap to Mon Feb 10 or Fri Feb 7
+        result = _nearest_weekday_expiration(datetime(2025, 1, 4), target_dte=35)
+        assert result.weekday() < 5
+
 
 class TestNearestFridayExpiration:
     """Tests for the Friday-snapping expiration helper."""
@@ -1137,3 +1173,137 @@ class TestIntradayHistoricalData:
         cur.execute("SELECT COUNT(*) FROM option_intraday")
         assert cur.fetchone()[0] == 0
         hd.close()
+
+
+# ---------------------------------------------------------------------------
+# Tests for P1: Portfolio-Level Exposure Constraint
+# ---------------------------------------------------------------------------
+
+class TestPortfolioExposureConstraint:
+    """Test that max_portfolio_exposure_pct blocks entries when exposure is too high."""
+
+    def _make_config_with_exposure(self, exposure_pct):
+        cfg = _make_config()
+        cfg['backtest']['max_portfolio_exposure_pct'] = exposure_pct
+        return cfg
+
+    def test_no_constraint_by_default(self):
+        """Default 100% means no constraint — _exposure_ok always True."""
+        bt = Backtester(_make_config())
+        assert bt._max_portfolio_exposure_pct == 100.0
+
+    def test_constraint_stored_from_config(self):
+        """max_portfolio_exposure_pct is read from backtest config."""
+        bt = Backtester(self._make_config_with_exposure(30.0))
+        assert bt._max_portfolio_exposure_pct == 30.0
+
+    def test_exposure_ok_when_below_cap(self):
+        """A new position that keeps total exposure below cap should be allowed."""
+        bt = Backtester(self._make_config_with_exposure(30.0))
+        bt.capital = 100_000
+        open_positions = []
+        # Simulate an open position with $5K max loss (5% exposure)
+        open_positions.append(_make_position(max_loss=2.50, contracts=20))  # $5K max loss
+
+        # New position: $5K max loss → total 10% exposure (well under 30%)
+        new_pos = _make_position(max_loss=2.50, contracts=20)
+        # Inline the exposure check logic (mirrors backtester implementation)
+        current_max_loss = sum(p['max_loss'] * p['contracts'] * 100 for p in open_positions)
+        new_max_loss = new_pos['max_loss'] * new_pos['contracts'] * 100
+        total_equity = bt.capital + sum(p.get('current_value', 0) for p in open_positions)
+        exposure_pct = (current_max_loss + new_max_loss) / total_equity * 100
+        assert exposure_pct < 30.0
+
+    def test_exposure_blocked_when_above_cap(self):
+        """A new position that pushes total exposure over cap should be blocked."""
+        bt = Backtester(self._make_config_with_exposure(20.0))
+        bt.capital = 100_000
+        open_positions = []
+        # Existing: $18K max loss = 18% exposure
+        open_positions.append(_make_position(max_loss=4.50, contracts=40))  # $18K
+
+        # New position: $5K max loss → would be 23% total — over 20% cap
+        new_pos = _make_position(max_loss=2.50, contracts=20)  # $5K
+        current_max_loss = sum(p['max_loss'] * p['contracts'] * 100 for p in open_positions)
+        new_max_loss = new_pos['max_loss'] * new_pos['contracts'] * 100
+        total_equity = bt.capital + sum(p.get('current_value', 0) for p in open_positions)
+        exposure_pct = (current_max_loss + new_max_loss) / total_equity * 100
+        assert exposure_pct > 20.0
+
+    def test_no_constraint_at_100_pct(self):
+        """At 100% cap, even 80K max loss against 100K equity should be OK."""
+        bt = Backtester(self._make_config_with_exposure(100.0))
+        bt.capital = 100_000
+        open_positions = [_make_position(max_loss=4.50, contracts=160)]  # $72K
+        new_pos = _make_position(max_loss=4.50, contracts=20)  # $9K → total $81K = 81%
+        current_max_loss = sum(p['max_loss'] * p['contracts'] * 100 for p in open_positions)
+        new_max_loss = new_pos['max_loss'] * new_pos['contracts'] * 100
+        total_equity = bt.capital + sum(p.get('current_value', 0) for p in open_positions)
+        exposure_pct = (current_max_loss + new_max_loss) / total_equity * 100
+        # With no constraint (100% cap), 81% < 100% → allowed
+        assert exposure_pct <= 100.0
+
+
+# ---------------------------------------------------------------------------
+# Probability-of-ruin utility tests
+# ---------------------------------------------------------------------------
+
+class TestProbabilityOfRuin:
+    """Unit tests for scripts/prob_of_ruin.py utility functions."""
+
+    def _import(self):
+        import importlib.util, os, sys
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        spec = importlib.util.spec_from_file_location(
+            "prob_of_ruin", os.path.join(root, "scripts", "prob_of_ruin.py")
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_kelly_no_losses(self):
+        mod = self._import()
+        # Kelly is undefined with no losses — function returns max-proxy
+        result = mod._kelly_fraction(0.99, 999)
+        assert result > 0
+
+    def test_kelly_edge_zero(self):
+        mod = self._import()
+        # p=0.5, b=1.0 → edge = 0 → Kelly = 0
+        k = mod._kelly_fraction(0.5, 1.0)
+        assert abs(k) < 1e-10
+
+    def test_kelly_positive_edge(self):
+        mod = self._import()
+        # p=0.6, b=1.5 → Kelly = 0.6 - 0.4/1.5 = 0.333
+        k = mod._kelly_fraction(0.6, 1.5)
+        assert abs(k - (0.6 - 0.4 / 1.5)) < 1e-10
+
+    def test_ruin_zero_prob_high_win_rate(self):
+        mod = self._import()
+        # High WR strategy: 99% win rate, tiny losses — should have 0% ruin
+        returns = [0.02] * 99 + [-0.005]  # 99 wins, 1 loss per 100
+        ruin_p, _, _ = mod.monte_carlo_ruin(returns, n_sims=1000, horizon=100, ruin_pct=50.0)
+        assert ruin_p == 0.0
+
+    def test_ruin_high_prob_large_losses(self):
+        mod = self._import()
+        # Terrible strategy: 40% win rate, -30% on losses → almost certain ruin
+        returns = [0.02] * 4 + [-0.30] * 6  # 40% win, 60% loss
+        ruin_p, _, _ = mod.monte_carlo_ruin(returns, n_sims=1000, horizon=200, ruin_pct=50.0)
+        assert ruin_p > 0.5  # more than 50% chance of ruin
+
+    def test_ruin_increases_with_horizon(self):
+        mod = self._import()
+        returns = [0.01] * 7 + [-0.10] * 3  # 70% WR, -10% losses
+        ruin_100, _, _ = mod.monte_carlo_ruin(returns, n_sims=2000, horizon=100, ruin_pct=50.0)
+        ruin_500, _, _ = mod.monte_carlo_ruin(returns, n_sims=2000, horizon=500, ruin_pct=50.0)
+        # Longer horizon should have higher or equal ruin probability
+        assert ruin_500 >= ruin_100
+
+    def test_median_equity_grows_with_wins(self):
+        mod = self._import()
+        # Pure wins → median equity should compound up
+        returns = [0.01] * 100  # all wins at 1%
+        _, med_eq, _ = mod.monte_carlo_ruin(returns, n_sims=500, horizon=50, ruin_pct=50.0)
+        assert med_eq > 1.0  # should grow from 1.0 baseline

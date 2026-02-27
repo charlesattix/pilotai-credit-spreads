@@ -5,6 +5,7 @@ Tests credit spread strategies against historical data using real option prices.
 
 import logging
 import math
+import random
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -54,6 +55,118 @@ def _nearest_friday_expiration(
     return friday_after
 
 
+def _nearest_mwf_expiration(
+    date: datetime, target_dte: int = 35, min_dte: int = 25
+) -> datetime:
+    """Return the nearest Mon/Wed/Fri expiration around *target_dte* days out.
+
+    SPY, QQQ, and IWM have three weekly expiration cycles (Mon, Wed, Fri).
+    This supersedes the Friday-only logic so we capture all available dates.
+    The Polygon API naturally enforces historical availability — if a Monday
+    expiration didn't exist in 2020, no contracts will be returned and the
+    trade is skipped.
+
+    Args:
+        date: Entry / evaluation date.
+        target_dte: Desired days-to-expiration (default 35).
+        min_dte: Minimum acceptable DTE (default 25).
+
+    Returns:
+        A datetime set to midnight of the nearest Mon/Wed/Fri.
+    """
+    _MWF = {0, 2, 4}  # Monday=0, Wednesday=2, Friday=4
+    target = date + timedelta(days=target_dte)
+    min_exp = date + timedelta(days=min_dte)
+
+    # Nearest MWF at or before target (max 2 days back)
+    before = target
+    for _ in range(3):
+        if before.weekday() in _MWF:
+            break
+        before -= timedelta(days=1)
+
+    # Nearest MWF at or after target (max 3 days forward)
+    after = target
+    for _ in range(4):
+        if after.weekday() in _MWF:
+            break
+        after += timedelta(days=1)
+
+    days_back = (target - before).days
+    days_fwd  = (after - target).days
+
+    # Prefer the closer candidate; if both are equidistant take the later one
+    # (more time value), but only if it meets min_dte.
+    if before >= min_exp and days_back <= days_fwd:
+        return before
+    if after >= min_exp:
+        return after
+
+    # Neither candidate meets min_dte — advance to next MWF past min_exp
+    candidate = min_exp
+    for _ in range(7):
+        if candidate.weekday() in _MWF:
+            return candidate
+        candidate += timedelta(days=1)
+    return after  # unreachable in practice
+
+
+# SPY added Tuesday/Thursday weekly expirations in September 2022.
+# From this date forward, we target all 5 weekdays (Mon-Fri) instead of
+# only Mon/Wed/Fri.  Polygon enforces historical availability — any Tue/Thu
+# expiration that didn't exist yet returns no contracts and the trade is skipped.
+_SPY_TUETHU_START = datetime(2022, 9, 12)
+
+
+def _nearest_weekday_expiration(
+    date: datetime, target_dte: int = 35, min_dte: int = 25
+) -> datetime:
+    """Return the nearest Mon–Fri expiration around *target_dte* days out.
+
+    Used for SPY post-2022-09-12 when Tue/Thu weeklies are available.
+    All 5 weekdays are candidates; Polygon enforces which ones actually
+    had listed contracts on a given date.
+
+    Args:
+        date: Entry / evaluation date.
+        target_dte: Desired days-to-expiration (default 35).
+        min_dte: Minimum acceptable DTE (default 25).
+
+    Returns:
+        A datetime set to midnight of the nearest weekday expiration.
+    """
+    _WEEKDAYS = {0, 1, 2, 3, 4}  # Mon=0 … Fri=4
+    target = date + timedelta(days=target_dte)
+    min_exp = date + timedelta(days=min_dte)
+
+    before = target
+    for _ in range(5):
+        if before.weekday() in _WEEKDAYS:
+            break
+        before -= timedelta(days=1)
+
+    after = target
+    for _ in range(5):
+        if after.weekday() in _WEEKDAYS:
+            break
+        after += timedelta(days=1)
+
+    days_back = (target - before).days
+    days_fwd  = (after - target).days
+
+    if before >= min_exp and days_back <= days_fwd:
+        return before
+    if after >= min_exp:
+        return after
+
+    candidate = min_exp
+    for _ in range(7):
+        if candidate.weekday() in _WEEKDAYS:
+            return candidate
+        candidate += timedelta(days=1)
+    return after  # unreachable in practice
+
+
 class Backtester:
     """
     Backtest credit spread strategies on historical data.
@@ -63,7 +176,7 @@ class Backtester:
     Otherwise falls back to the legacy heuristic mode (for quick testing).
     """
 
-    def __init__(self, config: Dict, historical_data=None, otm_pct: float = 0.05):
+    def __init__(self, config: Dict, historical_data=None, otm_pct: float = 0.05, seed: Optional[int] = None):
         """
         Initialize backtester.
 
@@ -79,13 +192,40 @@ class Backtester:
         self.strategy_params = config['strategy']
         self.risk_params = config['risk']
 
+        # Safety warning: recommended max 5% for live trading (CRITIQUE §5).
+        # Backtesting at higher risk is allowed to understand return profiles.
+        # Cap only applies if backtest.risk_cap is explicitly set (default: no cap for research).
+        _LIVE_RISK_GUIDELINE = 5.0
+        _MAX_RISK_CAP = self.backtest_config.get('risk_cap', 25.0)  # hard ceiling
+        _configured_risk = self.risk_params.get('max_risk_per_trade', 2.0)
+        if _configured_risk > _LIVE_RISK_GUIDELINE:
+            logger.warning(
+                "max_risk_per_trade=%.1f%% exceeds %.1f%% live-trading guideline (CRITIQUE §5) — "
+                "acceptable for backtesting research only",
+                _configured_risk, _LIVE_RISK_GUIDELINE,
+            )
+        if _configured_risk > _MAX_RISK_CAP:
+            logger.warning(
+                "max_risk_per_trade=%.1f%% exceeds hard ceiling %.1f%% — capping",
+                _configured_risk, _MAX_RISK_CAP,
+            )
+            self.risk_params = {**self.risk_params, 'max_risk_per_trade': _MAX_RISK_CAP}
+
         self.starting_capital = self.backtest_config['starting_capital']
         self.commission = self.backtest_config['commission_per_contract']
         self.slippage = self.backtest_config['slippage']
+        # Phase 2: compounding + flat-risk sizing
+        # compound=True → use current equity (self.capital) for position sizing
+        # sizing_mode='flat' → use max_risk_per_trade% directly (bypasses IV-scaled sizer)
+        self._compound = self.backtest_config.get('compound', False)
+        self._sizing_mode = self.backtest_config.get('sizing_mode', 'iv_scaled')
         # Additional friction when closing at a stop loss (adverse market conditions).
         # Entry slippage is already modeled via bar high-low; exit at stop happens in
         # fast markets where bid/ask is wider and fills are worse.
         self.exit_slippage = self.backtest_config.get('exit_slippage', 0.10)
+        # P2: Slippage brutality tests — multiply all slippage (entry + exit) by this factor.
+        # 1.0 = baseline, 2.0 = 2x brutality, 3.0 = 3x brutality.
+        self._slippage_multiplier: float = float(self.backtest_config.get('slippage_multiplier', 1.0))
         self.otm_pct = otm_pct
 
         self.historical_data = historical_data
@@ -108,6 +248,16 @@ class Backtester:
         self._target_dte: int = int(self.strategy_params.get('target_dte', 35))
         self._min_dte: int = int(self.strategy_params.get('min_dte', 25))
 
+        # Monte Carlo DTE randomization: if seed is provided, each trading day
+        # samples a DTE from U(dte_lo, dte_hi) using this seeded RNG.
+        # Current trade DTE is updated in the scan loop before each day's entries.
+        _mc = self.backtest_config.get('monte_carlo', {})
+        self._mc_dte_lo: int = int(_mc.get('dte_lo', 28))
+        self._mc_dte_hi: int = int(_mc.get('dte_hi', 42))
+        self._rng: Optional[random.Random] = random.Random(seed) if seed is not None else None
+        self._current_trade_dte: int = self._target_dte
+        self._current_trade_min_dte: int = self._min_dte
+
         # Profit target — configurable (config stores as %, e.g. 50 → close at 50% of credit)
         self._profit_target_pct: float = float(self.risk_params.get('profit_target', 50)) / 100.0
 
@@ -119,9 +269,25 @@ class Backtester:
         # Use 50 to avoid whipsawing on short-term MA crosses (e.g. brief 2024 dips).
         self._trend_ma_period: int = int(self.strategy_params.get('trend_ma_period', 20))
 
+        # P1: Portfolio-level exposure constraint — sum of max losses across all open
+        # positions as a % of current equity.  Default 100% = no constraint.
+        # Set to e.g. 30 to cap combined exposure at 30% of equity.
+        self._max_portfolio_exposure_pct: float = float(
+            self.backtest_config.get('max_portfolio_exposure_pct', 100.0)
+        )
+
+        # P7: Outlier month exclusion — list of "YYYY-MM" strings.
+        # On days falling within these months, NO new entries are opened.
+        # Existing positions are still managed (stops, profit targets, expiration).
+        # Example: ["2020-03", "2023-01"] strips COVID crash + Jan 2023 spike.
+        _exc = self.backtest_config.get('exclude_months', [])
+        self._exclude_months: set = set(_exc) if _exc else set()
+
         # Trade history
         self.trades = []
         self.equity_curve = []
+        # P5a: Friday fallback trigger counter (incremented during run_backtest)
+        self._friday_fallback_count = 0
 
         mode = "real data" if self._use_real_data else "heuristic"
         logger.info("Backtester initialized (%s mode, delta_selection=%s)",
@@ -176,8 +342,11 @@ class Backtester:
 
         # Initialize portfolio
         self.capital = self.starting_capital
+        self._peak_capital = self.starting_capital   # high-water mark for CB
         self.trades = []
         self.equity_curve = [(start_date, self.capital)]
+        # P5a: reset fallback counter at the start of each backtest run
+        self._friday_fallback_count = 0
 
         open_positions = []
 
@@ -220,10 +389,28 @@ class Backtester:
             # Real-data mode: simulate all 14 intraday scan times per trading day.
             # Heuristic mode: one scan per week on Monday (backward compat).
 
-            # Drawdown circuit breaker: pause NEW entries when account is down >20%
-            # from starting capital (prevents going to negative balance with fixed sizing).
-            _drawdown_pct = (self.capital - self.starting_capital) / self.starting_capital
-            _skip_new_entries = _drawdown_pct < -0.20
+            # Drawdown circuit breaker: pause NEW entries when equity drops too far.
+            # In compound mode: uses high-water mark (peak equity) as the reference.
+            # In fixed mode: uses starting capital as the reference (original behavior).
+            # Threshold is configurable via risk.drawdown_cb_pct (default -20%).
+            _cb_threshold = -abs(self.risk_params.get('drawdown_cb_pct', 20)) / 100
+            if self._compound:
+                self._peak_capital = max(self._peak_capital, self.capital)
+                _drawdown_pct = (self.capital - self._peak_capital) / self._peak_capital
+            else:
+                _drawdown_pct = (self.capital - self.starting_capital) / self.starting_capital
+
+            # IV Rank entry gate: only sell premium when implied vol overstates realized vol
+            # (market is pricing in fear → favorable conditions for premium selling).
+            # Set iv_rank_min_entry=0 (default) to disable; 20-25 is a sensible floor.
+            _iv_rank_min = self.strategy_params.get('iv_rank_min_entry', 0)
+            _iv_too_low  = _iv_rank_min > 0 and self._current_iv_rank < _iv_rank_min
+
+            # P7: Outlier month exclusion — skip new entries but still manage positions
+            _month_str = current_date.strftime("%Y-%m")
+            _excluded_month = _month_str in self._exclude_months
+
+            _skip_new_entries = _drawdown_pct < _cb_threshold or _iv_too_low or _excluded_month
 
             _ic_enabled = self.strategy_params.get('iron_condor', {}).get('enabled', False)
 
@@ -231,10 +418,43 @@ class Backtester:
             _want_calls = self._direction in ('both', 'bear_call')
 
             if self._use_real_data:
-                # Track (expiration_str, short_strike, option_type) already entered today.
+                # Track (expiration, short_strike, option_type) already entered today.
                 # Prevents multiple intraday scans from opening duplicate positions on the
                 # same (expiration, strike) when a single daily entry is intended.
                 _entered_today: set = set()
+
+                # Build a set of (expiration, short_strike, type) for ALL currently open
+                # positions — prevents opening a duplicate of an existing open position on
+                # a subsequent trading day (e.g. same Friday expiration targeted by two
+                # consecutive days when using MWF → Friday fallback).
+                _open_keys: set = set()
+                for _op in open_positions:
+                    _exp = _op.get('expiration')
+                    if _op.get('type') == 'iron_condor':
+                        _open_keys.add((_exp, _op['short_strike'], _op.get('call_short_strike'), 'IC'))
+                    else:
+                        _t = 'C' if _op.get('option_type') == 'C' else 'P'
+                        _open_keys.add((_exp, _op['short_strike'], _t))
+
+                def _exposure_ok(pos) -> bool:
+                    """Return False if adding pos would exceed portfolio max-loss exposure cap."""
+                    if self._max_portfolio_exposure_pct >= 100.0:
+                        return True
+                    current_max_loss = sum(p['max_loss'] * p['contracts'] * 100 for p in open_positions)
+                    new_max_loss = pos['max_loss'] * pos['contracts'] * 100
+                    total_equity = self.capital + sum(p.get('current_value', 0) for p in open_positions)
+                    equity = max(total_equity, 1.0)
+                    return (current_max_loss + new_max_loss) / equity * 100 <= self._max_portfolio_exposure_pct
+
+                # Monte Carlo DTE: sample once per trading day so all entries on
+                # the same day target the same expiration cycle.
+                if self._rng is not None:
+                    _sampled_dte = self._rng.randint(self._mc_dte_lo, self._mc_dte_hi)
+                    self._current_trade_dte = _sampled_dte
+                    self._current_trade_min_dte = max(20, _sampled_dte - 10)
+                else:
+                    self._current_trade_dte = self._target_dte
+                    self._current_trade_min_dte = self._min_dte
 
                 for scan_hour, scan_minute in SCAN_TIMES:
                     if _skip_new_entries:
@@ -248,9 +468,14 @@ class Backtester:
                         )
                         if new_position:
                             _key = (new_position.get('expiration'), new_position['short_strike'], 'P')
-                            if _key not in _entered_today:
-                                open_positions.append(new_position)
-                                _entered_today.add(_key)
+                            if _key not in _entered_today and _key not in _open_keys:
+                                if _exposure_ok(new_position):
+                                    open_positions.append(new_position)
+                                    _entered_today.add(_key)
+                                    _open_keys.add(_key)
+                                else:
+                                    self.capital += new_position.get('commission', 0)
+                                    logger.debug("Portfolio exposure cap — skipping bull_put %s", _key)
                             continue
                     if len(open_positions) >= self.risk_params['max_positions']:
                         break
@@ -261,9 +486,14 @@ class Backtester:
                         )
                         if bear_call:
                             _key = (bear_call.get('expiration'), bear_call['short_strike'], 'C')
-                            if _key not in _entered_today:
-                                open_positions.append(bear_call)
-                                _entered_today.add(_key)
+                            if _key not in _entered_today and _key not in _open_keys:
+                                if _exposure_ok(bear_call):
+                                    open_positions.append(bear_call)
+                                    _entered_today.add(_key)
+                                    _open_keys.add(_key)
+                                else:
+                                    self.capital += bear_call.get('commission', 0)
+                                    logger.debug("Portfolio exposure cap — skipping bear_call %s", _key)
                             continue
                     # Iron condor fallback — only if enabled in config
                     if _ic_enabled and len(open_positions) < self.risk_params['max_positions']:
@@ -271,7 +501,21 @@ class Backtester:
                             ticker, current_date, current_price, scan_hour, scan_minute,
                         )
                         if condor:
-                            open_positions.append(condor)
+                            _ic_key = (
+                                condor.get('expiration'),
+                                condor['short_strike'],
+                                condor['call_short_strike'],
+                                'IC',
+                            )
+                            if _ic_key not in _entered_today and _ic_key not in _open_keys:
+                                if _exposure_ok(condor):
+                                    open_positions.append(condor)
+                                    _entered_today.add(_ic_key)
+                                    _open_keys.add(_ic_key)
+                                else:
+                                    self.capital += condor.get('commission', 0)
+                                    logger.debug("Portfolio exposure cap — skipping IC %s", _ic_key)
+                            continue
             else:
                 # Heuristic mode: one opportunity scan per week on Monday
                 if current_date.weekday() == 0:
@@ -473,17 +717,40 @@ class Backtester:
                 if mom_pct < -abs(_mom_filter):
                     return None
 
-        # Expiration: nearest Friday around target DTE (options only expire on Fridays)
-        expiration = _nearest_friday_expiration(date, self._target_dte, self._min_dte)
+        # Expiration selection:
+        # - MC mode → Friday directly (cached, liquid, avoids new API calls per DTE value)
+        # - Post-2022-09-12 → all 5 weekdays (Mon–Fri) since SPY added Tue/Thu weeklies
+        # - Before 2022-09-12 → Mon/Wed/Fri only
+        if self._rng is not None:
+            expiration = _nearest_friday_expiration(date, self._current_trade_dte, self._current_trade_min_dte)
+        elif date >= _SPY_TUETHU_START:
+            expiration = _nearest_weekday_expiration(date, self._current_trade_dte, self._current_trade_min_dte)
+        else:
+            expiration = _nearest_mwf_expiration(date, self._current_trade_dte, self._current_trade_min_dte)
         date_str = date.strftime("%Y-%m-%d")
         spread_width = self.strategy_params['spread_width']
 
         if self._use_real_data:
-            return self._find_real_spread(
+            result = self._find_real_spread(
                 ticker, date, date_str, price, expiration,
                 spread_width, option_type="P",
                 scan_hour=scan_hour, scan_minute=scan_minute,
             )
+            # Friday fallback (non-MC mode only): if primary expiration has no data,
+            # try the nearest Friday. This catches pre-2022 Mon/Wed gaps and post-2022
+            # Tue/Thu expirations that may not have liquid options.
+            if result is None and self._rng is None:
+                friday_exp = _nearest_friday_expiration(
+                    date, self._current_trade_dte, self._current_trade_min_dte
+                )
+                if friday_exp != expiration:
+                    self._friday_fallback_count += 1
+                    result = self._find_real_spread(
+                        ticker, date, date_str, price, friday_exp,
+                        spread_width, option_type="P",
+                        scan_hour=scan_hour, scan_minute=scan_minute,
+                    )
+            return result
         else:
             return self._find_heuristic_spread(
                 ticker, date, price, expiration, spread_width, spread_type="bull_put_spread",
@@ -511,16 +778,33 @@ class Backtester:
             # Price above MA — bullish, skip bear calls
             return None
 
-        expiration = _nearest_friday_expiration(date, self._target_dte, self._min_dte)
+        if self._rng is not None:
+            expiration = _nearest_friday_expiration(date, self._current_trade_dte, self._current_trade_min_dte)
+        elif date >= _SPY_TUETHU_START:
+            expiration = _nearest_weekday_expiration(date, self._current_trade_dte, self._current_trade_min_dte)
+        else:
+            expiration = _nearest_mwf_expiration(date, self._current_trade_dte, self._current_trade_min_dte)
         date_str = date.strftime("%Y-%m-%d")
         spread_width = self.strategy_params['spread_width']
 
         if self._use_real_data:
-            return self._find_real_spread(
+            result = self._find_real_spread(
                 ticker, date, date_str, price, expiration,
                 spread_width, option_type="C",
                 scan_hour=scan_hour, scan_minute=scan_minute,
             )
+            if result is None and self._rng is None:
+                friday_exp = _nearest_friday_expiration(
+                    date, self._current_trade_dte, self._current_trade_min_dte
+                )
+                if friday_exp != expiration:
+                    self._friday_fallback_count += 1
+                    result = self._find_real_spread(
+                        ticker, date, date_str, price, friday_exp,
+                        spread_width, option_type="C",
+                        scan_hour=scan_hour, scan_minute=scan_minute,
+                    )
+            return result
         else:
             return self._find_heuristic_spread(
                 ticker, date, price, expiration, spread_width, spread_type="bear_call_spread",
@@ -543,22 +827,45 @@ class Backtester:
         if not self._use_real_data:
             return None
 
-        expiration = _nearest_friday_expiration(date, self._target_dte, self._min_dte)
+        if self._rng is not None:
+            # MC mode: target Friday directly — no Mon/Wed API calls for uncached expirations
+            expiration = _nearest_friday_expiration(date, self._current_trade_dte, self._current_trade_min_dte)
+            friday_exp = expiration
+        elif date >= _SPY_TUETHU_START:
+            expiration = _nearest_weekday_expiration(date, self._current_trade_dte, self._current_trade_min_dte)
+            friday_exp = _nearest_friday_expiration(date, self._current_trade_dte, self._current_trade_min_dte)
+        else:
+            expiration = _nearest_mwf_expiration(date, self._current_trade_dte, self._current_trade_min_dte)
+            friday_exp = _nearest_friday_expiration(date, self._current_trade_dte, self._current_trade_min_dte)
         date_str = date.strftime("%Y-%m-%d")
         spread_width = self.strategy_params['spread_width']
 
-        # Fetch each leg — bypass individual min_credit (checked on combined below)
-        put_leg = self._find_real_spread(
-            ticker, date, date_str, price, expiration,
-            spread_width, option_type="P",
-            scan_hour=scan_hour, scan_minute=scan_minute,
-            min_credit_override=0.0, skip_commission=True,
-        )
+        # Fetch each leg — bypass individual min_credit (checked on combined below).
+        # Friday fallback: if primary MWF expiration has no data (Mon/Wed unavailable),
+        # retry with nearest Friday expiration.
+        def _get_leg(opt_type: str):
+            leg = self._find_real_spread(
+                ticker, date, date_str, price, expiration,
+                spread_width, option_type=opt_type,
+                scan_hour=scan_hour, scan_minute=scan_minute,
+                min_credit_override=0.0, skip_commission=True,
+            )
+            if leg is None and friday_exp != expiration:
+                leg = self._find_real_spread(
+                    ticker, date, date_str, price, friday_exp,
+                    spread_width, option_type=opt_type,
+                    scan_hour=scan_hour, scan_minute=scan_minute,
+                    min_credit_override=0.0, skip_commission=True,
+                )
+            return leg
+
+        put_leg = _get_leg("P")
         if put_leg is None:
             return None
 
+        # Use same expiration for both legs (whichever resolved for put)
         call_leg = self._find_real_spread(
-            ticker, date, date_str, price, expiration,
+            ticker, date, date_str, price, put_leg['expiration'],
             spread_width, option_type="C",
             scan_hour=scan_hour, scan_minute=scan_minute,
             min_credit_override=0.0, skip_commission=True,
@@ -786,8 +1093,9 @@ class Backtester:
             )
             return None
 
-        # Slippage: use bid/ask-modeled value from intraday bar, or config flat value
-        slippage = prices.get("slippage", self.slippage)
+        # Slippage: use bid/ask-modeled value from intraday bar, or config flat value.
+        # Apply slippage_multiplier for brutality tests (P2: 2x or 3x slippage scenarios).
+        slippage = prices.get("slippage", self.slippage) * self._slippage_multiplier
         credit -= slippage
         if credit <= 0:
             return None
@@ -799,15 +1107,23 @@ class Backtester:
         risk_per_spread = max_loss * 100
         if risk_per_spread <= 0:
             return None
-        # IV-scaled sizing (Upgrade 3): risk budget varies with IV Rank.
-        # current_portfolio_risk = max_loss exposure across all currently-open positions.
+        # Position sizing — Phase 2: compound + flat-risk support
+        # account_base: current equity when compounding, starting capital otherwise
         from ml.position_sizer import calculate_dynamic_risk, get_contract_size
-        current_portfolio_risk = getattr(self, '_current_portfolio_risk', 0.0)
-        iv_rank = getattr(self, '_current_iv_rank', 25.0)
-        trade_dollar_risk = calculate_dynamic_risk(
-            self.starting_capital, iv_rank, current_portfolio_risk
-        )
-        contracts = max(1, get_contract_size(trade_dollar_risk, spread_width, credit))
+        account_base = self.capital if self._compound else self.starting_capital
+        max_contracts_cap = self.risk_params.get('max_contracts', 999)
+        if self._sizing_mode == 'flat':
+            # Flat risk: always risk exactly max_risk_per_trade % of account_base
+            flat_risk_pct = self.risk_params.get('max_risk_per_trade', 2.0) / 100.0
+            trade_dollar_risk = account_base * flat_risk_pct
+        else:
+            # IV-scaled sizing (Upgrade 3): risk budget varies with IV Rank.
+            current_portfolio_risk = getattr(self, '_current_portfolio_risk', 0.0)
+            iv_rank = getattr(self, '_current_iv_rank', 25.0)
+            trade_dollar_risk = calculate_dynamic_risk(
+                account_base, iv_rank, current_portfolio_risk
+            )
+        contracts = max(1, get_contract_size(trade_dollar_risk, spread_width, credit, max_contracts=max_contracts_cap))
 
         position = {
             'ticker': ticker,
@@ -868,10 +1184,9 @@ class Backtester:
         max_loss = spread_width - credit
 
         risk_per_spread = max_loss * 100
-        # Use starting_capital (not current capital) for consistent sizing
-        # across both real-data and heuristic modes — prevents compounding
-        # from inflating position sizes in later trades.
-        max_risk = self.starting_capital * (self.risk_params['max_risk_per_trade'] / 100)
+        # Use current equity when compounding, starting capital otherwise.
+        account_base = self.capital if self._compound else self.starting_capital
+        max_risk = account_base * (self.risk_params['max_risk_per_trade'] / 100)
         max_contracts_cap = self.risk_params.get('max_contracts', 999)
         contracts = max(1, min(max_contracts_cap, int(max_risk / risk_per_spread)))
 
@@ -1011,9 +1326,9 @@ class Backtester:
                 if intraday_result is not None:
                     reason, spread_value = intraday_result
                     if reason in ('profit_target', 'stop_loss'):
-                        # Stop-loss exits incur additional friction: closing in a fast,
-                        # adverse market where bid/ask is wider than normal conditions.
-                        exit_cost = spread_value + (self.exit_slippage if reason == 'stop_loss' else 0.0)
+                        # Apply exit slippage on ALL exits: buying back at a worse price
+                        # than mid is realistic whether the fill is favorable or adverse.
+                        exit_cost = spread_value + self.exit_slippage * self._slippage_multiplier
                         pnl = (pos['credit'] - exit_cost) * pos['contracts'] * 100 - pos['commission']
                         self._record_close(pos, current_date, pnl, reason)
                         continue
@@ -1059,8 +1374,9 @@ class Backtester:
 
             if profit >= pos['profit_target']:
                 if self._use_real_data:
-                    # Real exit debit = current spread value
-                    pnl = (pos['credit'] - current_spread_value) * pos['contracts'] * 100 - pos['commission']
+                    # Apply exit slippage on profit-target exits — buying back costs more than mid.
+                    exit_cost = current_spread_value + self.exit_slippage
+                    pnl = (pos['credit'] - exit_cost) * pos['contracts'] * 100 - pos['commission']
                     self._record_close(pos, current_date, pnl, 'profit_target')
                 else:
                     self._close_position(pos, current_date, current_price, 'profit_target')
@@ -1215,14 +1531,17 @@ class Backtester:
         self.capital += pnl
 
         max_risk = pos['max_loss'] * pos['contracts'] * 100
+        _pos_type = pos.get('type', '')
         trade = {
             'ticker': pos['ticker'],
-            'type': pos['type'],
+            'type': _pos_type,
             'entry_date': pos['entry_date'],
             'exit_date': exit_date,
             'exit_reason': reason,
+            'expiration': pos.get('expiration'),
             'short_strike': pos['short_strike'],
             'long_strike': pos['long_strike'],
+            'option_type': 'C' if _pos_type == 'bear_call_spread' else 'P',
             'credit': pos['credit'],
             'contracts': pos['contracts'],
             'pnl': pnl,
@@ -1299,8 +1618,10 @@ class Backtester:
             pnl = -position['max_loss'] * position['contracts'] * 100
         elif exit_reason == 'profit_target':
             pnl = position['profit_target'] * position['contracts'] * 100
+            pnl -= self.exit_slippage * self._slippage_multiplier * position['contracts'] * 100  # buy-back friction
         elif exit_reason == 'stop_loss':
             pnl = -position['stop_loss'] * position['contracts'] * 100
+            pnl -= self.exit_slippage * self._slippage_multiplier * position['contracts'] * 100  # buy-back friction
         else:
             pnl = 0
 
@@ -1358,6 +1679,7 @@ class Backtester:
                 'monthly_pnl': {},
                 'max_win_streak': 0,
                 'max_loss_streak': 0,
+                'friday_fallback_count': self._friday_fallback_count,
             }
 
         trades_df = pd.DataFrame(self.trades)
@@ -1477,6 +1799,8 @@ class Backtester:
             'monthly_pnl': monthly_pnl,
             'max_win_streak': max_win_streak,
             'max_loss_streak': max_loss_streak,
+            # P5a: how often did Mon/Wed targets have no data and fall back to Friday?
+            'friday_fallback_count': self._friday_fallback_count,
         }
 
         return results
