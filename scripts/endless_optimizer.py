@@ -147,9 +147,9 @@ def phase2_experiment(
         # No phase 1 data — use defaults
         best_per_strategy = build_strategies_config(strategy_names)
 
-    # Decide which strategies to include (2-5 strategies)
+    # Decide which strategies to include (2-5 strategies, or all if fewer)
     import random
-    n_strategies = random.randint(2, min(5, len(strategy_names)))
+    n_strategies = random.randint(min(2, len(strategy_names)), min(5, len(strategy_names)))
     # Weighted by phase 1 score (better strategies more likely)
     scores = []
     for name in strategy_names:
@@ -441,8 +441,8 @@ def main():
         if run_number % args.report_interval == 0:
             print_progress(state, run_number)
 
-        # Phase escalation check
-        if current_phase == 1:
+        # Phase escalation check (only escalate if multiple strategies available)
+        if current_phase == 1 and len(strategy_names) >= 2:
             p1_total = sum(len(h) for h in state.get("phase1_history", {}).values())
             p1_scores = []
             for hist in state.get("phase1_history", {}).values():
@@ -454,7 +454,7 @@ def main():
                 state["current_phase_num"] = 2
                 save_state(state)
 
-        elif current_phase == 2:
+        elif current_phase == 2 and len(strategy_names) >= 3:
             p2_hist = state.get("phase2_history", [])
             p2_scores = [h["score"] for h in p2_hist]
             if len(p2_hist) >= PHASE_3_MIN_RUNS and is_plateaued(p2_scores):
