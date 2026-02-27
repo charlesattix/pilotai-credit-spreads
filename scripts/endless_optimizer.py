@@ -343,12 +343,13 @@ def main():
         print(f"  Phase 3: Regime-conditional allocation (after {PHASE_3_MIN_RUNS}+ blending runs)")
         return
 
-    run_number = state.get("total_runs", 0)
+    run_number = 0
+    start_total = state.get("total_runs", 0)
 
     while not _shutdown:
         run_number += 1
 
-        if args.max_runs and run_number > args.max_runs + state.get("total_runs", 0):
+        if args.max_runs and run_number > args.max_runs:
             print(f"\n  Reached max runs ({args.max_runs}). Stopping.")
             break
 
@@ -427,7 +428,7 @@ def main():
         append_to_opt_log(log_entry)
 
         # Update state
-        state["total_runs"] = run_number
+        state["total_runs"] = start_total + run_number
         lb = load_leaderboard()
         best = get_current_best(lb)
         if best:
