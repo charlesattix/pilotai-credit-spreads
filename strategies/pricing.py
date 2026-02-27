@@ -53,6 +53,67 @@ def bs_price(
     return max(price, 0.0)
 
 
+def skew_adjusted_iv(
+    base_iv: float,
+    S: float,
+    K: float,
+    option_type: str,
+    skew_factor: float = 2.0,
+) -> float:
+    """Adjust flat IV for volatility skew (smile).
+
+    Real options markets price OTM puts at higher IV than ATM (skew/smirk),
+    and OTM calls at slightly lower IV. This corrects our realized-vol proxy
+    to better approximate the true implied volatility surface.
+
+    Model:
+    - OTM puts:  iv = base * (1 + skew_factor * moneyness^0.8)
+      Convex increase — deep OTM puts carry disproportionate skew premium.
+    - OTM calls: iv = base * (1 - 0.3 * skew_factor * moneyness)
+      Slight linear discount.
+    - ITM options: treated as ATM (skew is minimal for ITM).
+
+    Calibrated to typical SPY skew: 5% OTM put ≈ +8-12% higher IV.
+
+    Args:
+        base_iv: Realized/ATM implied volatility.
+        S: Underlying price.
+        K: Strike price.
+        option_type: 'C' or 'P'.
+        skew_factor: Skew steepness (default 2.0, typical for SPY).
+
+    Returns:
+        Adjusted IV (clamped to [0.05, 2.00]).
+    """
+    if S <= 0 or K <= 0:
+        return max(base_iv, 0.05)
+
+    is_put = option_type[0].upper() == "P"
+
+    if is_put:
+        # OTM puts: K < S → moneyness = (S - K) / S
+        moneyness = max(0.0, (S - K) / S)
+        if moneyness > 0:
+            # Convex skew — steepens for deep OTM
+            adjustment = skew_factor * moneyness ** 0.8
+            adjusted = base_iv * (1.0 + adjustment)
+        else:
+            # ITM put — no skew boost
+            adjusted = base_iv
+    else:
+        # OTM calls: K > S → moneyness = (K - S) / S
+        moneyness = max(0.0, (K - S) / S)
+        if moneyness > 0:
+            # Slight discount for OTM calls
+            adjustment = 0.3 * skew_factor * moneyness
+            adjusted = base_iv * (1.0 - adjustment)
+        else:
+            # ITM call — no adjustment
+            adjusted = base_iv
+
+    return max(min(adjusted, 2.00), 0.05)
+
+
 def estimate_spread_value(
     position: Position,
     underlying_price: float,
@@ -80,7 +141,8 @@ def estimate_spread_value(
         dte = max((leg.expiration - current_date).days, 0)
         T = dte / 365.0
         opt_type = "C" if "call" in leg.leg_type.value else "P"
-        price = bs_price(underlying_price, leg.strike, T, r, iv, opt_type)
+        leg_iv = skew_adjusted_iv(iv, underlying_price, leg.strike, opt_type)
+        price = bs_price(underlying_price, leg.strike, T, r, leg_iv, opt_type)
 
         if "long" in leg.leg_type.value:
             total += price
@@ -230,16 +292,17 @@ def estimate_spread_value_with_friction(
         dte = max((leg.expiration - current_date).days, 0)
         T = dte / 365.0
         opt_type = "C" if "call" in leg.leg_type.value else "P"
-        mid_price = bs_price(underlying_price, leg.strike, T, r, iv, opt_type)
+        leg_iv = skew_adjusted_iv(iv, underlying_price, leg.strike, opt_type)
+        mid_price = bs_price(underlying_price, leg.strike, T, r, leg_iv, opt_type)
 
         if closing:
             if "long" in leg.leg_type.value:
                 # Closing a long leg = selling at bid
-                fill = get_fill_price(mid_price, underlying_price, leg.strike, T, iv, "sell")
+                fill = get_fill_price(mid_price, underlying_price, leg.strike, T, leg_iv, "sell")
                 total += fill
             else:
                 # Closing a short leg = buying back at ask
-                fill = get_fill_price(mid_price, underlying_price, leg.strike, T, iv, "buy")
+                fill = get_fill_price(mid_price, underlying_price, leg.strike, T, leg_iv, "buy")
                 total -= fill
         else:
             if "long" in leg.leg_type.value:

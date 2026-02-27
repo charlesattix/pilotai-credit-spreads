@@ -15,6 +15,7 @@ from strategies.base import (
 )
 from strategies.pricing import (
     bs_price, estimate_spread_value, nearest_friday_expiration, get_fill_price,
+    skew_adjusted_iv,
 )
 from shared.constants import DEFAULT_RISK_FREE_RATE
 
@@ -104,12 +105,14 @@ class CreditSpreadStrategy(BaseStrategy):
             long_leg_type = LegType.LONG_CALL
             opt_type = "C"
 
-        short_mid = bs_price(price, short_strike, T, DEFAULT_RISK_FREE_RATE, iv, opt_type)
-        long_mid = bs_price(price, long_strike, T, DEFAULT_RISK_FREE_RATE, iv, opt_type)
+        short_iv = skew_adjusted_iv(iv, price, short_strike, opt_type)
+        long_iv = skew_adjusted_iv(iv, price, long_strike, opt_type)
+        short_mid = bs_price(price, short_strike, T, DEFAULT_RISK_FREE_RATE, short_iv, opt_type)
+        long_mid = bs_price(price, long_strike, T, DEFAULT_RISK_FREE_RATE, long_iv, opt_type)
 
         # Fill at bid for short leg, ask for long leg
-        short_fill = get_fill_price(short_mid, price, short_strike, T, iv, "sell")
-        long_fill = get_fill_price(long_mid, price, long_strike, T, iv, "buy")
+        short_fill = get_fill_price(short_mid, price, short_strike, T, short_iv, "sell")
+        long_fill = get_fill_price(long_mid, price, long_strike, T, long_iv, "buy")
         credit = short_fill - long_fill
 
         # Fallback: use heuristic credit if BS gives unreasonable result

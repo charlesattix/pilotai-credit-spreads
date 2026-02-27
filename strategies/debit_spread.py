@@ -12,7 +12,7 @@ from strategies.base import (
     BaseStrategy, LegType, MarketSnapshot, ParamDef, PortfolioState,
     Position, PositionAction, Signal, TradeLeg, TradeDirection,
 )
-from strategies.pricing import bs_price, nearest_friday_expiration, estimate_spread_value, get_fill_price
+from strategies.pricing import bs_price, nearest_friday_expiration, estimate_spread_value, get_fill_price, skew_adjusted_iv
 from shared.constants import DEFAULT_RISK_FREE_RATE
 
 logger = logging.getLogger(__name__)
@@ -98,11 +98,13 @@ class DebitSpreadStrategy(BaseStrategy):
             opt_type = "P"
             trade_dir = TradeDirection.LONG
 
-        long_mid = bs_price(price, long_strike, T, DEFAULT_RISK_FREE_RATE, iv, opt_type)
-        short_mid = bs_price(price, short_strike, T, DEFAULT_RISK_FREE_RATE, iv, opt_type)
+        long_iv = skew_adjusted_iv(iv, price, long_strike, opt_type)
+        short_iv = skew_adjusted_iv(iv, price, short_strike, opt_type)
+        long_mid = bs_price(price, long_strike, T, DEFAULT_RISK_FREE_RATE, long_iv, opt_type)
+        short_mid = bs_price(price, short_strike, T, DEFAULT_RISK_FREE_RATE, short_iv, opt_type)
 
-        long_fill = get_fill_price(long_mid, price, long_strike, T, iv, "buy")
-        short_fill = get_fill_price(short_mid, price, short_strike, T, iv, "sell")
+        long_fill = get_fill_price(long_mid, price, long_strike, T, long_iv, "buy")
+        short_fill = get_fill_price(short_mid, price, short_strike, T, short_iv, "sell")
 
         debit = long_fill - short_fill
         if debit <= 0 or debit >= spread_width:

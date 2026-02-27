@@ -12,7 +12,7 @@ from strategies.base import (
     BaseStrategy, LegType, MarketSnapshot, ParamDef, PortfolioState,
     Position, PositionAction, Signal, TradeLeg, TradeDirection,
 )
-from strategies.pricing import bs_price, nearest_friday_expiration, estimate_spread_value, get_fill_price
+from strategies.pricing import bs_price, nearest_friday_expiration, estimate_spread_value, get_fill_price, skew_adjusted_iv
 from shared.constants import DEFAULT_RISK_FREE_RATE
 
 logger = logging.getLogger(__name__)
@@ -85,11 +85,13 @@ class StraddleStrangleStrategy(BaseStrategy):
         call_strike = round(price * (1 + otm_pct), 0)
         put_strike = round(price * (1 - otm_pct), 0)
 
-        call_mid = bs_price(price, call_strike, T, DEFAULT_RISK_FREE_RATE, boosted_iv, "C")
-        put_mid = bs_price(price, put_strike, T, DEFAULT_RISK_FREE_RATE, boosted_iv, "P")
+        call_iv = skew_adjusted_iv(boosted_iv, price, call_strike, "C")
+        put_iv = skew_adjusted_iv(boosted_iv, price, put_strike, "P")
+        call_mid = bs_price(price, call_strike, T, DEFAULT_RISK_FREE_RATE, call_iv, "C")
+        put_mid = bs_price(price, put_strike, T, DEFAULT_RISK_FREE_RATE, put_iv, "P")
 
-        call_fill = get_fill_price(call_mid, price, call_strike, T, boosted_iv, "buy")
-        put_fill = get_fill_price(put_mid, price, put_strike, T, boosted_iv, "buy")
+        call_fill = get_fill_price(call_mid, price, call_strike, T, call_iv, "buy")
+        put_fill = get_fill_price(put_mid, price, put_strike, T, put_iv, "buy")
 
         total_debit = call_fill + put_fill
         if total_debit <= 0:
@@ -144,11 +146,13 @@ class StraddleStrangleStrategy(BaseStrategy):
         call_strike = round(price * (1 + otm_pct), 0)
         put_strike = round(price * (1 - otm_pct), 0)
 
-        call_mid = bs_price(price, call_strike, T, DEFAULT_RISK_FREE_RATE, iv, "C")
-        put_mid = bs_price(price, put_strike, T, DEFAULT_RISK_FREE_RATE, iv, "P")
+        call_iv = skew_adjusted_iv(iv, price, call_strike, "C")
+        put_iv = skew_adjusted_iv(iv, price, put_strike, "P")
+        call_mid = bs_price(price, call_strike, T, DEFAULT_RISK_FREE_RATE, call_iv, "C")
+        put_mid = bs_price(price, put_strike, T, DEFAULT_RISK_FREE_RATE, put_iv, "P")
 
-        call_fill = get_fill_price(call_mid, price, call_strike, T, iv, "sell")
-        put_fill = get_fill_price(put_mid, price, put_strike, T, iv, "sell")
+        call_fill = get_fill_price(call_mid, price, call_strike, T, call_iv, "sell")
+        put_fill = get_fill_price(put_mid, price, put_strike, T, put_iv, "sell")
 
         total_credit = call_fill + put_fill
         if total_credit <= 0.10:

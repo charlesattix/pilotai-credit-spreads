@@ -13,7 +13,7 @@ from strategies.base import (
     BaseStrategy, LegType, MarketSnapshot, ParamDef, PortfolioState,
     Position, PositionAction, Signal, TradeLeg, TradeDirection,
 )
-from strategies.pricing import bs_price, nearest_friday_expiration, estimate_spread_value, get_fill_price
+from strategies.pricing import bs_price, nearest_friday_expiration, estimate_spread_value, get_fill_price, skew_adjusted_iv
 from shared.constants import DEFAULT_RISK_FREE_RATE
 
 logger = logging.getLogger(__name__)
@@ -80,12 +80,13 @@ class CalendarSpreadStrategy(BaseStrategy):
 
         opt = option_type[0].upper()
 
-        front_mid = bs_price(price, strike, T_front, DEFAULT_RISK_FREE_RATE, iv, opt)
-        back_mid = bs_price(price, strike, T_back, DEFAULT_RISK_FREE_RATE, iv, opt)
+        strike_iv = skew_adjusted_iv(iv, price, strike, opt)
+        front_mid = bs_price(price, strike, T_front, DEFAULT_RISK_FREE_RATE, strike_iv, opt)
+        back_mid = bs_price(price, strike, T_back, DEFAULT_RISK_FREE_RATE, strike_iv, opt)
 
         # Fill: sell front at bid, buy back at ask
-        front_fill = get_fill_price(front_mid, price, strike, T_front, iv, "sell")
-        back_fill = get_fill_price(back_mid, price, strike, T_back, iv, "buy")
+        front_fill = get_fill_price(front_mid, price, strike, T_front, strike_iv, "sell")
+        back_fill = get_fill_price(back_mid, price, strike, T_back, strike_iv, "buy")
 
         # Debit = back leg cost - front leg credit
         debit = back_fill - front_fill

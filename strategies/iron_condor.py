@@ -14,7 +14,7 @@ from strategies.base import (
 )
 from strategies.pricing import (
     bs_price, estimate_spread_value, nearest_friday_expiration, calculate_rsi,
-    get_fill_price,
+    get_fill_price, skew_adjusted_iv,
 )
 from shared.constants import DEFAULT_RISK_FREE_RATE
 
@@ -85,16 +85,21 @@ class IronCondorStrategy(BaseStrategy):
         if put_short >= call_short:
             return None
 
-        # Price all legs — mid then fill
-        put_short_mid = bs_price(price, put_short, T, DEFAULT_RISK_FREE_RATE, iv, "P")
-        put_long_mid = bs_price(price, put_long, T, DEFAULT_RISK_FREE_RATE, iv, "P")
-        call_short_mid = bs_price(price, call_short, T, DEFAULT_RISK_FREE_RATE, iv, "C")
-        call_long_mid = bs_price(price, call_long, T, DEFAULT_RISK_FREE_RATE, iv, "C")
+        # Price all legs — skew-adjusted IV, then mid, then fill
+        ps_iv = skew_adjusted_iv(iv, price, put_short, "P")
+        pl_iv = skew_adjusted_iv(iv, price, put_long, "P")
+        cs_iv = skew_adjusted_iv(iv, price, call_short, "C")
+        cl_iv = skew_adjusted_iv(iv, price, call_long, "C")
 
-        put_short_fill = get_fill_price(put_short_mid, price, put_short, T, iv, "sell")
-        put_long_fill = get_fill_price(put_long_mid, price, put_long, T, iv, "buy")
-        call_short_fill = get_fill_price(call_short_mid, price, call_short, T, iv, "sell")
-        call_long_fill = get_fill_price(call_long_mid, price, call_long, T, iv, "buy")
+        put_short_mid = bs_price(price, put_short, T, DEFAULT_RISK_FREE_RATE, ps_iv, "P")
+        put_long_mid = bs_price(price, put_long, T, DEFAULT_RISK_FREE_RATE, pl_iv, "P")
+        call_short_mid = bs_price(price, call_short, T, DEFAULT_RISK_FREE_RATE, cs_iv, "C")
+        call_long_mid = bs_price(price, call_long, T, DEFAULT_RISK_FREE_RATE, cl_iv, "C")
+
+        put_short_fill = get_fill_price(put_short_mid, price, put_short, T, ps_iv, "sell")
+        put_long_fill = get_fill_price(put_long_mid, price, put_long, T, pl_iv, "buy")
+        call_short_fill = get_fill_price(call_short_mid, price, call_short, T, cs_iv, "sell")
+        call_long_fill = get_fill_price(call_long_mid, price, call_long, T, cl_iv, "buy")
 
         put_credit = put_short_fill - put_long_fill
         call_credit = call_short_fill - call_long_fill

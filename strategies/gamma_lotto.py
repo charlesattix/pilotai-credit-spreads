@@ -12,7 +12,7 @@ from strategies.base import (
     BaseStrategy, LegType, MarketSnapshot, ParamDef, PortfolioState,
     Position, PositionAction, Signal, TradeLeg, TradeDirection,
 )
-from strategies.pricing import bs_price, nearest_friday_expiration, get_fill_price
+from strategies.pricing import bs_price, nearest_friday_expiration, get_fill_price, skew_adjusted_iv
 from shared.constants import DEFAULT_RISK_FREE_RATE
 
 logger = logging.getLogger(__name__)
@@ -93,7 +93,8 @@ class GammaLottoStrategy(BaseStrategy):
             leg_type = LegType.LONG_PUT
             opt_type = "P"
 
-        option_mid = bs_price(price, strike, T, DEFAULT_RISK_FREE_RATE, iv, opt_type)
+        strike_iv = skew_adjusted_iv(iv, price, strike, opt_type)
+        option_mid = bs_price(price, strike, T, DEFAULT_RISK_FREE_RATE, strike_iv, opt_type)
 
         # Price filter: option must be between price_min and price_max
         if option_mid < price_min or option_mid > price_max:
@@ -103,7 +104,7 @@ class GammaLottoStrategy(BaseStrategy):
         if option_mid <= 0:
             return None
 
-        option_fill = get_fill_price(option_mid, price, strike, T, iv, "buy")
+        option_fill = get_fill_price(option_mid, price, strike, T, strike_iv, "buy")
 
         legs = [TradeLeg(leg_type, strike, expiration, entry_price=option_fill)]
 
@@ -147,7 +148,8 @@ class GammaLottoStrategy(BaseStrategy):
         dte = max((leg.expiration - market_data.date).days, 0)
         T = dte / 365.0
         opt_type = "C" if "call" in leg.leg_type.value else "P"
-        current_price = bs_price(price, leg.strike, T, DEFAULT_RISK_FREE_RATE, iv, opt_type)
+        leg_iv = skew_adjusted_iv(iv, price, leg.strike, opt_type)
+        current_price = bs_price(price, leg.strike, T, DEFAULT_RISK_FREE_RATE, leg_iv, opt_type)
 
         entry_price = abs(position.net_credit)
         if entry_price <= 0:
