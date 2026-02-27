@@ -13,7 +13,7 @@ from strategies.base import (
     BaseStrategy, LegType, MarketSnapshot, ParamDef, PortfolioState,
     Position, PositionAction, Signal, TradeLeg, TradeDirection,
 )
-from strategies.pricing import bs_price, nearest_friday_expiration, estimate_spread_value
+from strategies.pricing import bs_price, nearest_friday_expiration, estimate_spread_value, get_fill_price
 from shared.constants import DEFAULT_RISK_FREE_RATE
 
 logger = logging.getLogger(__name__)
@@ -80,18 +80,22 @@ class CalendarSpreadStrategy(BaseStrategy):
 
         opt = option_type[0].upper()
 
-        front_price = bs_price(price, strike, T_front, DEFAULT_RISK_FREE_RATE, iv, opt)
-        back_price = bs_price(price, strike, T_back, DEFAULT_RISK_FREE_RATE, iv, opt)
+        front_mid = bs_price(price, strike, T_front, DEFAULT_RISK_FREE_RATE, iv, opt)
+        back_mid = bs_price(price, strike, T_back, DEFAULT_RISK_FREE_RATE, iv, opt)
+
+        # Fill: sell front at bid, buy back at ask
+        front_fill = get_fill_price(front_mid, price, strike, T_front, iv, "sell")
+        back_fill = get_fill_price(back_mid, price, strike, T_back, iv, "buy")
 
         # Debit = back leg cost - front leg credit
-        debit = back_price - front_price
+        debit = back_fill - front_fill
         if debit <= 0:
             return None
 
         # Max loss ≈ debit paid (spread can't go below zero in worst case)
         max_loss = debit
         # Max profit ≈ when front expires worthless and back retains value
-        max_profit = back_price * 0.30  # approximate, depends on movement
+        max_profit = back_mid * 0.30  # approximate, depends on movement
 
         if option_type == "put":
             front_leg_type = LegType.SHORT_PUT
@@ -101,8 +105,8 @@ class CalendarSpreadStrategy(BaseStrategy):
             back_leg_type = LegType.LONG_CALL
 
         legs = [
-            TradeLeg(front_leg_type, strike, front_exp, entry_price=front_price),
-            TradeLeg(back_leg_type, strike, back_exp, entry_price=back_price),
+            TradeLeg(front_leg_type, strike, front_exp, entry_price=front_fill),
+            TradeLeg(back_leg_type, strike, back_exp, entry_price=back_fill),
         ]
 
         return Signal(

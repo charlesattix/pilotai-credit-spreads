@@ -14,7 +14,7 @@ from strategies.base import (
     Position, PositionAction, Signal, TradeLeg, TradeDirection,
 )
 from strategies.pricing import (
-    bs_price, estimate_spread_value, nearest_friday_expiration,
+    bs_price, estimate_spread_value, nearest_friday_expiration, get_fill_price,
 )
 from shared.constants import DEFAULT_RISK_FREE_RATE
 
@@ -86,7 +86,6 @@ class CreditSpreadStrategy(BaseStrategy):
         otm_pct = self._p("otm_pct", 0.05)
         spread_width = self._p("spread_width", 10.0)
         credit_fraction = self._p("credit_fraction", 0.35)
-        slippage = 0.05
 
         expiration = nearest_friday_expiration(date, target_dte, min_dte)
         dte = (expiration - date).days
@@ -105,16 +104,21 @@ class CreditSpreadStrategy(BaseStrategy):
             long_leg_type = LegType.LONG_CALL
             opt_type = "C"
 
-        short_price = bs_price(price, short_strike, T, DEFAULT_RISK_FREE_RATE, iv, opt_type)
-        long_price = bs_price(price, long_strike, T, DEFAULT_RISK_FREE_RATE, iv, opt_type)
-        credit = short_price - long_price
+        short_mid = bs_price(price, short_strike, T, DEFAULT_RISK_FREE_RATE, iv, opt_type)
+        long_mid = bs_price(price, long_strike, T, DEFAULT_RISK_FREE_RATE, iv, opt_type)
+
+        # Fill at bid for short leg, ask for long leg
+        short_fill = get_fill_price(short_mid, price, short_strike, T, iv, "sell")
+        long_fill = get_fill_price(long_mid, price, long_strike, T, iv, "buy")
+        credit = short_fill - long_fill
 
         # Fallback: use heuristic credit if BS gives unreasonable result
         min_credit = spread_width * 0.10
         if credit < min_credit:
             credit = spread_width * credit_fraction
+            # Re-derive fill prices from heuristic
+            short_fill = credit + long_fill
 
-        credit -= slippage
         if credit <= 0:
             return None
 
@@ -123,8 +127,8 @@ class CreditSpreadStrategy(BaseStrategy):
             return None
 
         legs = [
-            TradeLeg(short_leg_type, short_strike, expiration, entry_price=short_price),
-            TradeLeg(long_leg_type, long_strike, expiration, entry_price=long_price),
+            TradeLeg(short_leg_type, short_strike, expiration, entry_price=short_fill),
+            TradeLeg(long_leg_type, long_strike, expiration, entry_price=long_fill),
         ]
 
         return Signal(

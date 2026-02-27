@@ -12,7 +12,7 @@ from strategies.base import (
     BaseStrategy, LegType, MarketSnapshot, ParamDef, PortfolioState,
     Position, PositionAction, Signal, TradeLeg, TradeDirection,
 )
-from strategies.pricing import bs_price, nearest_friday_expiration
+from strategies.pricing import bs_price, nearest_friday_expiration, get_fill_price
 from shared.constants import DEFAULT_RISK_FREE_RATE
 
 logger = logging.getLogger(__name__)
@@ -93,25 +93,27 @@ class GammaLottoStrategy(BaseStrategy):
             leg_type = LegType.LONG_PUT
             opt_type = "P"
 
-        option_price = bs_price(price, strike, T, DEFAULT_RISK_FREE_RATE, iv, opt_type)
+        option_mid = bs_price(price, strike, T, DEFAULT_RISK_FREE_RATE, iv, opt_type)
 
         # Price filter: option must be between price_min and price_max
-        if option_price < price_min or option_price > price_max:
+        if option_mid < price_min or option_mid > price_max:
             # Try adjusting strike to hit price range
-            option_price = (price_min + price_max) / 2
+            option_mid = (price_min + price_max) / 2
 
-        if option_price <= 0:
+        if option_mid <= 0:
             return None
 
-        legs = [TradeLeg(leg_type, strike, expiration, entry_price=option_price)]
+        option_fill = get_fill_price(option_mid, price, strike, T, iv, "buy")
+
+        legs = [TradeLeg(leg_type, strike, expiration, entry_price=option_fill)]
 
         return Signal(
             strategy_name=self.name,
             ticker=ticker,
             direction=TradeDirection.LONG,
             legs=legs,
-            net_credit=-option_price,  # debit
-            max_loss=option_price,
+            net_credit=-option_fill,  # debit
+            max_loss=option_fill,
             max_profit=price * 0.10,  # theoretical upside (large move)
             profit_target_pct=self._p("profit_target_multiple", 3.0),
             stop_loss_pct=1.0,  # max loss = full debit
@@ -124,7 +126,7 @@ class GammaLottoStrategy(BaseStrategy):
                 "event_date": str(event.get("date", "")),
                 "option_direction": opt_direction,
                 "strike": strike,
-                "option_price": option_price,
+                "option_price": option_fill,
             },
         )
 

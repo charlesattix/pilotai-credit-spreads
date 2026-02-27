@@ -29,7 +29,7 @@ from strategies.base import (
     PositionAction,
     Signal,
 )
-from strategies.pricing import bs_price, calculate_rsi, estimate_spread_value
+from strategies.pricing import bs_price, calculate_rsi, estimate_spread_value, estimate_spread_value_with_friction
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,6 @@ class PortfolioBacktester:
         end_date: datetime,
         starting_capital: float = 100_000,
         commission_per_leg: float = 0.65,
-        slippage: float = 0.05,
         max_positions: int = 10,
         max_positions_per_strategy: int = 5,
         max_portfolio_risk_pct: float = 0.40,
@@ -56,7 +55,6 @@ class PortfolioBacktester:
         self.end_date = end_date
         self.starting_capital = starting_capital
         self.commission_per_leg = commission_per_leg
-        self.slippage = slippage
         self.max_positions = max_positions
         self.max_positions_per_strategy = max_positions_per_strategy
         self.max_portfolio_risk_pct = max_portfolio_risk_pct
@@ -446,6 +444,12 @@ class PortfolioBacktester:
             if p.ticker == signal.ticker and p.strategy_name == signal.strategy_name:
                 return False
 
+        # 5. Debit trades: reject if cost > 10% of capital
+        if signal.net_credit < 0:
+            debit_cost = abs(signal.net_credit) * 100  # 1 contract estimate
+            if debit_cost > self.capital * 0.10:
+                return False
+
         return True
 
     def _open_position(
@@ -472,8 +476,12 @@ class PortfolioBacktester:
             commission_paid=entry_commission,
             metadata=dict(signal.metadata),
         )
-        # Capital changes happen entirely at close via realized P&L.
-        # No debit deduction here — P&L at close accounts for entry cost.
+
+        # Debit reservation: deduct cash for debit trades at entry
+        if signal.net_credit < 0:
+            debit_reserved = abs(signal.net_credit) * contracts * 100
+            self.capital -= debit_reserved
+            pos.metadata["_debit_reserved"] = debit_reserved
 
         self.open_positions.append(pos)
         return pos
@@ -494,6 +502,10 @@ class PortfolioBacktester:
         num_legs = len(pos.legs)
         exit_commission = self.commission_per_leg * num_legs * pos.contracts
         pnl -= exit_commission
+
+        # Credit back debit reservation before adding P&L
+        debit_reserved = pos.metadata.pop("_debit_reserved", 0.0)
+        self.capital += debit_reserved
 
         self.capital += pnl
         pos.realized_pnl = pnl
@@ -543,7 +555,12 @@ class PortfolioBacktester:
         iv: float,
         current_date: datetime,
     ) -> float:
-        """Compute mid-trade P&L for non-expiration exits."""
+        """Compute mid-trade P&L for non-expiration exits.
+
+        Always uses mark-to-market with bid-ask friction — no hardcoded
+        percentage shortcuts. This ensures profit/stop exits reflect
+        actual closing costs rather than ideal percentages.
+        """
         has_stock_legs = any(
             leg.leg_type in (LegType.LONG_STOCK, LegType.SHORT_STOCK)
             for leg in pos.legs
@@ -559,34 +576,20 @@ class PortfolioBacktester:
                     pnl += (leg.entry_price - price) * pos.contracts
             return pnl
 
+        # Mark-to-market with friction for ALL exit types
+        current_value = estimate_spread_value_with_friction(
+            pos, price, iv, current_date, DEFAULT_RISK_FREE_RATE, closing=True,
+        )
+
         is_credit = pos.net_credit > 0
 
         if is_credit:
-            # Credit spread P&L using profit target / stop loss heuristic
-            if action == PositionAction.CLOSE_PROFIT:
-                pnl = pos.net_credit * pos.profit_target_pct * pos.contracts * 100
-            elif action == PositionAction.CLOSE_STOP:
-                pnl = -(pos.net_credit * pos.stop_loss_pct) * pos.contracts * 100
-            else:
-                # Mark-to-market via BS
-                current_value = estimate_spread_value(
-                    pos, price, iv, current_date, DEFAULT_RISK_FREE_RATE,
-                )
-                # For short spreads: we collected net_credit, now cost is -current_value
-                pnl = (pos.net_credit + current_value) * pos.contracts * 100
+            # Credit: collected net_credit upfront, now pay current_value to close
+            # current_value is negative for short spreads (cost to buy back)
+            pnl = (pos.net_credit + current_value) * pos.contracts * 100
         else:
-            # Debit spread P&L
-            if action == PositionAction.CLOSE_PROFIT:
-                pnl = abs(pos.net_credit) * pos.profit_target_pct * pos.contracts * 100
-            elif action == PositionAction.CLOSE_STOP:
-                pnl = -(abs(pos.net_credit) * pos.stop_loss_pct) * pos.contracts * 100
-            else:
-                # Mark-to-market via BS
-                current_value = estimate_spread_value(
-                    pos, price, iv, current_date, DEFAULT_RISK_FREE_RATE,
-                )
-                # For long spreads: we paid |net_credit|, now it's worth current_value
-                pnl = (current_value - abs(pos.net_credit)) * pos.contracts * 100
+            # Debit: paid |net_credit| upfront, now receive current_value
+            pnl = (current_value - abs(pos.net_credit)) * pos.contracts * 100
 
         return pnl
 

@@ -12,7 +12,7 @@ from strategies.base import (
     BaseStrategy, LegType, MarketSnapshot, ParamDef, PortfolioState,
     Position, PositionAction, Signal, TradeLeg, TradeDirection,
 )
-from strategies.pricing import bs_price, nearest_friday_expiration, estimate_spread_value
+from strategies.pricing import bs_price, nearest_friday_expiration, estimate_spread_value, get_fill_price
 from shared.constants import DEFAULT_RISK_FREE_RATE
 
 logger = logging.getLogger(__name__)
@@ -98,10 +98,13 @@ class DebitSpreadStrategy(BaseStrategy):
             opt_type = "P"
             trade_dir = TradeDirection.LONG
 
-        long_price = bs_price(price, long_strike, T, DEFAULT_RISK_FREE_RATE, iv, opt_type)
-        short_price = bs_price(price, short_strike, T, DEFAULT_RISK_FREE_RATE, iv, opt_type)
+        long_mid = bs_price(price, long_strike, T, DEFAULT_RISK_FREE_RATE, iv, opt_type)
+        short_mid = bs_price(price, short_strike, T, DEFAULT_RISK_FREE_RATE, iv, opt_type)
 
-        debit = long_price - short_price
+        long_fill = get_fill_price(long_mid, price, long_strike, T, iv, "buy")
+        short_fill = get_fill_price(short_mid, price, short_strike, T, iv, "sell")
+
+        debit = long_fill - short_fill
         if debit <= 0 or debit >= spread_width:
             return None
 
@@ -110,8 +113,8 @@ class DebitSpreadStrategy(BaseStrategy):
             return None
 
         legs = [
-            TradeLeg(long_type, long_strike, expiration, entry_price=long_price),
-            TradeLeg(short_type, short_strike, expiration, entry_price=short_price),
+            TradeLeg(long_type, long_strike, expiration, entry_price=long_fill),
+            TradeLeg(short_type, short_strike, expiration, entry_price=short_fill),
         ]
 
         return Signal(

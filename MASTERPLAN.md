@@ -250,6 +250,80 @@ overfit_score = (
 - [ ] Progress reporting every 100 runs
 - [ ] Graceful state saving for session recovery
 
+### Phase 0.7: PRICING REALISM — Fix All Critical Weaknesses 🚨 (MANDATORY BEFORE ANY OPTIMIZATION COUNTS)
+**No backtest result is meaningful until these are fixed. This is the foundation.**
+
+#### A. Bid-Ask Spread Modeling (CRITICAL)
+- [ ] Add configurable bid-ask spread to all option pricing
+- [ ] SPY ATM options: $0.02-$0.05 spread
+- [ ] SPY OTM options (our targets): $0.05-$0.20 spread
+- [ ] Spread widens with: lower delta, higher VIX, closer to expiration
+- [ ] Model: `spread = base_spread × (1 + vix_factor) × (1 / sqrt(dte)) × otm_penalty`
+- [ ] Entry fills at ask (buying) or bid (selling) — NOT mid-price
+- [ ] Credit spreads: collect bid on short leg, pay ask on long leg
+- [ ] This alone will drop win rate from 99% to 70-85%
+
+#### B. Slippage & Market Impact (CRITICAL)
+- [ ] Add configurable slippage per contract (e.g., $0.01-$0.05)
+- [ ] Scale slippage with position size: larger orders = worse fills
+- [ ] Model: `slippage = base_slip × (1 + position_size / avg_volume_factor)`
+- [ ] At $100K+ positions, expect 5-20% fill degradation
+- [ ] Add maximum position size limits based on estimated daily volume
+
+#### C. Implied Volatility Skew (HIGH)
+- [ ] Replace realized vol with IV approximation that includes skew
+- [ ] OTM puts have HIGHER IV than ATM (skew premium)
+- [ ] OTM calls have slightly LOWER IV than ATM
+- [ ] Model: `iv_adjusted = realized_vol × (1 + skew_factor × moneyness)`
+- [ ] Calibrate skew_factor from typical SPY vol surface (~0.05-0.15 per 10% OTM)
+- [ ] This corrects entry premium estimates significantly
+
+#### D. Gap Risk & Jump Modeling (HIGH)
+- [ ] Add overnight gap risk to position management
+- [ ] Model: occasional gaps based on historical SPY gap distribution
+- [ ] Gaps > 2% should trigger stop losses that execute AT the gap price, not the stop price
+- [ ] This turns some "winning" trades into losers (realistic)
+- [ ] Source gap data from SPY daily opens vs previous closes
+
+#### E. Realistic Compounding Constraints (MEDIUM)
+- [ ] Add maximum position size as % of account (e.g., 5% max per trade)
+- [ ] Add maximum total portfolio risk (e.g., 20% total at risk)
+- [ ] Add margin requirements — can't deploy 100% of equity
+- [ ] Model buying power reduction for open positions
+- [ ] This prevents the exponential compounding fantasy
+
+#### F. Commission Modeling (LOW-MEDIUM)
+- [ ] Add per-contract commission ($0.50-$0.65 per contract, typical broker)
+- [ ] 4 legs per credit spread round-trip = $2.00-$2.60 minimum
+- [ ] With 280 trades/year = $560-$728 in commissions
+- [ ] Small impact but adds realism
+
+#### G. Assignment & Pin Risk (LOW-MEDIUM)
+- [ ] Options near expiration with strikes near current price have assignment risk
+- [ ] If short leg is ITM at expiration, model assignment (full spread loss)
+- [ ] Add "close before expiration" rule if position is near the money (e.g., <1% OTM)
+- [ ] This adds a few losses that the current model misses
+
+#### H. Multi-Underlying Validation (MEDIUM)
+- [ ] Run all strategies on QQQ and IWM (not just SPY)
+- [ ] Strategy must work on at least 2 of 3 ETFs to be considered robust
+- [ ] Different underlying = different vol characteristics, different skew
+- [ ] Prevents overfitting to SPY-specific patterns
+
+#### I. Full Walk-Forward Validation (MEDIUM)
+- [ ] Train on 2020-2022, test on 2023-2025 — MUST execute fully
+- [ ] Test return must be ≥50% of train return
+- [ ] Also run reverse: train 2023-2025, test 2020-2022
+- [ ] Rolling walk-forward: train on 3 years, test on next 1 year, slide window
+
+#### J. Parameter Sensitivity (Jitter Test) — Full Execution (MEDIUM)
+- [ ] Take best params, perturb each ±10%, ±20%
+- [ ] Run 20+ jittered variations
+- [ ] Performance must not cliff-edge on small perturbations
+- [ ] If 10% param change = 50% performance drop → FRAGILE, reject
+
+**After Phase 0.7 is complete, RE-RUN all optimization (Phases 1-4) with realistic pricing. Previous results are invalidated.**
+
 ### Phase 1: Single Strategy Optimization 🔍
 - Optimize each strategy individually across full param space
 - Find the ceiling of each strategy alone

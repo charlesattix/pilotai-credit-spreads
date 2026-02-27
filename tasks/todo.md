@@ -79,17 +79,94 @@
   - Result: Tracks total_runs, best_run_id, best_avg_return, best_overfit_score.
 
 ### 0.5 — Regime Detection
-- [ ] Build regime classifier (VIX levels + price trends)
-- [ ] Regimes: Bull, Bear, High Vol, Low Vol Sideways, Crash
-- [ ] Tag every trading day 2020-2025 with regime
-- [ ] Enable regime-conditional strategy allocation
+- [x] Build regime classifier (VIX levels + price trends)
+  - Result: engine/regime.py — RegimeClassifier with classify() and classify_series(). Rule-based: VIX thresholds + 50-day MA trend slope.
+- [x] Regimes: Bull, Bear, High Vol, Low Vol Sideways, Crash
+  - Result: Regime enum (bull/bear/high_vol/low_vol/crash) with REGIME_INFO strategy recommendations per regime.
+- [x] Tag every trading day 2020-2025 with regime
+  - Result: classify_series() tags full date range. summarize() reports distribution + transitions.
+- [x] Enable regime-conditional strategy allocation
+  - Result: MarketSnapshot.regime field set each day in PortfolioBacktester. Strategies can check snapshot.regime in generate_signals().
 
 ### 0.6 — Autonomous Runner (The Daemon)
-- [ ] Build `scripts/endless_optimizer.py`
-- [ ] Intelligent experiment selection (not random)
-- [ ] Auto-escalation: single → blending → regime switching
-- [ ] Progress reporting every 100 runs
-- [ ] Graceful state saving for session recovery
+- [x] Build `scripts/endless_optimizer.py`
+  - Result: 3-phase daemon. Phase 1: single-strategy round-robin optimization. Phase 2: multi-strategy blending with best-of Phase 1. Phase 3: regime-conditional with broad exploration.
+- [x] Intelligent experiment selection (not random)
+  - Result: Uses Optimizer.suggest() (Bayesian-lite: explore first 10, then 70% exploit + 30% explore). Phase 2 weights strategies by Phase 1 scores.
+- [x] Auto-escalation: single → blending → regime switching
+  - Result: Plateau detection over 20-run window. Phase 1 → 2 after 30+ runs plateau. Phase 2 → 3 after 20+ blending runs plateau.
+- [x] Progress reporting every 100 runs
+  - Result: print_progress() shows per-strategy run counts, best scores, phase stats. Configurable interval via --report-interval.
+- [x] Graceful state saving for session recovery
+  - Result: SIGINT/SIGTERM handler saves state before exit. State includes phase1_history, phase2_history, phase3_history per strategy.
+
+---
+
+## Phase 0.7: PRICING REALISM — Fix All Critical Weaknesses 🚨 (CURRENT PRIORITY)
+
+### A. Bid-Ask Spread Modeling (CRITICAL) ✅ DONE
+- [x] Add bid-ask spread model to strategies/pricing.py
+  - Result: estimate_bid_ask_spread(), get_fill_price(), estimate_spread_value_with_friction()
+  - Base $0.03 ATM → $0.12 deep OTM, 1.3x for short DTE, min 8% of price, capped 40%
+- [x] SPY OTM spread: $0.05-$0.20, scaling with DTE/moneyness
+  - Result: Verified $0.12-$0.24 for typical SPY OTM options
+- [x] Entry fills at bid (selling) / ask (buying) — not mid-price
+  - Result: All 7 strategies updated to use get_fill_price() at entry
+- [x] Verify win rate drops from 99.8% to realistic range
+  - Result: Credit spread: 93.6% win, 117.5% return (was 99.8%/1163%)
+
+### B. Slippage & Market Impact (CRITICAL) ✅ DONE (via bid-ask model)
+- [x] Centralized slippage via bid-ask spread model (replaces hardcoded per-strategy slippage)
+  - Result: Removed hardcoded $0.05 from credit_spread, $0.10 from iron_condor
+  - Result: Removed unused self.slippage from PortfolioBacktester
+- [x] Mark-to-market exit P&L with friction (replaces hardcoded pnl = credit * pct)
+  - Result: _compute_exit_pnl always uses estimate_spread_value_with_friction()
+- [x] Debit capital reservation at entry, credit-back at close
+  - Result: _open_position deducts debit, _close_position credits back + adds P&L
+- [x] Debit rejection if cost > 10% of capital
+  - Result: _can_accept rejects oversized debit trades
+
+### C. Implied Volatility Skew (HIGH)
+- [ ] IV skew model: OTM puts get higher IV, OTM calls lower
+- [ ] Calibrate from typical SPY vol surface
+- [ ] Update all strategy pricing calls
+
+### D. Gap Risk & Jump Modeling (HIGH)
+- [ ] Model overnight gaps from historical SPY open/close data
+- [ ] Stop losses execute at gap price, not stop price
+- [ ] Add some losing trades that current model misses
+
+### E. Realistic Compounding Constraints (MEDIUM)
+- [ ] Max position size per trade (5%)
+- [ ] Max total portfolio risk (20%)
+- [ ] Margin requirement modeling
+- [ ] Buying power reduction for open positions
+
+### F. Commission Modeling (LOW-MEDIUM)
+- [ ] $0.50-$0.65 per contract, 4 legs per round trip
+
+### G. Assignment & Pin Risk (LOW-MEDIUM)
+- [ ] Close-before-expiry rule if <1% OTM
+- [ ] Model assignment on ITM short legs at expiry
+
+### H. Multi-Underlying (MEDIUM)
+- [ ] Run on QQQ and IWM, not just SPY
+- [ ] Must work on ≥2 of 3 ETFs
+
+### I. Full Walk-Forward Validation (MEDIUM)
+- [ ] Train 2020-22, test 2023-25 (execute fully)
+- [ ] Reverse: train 2023-25, test 2020-22
+- [ ] Rolling walk-forward
+
+### J. Parameter Sensitivity / Jitter (MEDIUM)
+- [ ] 20+ jittered variations of best params
+- [ ] No cliff-edge on ±10-20% perturbation
+
+### RE-RUN: After all fixes, re-run Phases 1-4 with realistic pricing
+- [ ] Re-run 100 credit spread experiments
+- [ ] Re-run 100 blend experiments
+- [ ] New leaderboard with REAL numbers
+- [ ] Update report with realistic results
 
 ---
 

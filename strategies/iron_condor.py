@@ -14,6 +14,7 @@ from strategies.base import (
 )
 from strategies.pricing import (
     bs_price, estimate_spread_value, nearest_friday_expiration, calculate_rsi,
+    get_fill_price,
 )
 from shared.constants import DEFAULT_RISK_FREE_RATE
 
@@ -84,21 +85,24 @@ class IronCondorStrategy(BaseStrategy):
         if put_short >= call_short:
             return None
 
-        # Price all legs
-        put_short_price = bs_price(price, put_short, T, DEFAULT_RISK_FREE_RATE, iv, "P")
-        put_long_price = bs_price(price, put_long, T, DEFAULT_RISK_FREE_RATE, iv, "P")
-        call_short_price = bs_price(price, call_short, T, DEFAULT_RISK_FREE_RATE, iv, "C")
-        call_long_price = bs_price(price, call_long, T, DEFAULT_RISK_FREE_RATE, iv, "C")
+        # Price all legs — mid then fill
+        put_short_mid = bs_price(price, put_short, T, DEFAULT_RISK_FREE_RATE, iv, "P")
+        put_long_mid = bs_price(price, put_long, T, DEFAULT_RISK_FREE_RATE, iv, "P")
+        call_short_mid = bs_price(price, call_short, T, DEFAULT_RISK_FREE_RATE, iv, "C")
+        call_long_mid = bs_price(price, call_long, T, DEFAULT_RISK_FREE_RATE, iv, "C")
 
-        put_credit = put_short_price - put_long_price
-        call_credit = call_short_price - call_long_price
+        put_short_fill = get_fill_price(put_short_mid, price, put_short, T, iv, "sell")
+        put_long_fill = get_fill_price(put_long_mid, price, put_long, T, iv, "buy")
+        call_short_fill = get_fill_price(call_short_mid, price, call_short, T, iv, "sell")
+        call_long_fill = get_fill_price(call_long_mid, price, call_long, T, iv, "buy")
+
+        put_credit = put_short_fill - put_long_fill
+        call_credit = call_short_fill - call_long_fill
         combined_credit = put_credit + call_credit
 
         # Fallback heuristic
         if combined_credit < spread_width * 0.10:
             combined_credit = spread_width * 0.30
-
-        combined_credit -= 0.10  # slippage for 4 legs
 
         if combined_credit < spread_width * min_combined_credit_pct:
             return None
@@ -108,10 +112,10 @@ class IronCondorStrategy(BaseStrategy):
             return None
 
         legs = [
-            TradeLeg(LegType.SHORT_PUT, put_short, expiration, entry_price=put_short_price),
-            TradeLeg(LegType.LONG_PUT, put_long, expiration, entry_price=put_long_price),
-            TradeLeg(LegType.SHORT_CALL, call_short, expiration, entry_price=call_short_price),
-            TradeLeg(LegType.LONG_CALL, call_long, expiration, entry_price=call_long_price),
+            TradeLeg(LegType.SHORT_PUT, put_short, expiration, entry_price=put_short_fill),
+            TradeLeg(LegType.LONG_PUT, put_long, expiration, entry_price=put_long_fill),
+            TradeLeg(LegType.SHORT_CALL, call_short, expiration, entry_price=call_short_fill),
+            TradeLeg(LegType.LONG_CALL, call_long, expiration, entry_price=call_long_fill),
         ]
 
         return Signal(

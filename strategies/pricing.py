@@ -135,6 +135,121 @@ def calculate_rsi(closes: List[float], period: int = 14) -> float:
     return 100 - (100 / (1 + rs))
 
 
+def estimate_bid_ask_spread(
+    S: float,
+    K: float,
+    T: float,
+    sigma: float,
+    option_price: float,
+) -> float:
+    """Estimate full bid-ask spread width for an option.
+
+    Conservative model:
+    - Base: $0.03 ATM, scaling to $0.12 for deep OTM (moneyness > 10%)
+    - Short DTE (<7d): 1.3x wider
+    - Cheap options (<$0.50): min 8% of price
+    - Capped at 40% of option price
+    """
+    if option_price <= 0:
+        return 0.0
+
+    # Moneyness: how far OTM as a fraction of underlying
+    moneyness = abs(S - K) / S if S > 0 else 0.0
+
+    # Base spread: $0.03 ATM, linear scale to $0.12 at 10%+ OTM
+    base = 0.03 + min(moneyness, 0.10) * 0.90  # 0.03 + 0.09 = 0.12 max
+
+    # Short DTE penalty: wider spreads near expiration
+    if T < 7 / 365.0:
+        base *= 1.3
+
+    # Cheap option floor: at least 8% of option price
+    base = max(base, option_price * 0.08)
+
+    # Cap at 40% of option price
+    base = min(base, option_price * 0.40)
+
+    return base
+
+
+def get_fill_price(
+    mid_price: float,
+    S: float,
+    K: float,
+    T: float,
+    sigma: float,
+    side: str,
+) -> float:
+    """Return realistic fill price given bid-ask spread.
+
+    Args:
+        mid_price: Black-Scholes theoretical (mid) price.
+        S: Underlying price.
+        K: Strike price.
+        T: Time to expiration in years.
+        sigma: Implied volatility.
+        side: "buy" (pay ask) or "sell" (receive bid).
+
+    Returns:
+        Fill price adjusted for half the bid-ask spread.
+    """
+    if mid_price <= 0:
+        return 0.0
+
+    spread = estimate_bid_ask_spread(S, K, T, sigma, mid_price)
+    half = spread / 2.0
+
+    if side == "buy":
+        return mid_price + half
+    else:  # sell
+        return max(mid_price - half, 0.0)
+
+
+def estimate_spread_value_with_friction(
+    position: Position,
+    underlying_price: float,
+    iv: float,
+    current_date: datetime,
+    r: float = DEFAULT_RISK_FREE_RATE,
+    closing: bool = True,
+) -> float:
+    """Like estimate_spread_value but applies bid-ask friction.
+
+    When closing=True (default): long legs sell at bid, short legs buy at ask.
+    This gives the realistic net proceeds/cost of closing the position.
+    """
+    total = 0.0
+    for leg in position.legs:
+        if leg.leg_type in (LegType.LONG_STOCK, LegType.SHORT_STOCK):
+            if leg.leg_type == LegType.LONG_STOCK:
+                total += underlying_price
+            else:
+                total -= underlying_price
+            continue
+
+        dte = max((leg.expiration - current_date).days, 0)
+        T = dte / 365.0
+        opt_type = "C" if "call" in leg.leg_type.value else "P"
+        mid_price = bs_price(underlying_price, leg.strike, T, r, iv, opt_type)
+
+        if closing:
+            if "long" in leg.leg_type.value:
+                # Closing a long leg = selling at bid
+                fill = get_fill_price(mid_price, underlying_price, leg.strike, T, iv, "sell")
+                total += fill
+            else:
+                # Closing a short leg = buying back at ask
+                fill = get_fill_price(mid_price, underlying_price, leg.strike, T, iv, "buy")
+                total -= fill
+        else:
+            if "long" in leg.leg_type.value:
+                total += mid_price
+            else:
+                total -= mid_price
+
+    return total
+
+
 def calculate_adx(
     highs: List[float],
     lows: List[float],

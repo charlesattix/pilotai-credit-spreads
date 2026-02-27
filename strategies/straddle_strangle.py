@@ -12,7 +12,7 @@ from strategies.base import (
     BaseStrategy, LegType, MarketSnapshot, ParamDef, PortfolioState,
     Position, PositionAction, Signal, TradeLeg, TradeDirection,
 )
-from strategies.pricing import bs_price, nearest_friday_expiration, estimate_spread_value
+from strategies.pricing import bs_price, nearest_friday_expiration, estimate_spread_value, get_fill_price
 from shared.constants import DEFAULT_RISK_FREE_RATE
 
 logger = logging.getLogger(__name__)
@@ -85,16 +85,19 @@ class StraddleStrangleStrategy(BaseStrategy):
         call_strike = round(price * (1 + otm_pct), 0)
         put_strike = round(price * (1 - otm_pct), 0)
 
-        call_price = bs_price(price, call_strike, T, DEFAULT_RISK_FREE_RATE, boosted_iv, "C")
-        put_price = bs_price(price, put_strike, T, DEFAULT_RISK_FREE_RATE, boosted_iv, "P")
+        call_mid = bs_price(price, call_strike, T, DEFAULT_RISK_FREE_RATE, boosted_iv, "C")
+        put_mid = bs_price(price, put_strike, T, DEFAULT_RISK_FREE_RATE, boosted_iv, "P")
 
-        total_debit = call_price + put_price
+        call_fill = get_fill_price(call_mid, price, call_strike, T, boosted_iv, "buy")
+        put_fill = get_fill_price(put_mid, price, put_strike, T, boosted_iv, "buy")
+
+        total_debit = call_fill + put_fill
         if total_debit <= 0:
             return None
 
         legs = [
-            TradeLeg(LegType.LONG_CALL, call_strike, expiration, entry_price=call_price),
-            TradeLeg(LegType.LONG_PUT, put_strike, expiration, entry_price=put_price),
+            TradeLeg(LegType.LONG_CALL, call_strike, expiration, entry_price=call_fill),
+            TradeLeg(LegType.LONG_PUT, put_strike, expiration, entry_price=put_fill),
         ]
 
         return Signal(
@@ -141,19 +144,22 @@ class StraddleStrangleStrategy(BaseStrategy):
         call_strike = round(price * (1 + otm_pct), 0)
         put_strike = round(price * (1 - otm_pct), 0)
 
-        call_price = bs_price(price, call_strike, T, DEFAULT_RISK_FREE_RATE, iv, "C")
-        put_price = bs_price(price, put_strike, T, DEFAULT_RISK_FREE_RATE, iv, "P")
+        call_mid = bs_price(price, call_strike, T, DEFAULT_RISK_FREE_RATE, iv, "C")
+        put_mid = bs_price(price, put_strike, T, DEFAULT_RISK_FREE_RATE, iv, "P")
 
-        total_credit = call_price + put_price
+        call_fill = get_fill_price(call_mid, price, call_strike, T, iv, "sell")
+        put_fill = get_fill_price(put_mid, price, put_strike, T, iv, "sell")
+
+        total_credit = call_fill + put_fill
         if total_credit <= 0.10:
             return None
 
-        # Max loss is theoretically unlimited for short straddle; cap at 2x credit
+        # Max loss is theoretically unlimited for short straddle; cap at 3x credit
         max_loss = total_credit * 3.0
 
         legs = [
-            TradeLeg(LegType.SHORT_CALL, call_strike, expiration, entry_price=call_price),
-            TradeLeg(LegType.SHORT_PUT, put_strike, expiration, entry_price=put_price),
+            TradeLeg(LegType.SHORT_CALL, call_strike, expiration, entry_price=call_fill),
+            TradeLeg(LegType.SHORT_PUT, put_strike, expiration, entry_price=put_fill),
         ]
 
         return Signal(
