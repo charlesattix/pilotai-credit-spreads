@@ -190,8 +190,8 @@ Map the surface and identify whether we're on a plateau or a cliff.
 |----------|------|--------|-----------|
 | P0a | Modify backtester for seeded DTE sampling | ✅ DONE | — |
 | P0b | Build run_monte_carlo.py | ✅ DONE | — |
-| P0c | Run MC at 10% risk (20 seeds) | 🔄 RUNNING | b3i881n24 |
-| P0d | Run MC at 5% risk (100 seeds) | ⬜ PENDING | after P0c |
+| P0c | Run MC at 10% risk (20 seeds) | ✅ DONE — P50=+98.8%, DD P50=-87.5% ❌ | b3i881n24 |
+| P0d | Run MC at 5% risk (20 seeds) | 🔄 RUNNING | b79sf6zac |
 | P1  | Portfolio exposure constraint | ✅ DONE | — |
 | P2  | Slippage brutality tests (configs) | ✅ DONE | — |
 | P2r | Run exp_063 (2x) + exp_064 (3x) | 🔄 RUNNING | b00mqxk8o, bka3es7cz |
