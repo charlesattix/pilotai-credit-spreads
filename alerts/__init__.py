@@ -12,6 +12,8 @@ from .zero_dte_scanner import ZeroDTEScanner
 from .zero_dte_exit_monitor import ZeroDTEExitMonitor
 from .iron_condor_scanner import IronCondorScanner
 from .iron_condor_exit_monitor import IronCondorExitMonitor
+from .momentum_scanner import MomentumScanner
+from .momentum_exit_monitor import MomentumExitMonitor
 
 __all__ = [
     'AlertGenerator',
@@ -29,6 +31,8 @@ __all__ = [
     'ZeroDTEExitMonitor',
     'IronCondorScanner',
     'IronCondorExitMonitor',
+    'MomentumScanner',
+    'MomentumExitMonitor',
 ]
 
 

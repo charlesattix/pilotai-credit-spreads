@@ -58,7 +58,10 @@ class TelegramAlertFormatter:
             opt = leg.option_type.upper()
             lines.append(f"  {action} ${leg.strike:.2f} {opt}")
         lines.append(f"  Exp: {alert.legs[0].expiration}")
-        lines.append(f"  Credit: ${alert.entry_price:.2f}")
+        if alert.type == AlertType.momentum_swing:
+            lines.append(f"  Debit: ${alert.entry_price:.2f}")
+        else:
+            lines.append(f"  Credit: ${alert.entry_price:.2f}")
         lines.append("")
 
         # 3 — Risk / reward

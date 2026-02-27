@@ -10,7 +10,7 @@ import logging
 
 from shared.constants import MAX_RISK_PER_TRADE
 from ml.position_sizer import calculate_dynamic_risk, get_contract_size
-from alerts.alert_schema import Alert, SizeResult
+from alerts.alert_schema import Alert, AlertType, SizeResult
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,11 @@ class AlertPositionSizer:
         contracts = get_contract_size(dollar_risk, spread_width, credit)
 
         # 7. Compute max_loss
-        max_loss_per_contract = (spread_width - credit) * 100
+        # For debit spreads, max loss = debit paid (credit field holds debit)
+        if alert.type == AlertType.momentum_swing:
+            max_loss_per_contract = credit * 100
+        else:
+            max_loss_per_contract = (spread_width - credit) * 100
         max_loss = max_loss_per_contract * contracts
 
         return SizeResult(

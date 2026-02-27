@@ -43,6 +43,8 @@ from alerts.zero_dte_scanner import ZeroDTEScanner
 from alerts.zero_dte_exit_monitor import ZeroDTEExitMonitor
 from alerts.iron_condor_scanner import IronCondorScanner
 from alerts.iron_condor_exit_monitor import IronCondorExitMonitor
+from alerts.momentum_scanner import MomentumScanner
+from alerts.momentum_exit_monitor import MomentumExitMonitor
 from backtest import Backtester, HistoricalOptionsData, PerformanceMetrics
 from tracker import TradeTracker, PnLDashboard
 from paper_trader import PaperTrader
@@ -148,6 +150,12 @@ class CreditSpreadSystem:
             self.paper_trader, self.telegram_bot,
         )
 
+        # Momentum swing scanner and exit monitor
+        self.momentum_scanner = MomentumScanner(self.config, data_cache=self.data_cache)
+        self.momentum_exit_monitor = MomentumExitMonitor(
+            self.paper_trader, self.telegram_bot,
+        )
+
         logger.info("All components initialized successfully")
 
     def scan_opportunities(self):
@@ -247,6 +255,25 @@ class CreditSpreadSystem:
                     logger.info(f"Iron condor exit monitor fired {len(ic_exits)} alerts")
         except Exception as e:
             logger.warning(f"Iron condor exit monitor failed (non-fatal): {e}")
+
+        # Momentum swing scan (only fires during market hours)
+        try:
+            mom_opps = self.momentum_scanner.scan()
+            if mom_opps:
+                account_state = self._build_account_state()
+                routed = self.alert_router.route_opportunities(mom_opps, account_state)
+                logger.info(f"Momentum alert router dispatched {len(routed)} alerts")
+        except Exception as e:
+            logger.warning(f"Momentum scanner failed (non-fatal): {e}")
+
+        # Momentum exit monitoring (runs every scan)
+        try:
+            if current_prices:
+                mom_exits = self.momentum_exit_monitor.check_and_alert(current_prices)
+                if mom_exits:
+                    logger.info(f"Momentum exit monitor fired {len(mom_exits)} alerts")
+        except Exception as e:
+            logger.warning(f"Momentum exit monitor failed (non-fatal): {e}")
 
         self.paper_trader.print_summary()
 

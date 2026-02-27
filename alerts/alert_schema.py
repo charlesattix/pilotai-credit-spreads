@@ -137,10 +137,19 @@ class Alert:
         defaults.
         """
         opp_type = opp.get("type", "bull_put_spread")
+        alert_source = opp.get("alert_source", "")
         expiration = str(opp.get("expiration", ""))
 
+        # Detect debit spread / momentum swing
+        is_debit = (
+            "debit" in opp_type
+            or alert_source == "momentum_swing"
+        )
+
         # Map legacy type → AlertType
-        if "condor" in opp_type:
+        if is_debit:
+            alert_type = AlertType.momentum_swing
+        elif "condor" in opp_type:
             alert_type = AlertType.iron_condor
         elif "put" in opp_type:
             alert_type = AlertType.credit_spread
@@ -150,6 +159,8 @@ class Alert:
         # Infer direction
         if "condor" in opp_type:
             direction = Direction.neutral
+        elif is_debit:
+            direction = Direction.bullish if "bull" in opp_type or "call" in opp_type else Direction.bearish
         elif "put" in opp_type:
             direction = Direction.bullish
         else:
@@ -164,6 +175,14 @@ class Alert:
             # Call side
             legs.append(Leg(opp["call_short_strike"], "call", "sell", expiration))
             legs.append(Leg(opp["call_long_strike"], "call", "buy", expiration))
+        elif is_debit and ("call" in opp_type or direction == Direction.bullish):
+            # Bull call debit: buy long_strike call, sell short_strike call
+            legs.append(Leg(opp["long_strike"], "call", "buy", expiration))
+            legs.append(Leg(opp["short_strike"], "call", "sell", expiration))
+        elif is_debit:
+            # Bear put debit: buy long_strike put, sell short_strike put
+            legs.append(Leg(opp["long_strike"], "put", "buy", expiration))
+            legs.append(Leg(opp["short_strike"], "put", "sell", expiration))
         elif "put" in opp_type:
             legs.append(Leg(opp["short_strike"], "put", "sell", expiration))
             legs.append(Leg(opp["long_strike"], "put", "buy", expiration))
@@ -188,9 +207,13 @@ class Alert:
         else:
             confidence = Confidence.SPECULATIVE
 
-        # 0DTE-aware time sensitivity and expiry
+        # Time sensitivity and expiry
         dte = opp.get("dte", 999)
-        if dte <= 1:
+        if is_debit:
+            # Momentum swings are slower — TODAY, not IMMEDIATE
+            time_sensitivity = TimeSensitivity.TODAY
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=4)
+        elif dte <= 1:
             time_sensitivity = TimeSensitivity.IMMEDIATE
             expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
         else:
@@ -216,7 +239,7 @@ class Alert:
             ticker=opp["ticker"],
             direction=direction,
             legs=legs,
-            entry_price=opp.get("credit", 0.01),
+            entry_price=opp.get("debit", opp.get("credit", 0.01)) if is_debit else opp.get("credit", 0.01),
             stop_loss=opp.get("stop_loss", 0.0),
             profit_target=opp.get("profit_target", 0.0),
             risk_pct=risk_pct,
