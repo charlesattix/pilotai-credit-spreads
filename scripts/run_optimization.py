@@ -58,7 +58,12 @@ def _load_json(path: Path, default):
 
 
 def _save_json(path: Path, data):
-    path.write_text(json.dumps(data, indent=2, default=str))
+    import fcntl
+    with open(path, "w") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        f.write(json.dumps(data, indent=2, default=str))
+        f.flush()
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
 def load_leaderboard():
@@ -81,8 +86,13 @@ def load_state():
 
 
 def save_state(state: dict):
+    import fcntl
     state["last_updated"] = datetime.utcnow().isoformat()
-    _save_json(STATE_PATH, state)
+    lock_path = STATE_PATH.with_suffix(".lock")
+    with open(lock_path, "w") as lf:
+        fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
+        _save_json(STATE_PATH, state)
+        fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
 
 
 def get_current_best(leaderboard: list):
@@ -235,19 +245,31 @@ def compute_summary(results_by_year: dict) -> dict:
 
 
 def append_to_leaderboard(entry: dict):
-    lb = load_leaderboard()
-    lb.append(entry)
-    lb.sort(key=lambda x: (
-        (x.get("overfit_score") or 0) >= 0.70,
-        x["summary"]["avg_return"]
-    ), reverse=True)
-    _save_json(LEADERBOARD_PATH, lb)
+    import fcntl
+    LEADERBOARD_PATH.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = LEADERBOARD_PATH.with_suffix(".lock")
+    with open(lock_path, "w") as lf:
+        fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
+        lb = load_leaderboard()
+        lb.append(entry)
+        lb.sort(key=lambda x: (
+            (x.get("overfit_score") or 0) >= 0.70,
+            x["summary"]["avg_return"]
+        ), reverse=True)
+        _save_json(LEADERBOARD_PATH, lb)
+        fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
 
 
 def append_to_opt_log(entry: dict):
-    log = load_opt_log()
-    log.append(entry)
-    _save_json(OPT_LOG_PATH, log)
+    import fcntl
+    OPT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = OPT_LOG_PATH.with_suffix(".lock")
+    with open(lock_path, "w") as lf:
+        fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
+        log = load_opt_log()
+        log.append(entry)
+        _save_json(OPT_LOG_PATH, log)
+        fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
 
 
 # ── Print table ──────────────────────────────────────────────────────────────
