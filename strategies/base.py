@@ -183,6 +183,8 @@ class PortfolioState:
     total_risk: float = 0.0
     iv_rank: float = 25.0
     max_portfolio_risk_pct: float = 0.40
+    net_delta: float = 0.0                 # Portfolio-level aggregate delta
+    buying_power: float = 0.0              # Available buying power (margin-adjusted)
 
 
 # ---------------------------------------------------------------------------

@@ -29,6 +29,7 @@ from strategies.base import (
     PositionAction,
     Signal,
 )
+from shared.strike_selector import bs_delta
 from strategies.pricing import bs_price, calculate_rsi, estimate_spread_value, estimate_spread_value_with_friction
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ class PortfolioBacktester:
         max_portfolio_risk_pct: float = 0.40,
         gap_threshold: float = 0.005,
         options_cache=None,
+        max_abs_delta: float = 50.0,
     ):
         self.strategies = strategies
         self.tickers = tickers
@@ -64,12 +66,17 @@ class PortfolioBacktester:
         self._options_cache = options_cache  # Optional[HistoricalOptionsData]
         self._cache_hits = 0
         self._cache_misses = 0
+        self.max_abs_delta = max_abs_delta  # portfolio-level delta cap
 
         # State
         self.capital = starting_capital
         self.open_positions: List[Position] = []
         self.closed_trades: List[Position] = []
         self.equity_curve: List[Tuple[datetime, float]] = []
+        self._last_prices: Dict[str, float] = {}
+        self._last_vols: Dict[str, float] = {}
+        self._last_rfr: float = DEFAULT_RISK_FREE_RATE
+        self._last_date: datetime = start_date
 
         # Pre-computed data (populated in _load_data)
         self._price_data: Dict[str, pd.DataFrame] = {}
@@ -115,11 +122,22 @@ class PortfolioBacktester:
             date_dt = date_ts.to_pydatetime().replace(tzinfo=None)
             snapshot = self._build_market_snapshot(date_ts, date_dt)
 
+            # Cache snapshot data for delta computation
+            self._last_prices = snapshot.prices
+            self._last_vols = snapshot.realized_vol
+            self._last_rfr = snapshot.risk_free_rate
+            self._last_date = date_dt
+
             # --- Gap-stop check: close positions gapped through stops ---
             if snapshot.gaps:
                 for pos in list(self.open_positions):
                     if pos.ticker in snapshot.gaps and self._gap_triggers_stop(pos, snapshot):
                         self._close_position_at_gap(pos, snapshot)
+
+            # --- Assignment risk: force-close positions with deep ITM short legs near expiry ---
+            for pos in list(self.open_positions):
+                if self._has_assignment_risk(pos, snapshot):
+                    self._close_position(pos, PositionAction.CLOSE_SIGNAL, snapshot)
 
             # --- Exit check: each strategy manages its own positions ---
             positions_to_close: List[Tuple[Position, PositionAction]] = []
@@ -452,6 +470,12 @@ class PortfolioBacktester:
         total_risk = sum(
             p.max_loss_per_unit * p.contracts * 100 for p in self.open_positions
         )
+        # Margin requirement: spread width × contracts × 100 for defined-risk
+        margin_used = sum(
+            p.max_loss_per_unit * p.contracts * 100 for p in self.open_positions
+        )
+        buying_power = max(0.0, self.capital - margin_used)
+
         return PortfolioState(
             equity=self.capital,
             starting_capital=self.starting_capital,
@@ -459,7 +483,85 @@ class PortfolioBacktester:
             open_positions=list(self.open_positions),
             total_risk=total_risk,
             max_portfolio_risk_pct=self.max_portfolio_risk_pct,
+            net_delta=self._compute_portfolio_delta(),
+            buying_power=buying_power,
         )
+
+    def _compute_portfolio_delta(self) -> float:
+        """Compute aggregate portfolio delta across all open positions.
+
+        Each option leg contributes: sign * bs_delta * contracts * 100.
+        Long legs have positive sign, short legs negative.
+        Uses the most recent snapshot data for pricing.
+        """
+        total_delta = 0.0
+        for pos in self.open_positions:
+            price = self._last_prices.get(pos.ticker, 0)
+            if price <= 0:
+                continue
+            iv = self._last_vols.get(pos.ticker, 0.20)
+            rfr = self._last_rfr
+
+            for leg in pos.legs:
+                if leg.leg_type == LegType.LONG_STOCK:
+                    total_delta += pos.contracts
+                    continue
+                elif leg.leg_type == LegType.SHORT_STOCK:
+                    total_delta -= pos.contracts
+                    continue
+
+                is_call = "call" in leg.leg_type.value
+                is_long = "long" in leg.leg_type.value
+                opt_type = "C" if is_call else "P"
+
+                dte = max((leg.expiration - self._last_date).days, 0) if leg.expiration else 0
+                T = max(dte / 365.0, 0.001)
+
+                d = bs_delta(price, leg.strike, T, rfr, iv, opt_type)
+                sign = 1.0 if is_long else -1.0
+                total_delta += sign * d * pos.contracts * 100
+
+        return round(total_delta, 1)
+
+    def _compute_signal_delta(
+        self, signal: Signal, contracts: int, price: float, iv: float,
+        rfr: float, current_date: datetime,
+    ) -> float:
+        """Compute the delta contribution of a potential new position."""
+        delta = 0.0
+        for leg in signal.legs:
+            if leg.leg_type in (LegType.LONG_STOCK, LegType.SHORT_STOCK):
+                sign = 1.0 if leg.leg_type == LegType.LONG_STOCK else -1.0
+                delta += sign * contracts
+                continue
+
+            is_call = "call" in leg.leg_type.value
+            is_long = "long" in leg.leg_type.value
+            opt_type = "C" if is_call else "P"
+
+            dte = max((leg.expiration - current_date).days, 0) if leg.expiration else 0
+            T = max(dte / 365.0, 0.001)
+
+            d = bs_delta(price, leg.strike, T, rfr, iv, opt_type)
+            sign = 1.0 if is_long else -1.0
+            delta += sign * d * contracts * 100
+
+        return delta
+
+    @staticmethod
+    def _compute_margin_requirement(signal: Signal, contracts: int) -> float:
+        """Compute Reg-T style margin for a defined-risk options position.
+
+        For spreads: margin = spread width × contracts × 100.
+        For naked options: margin = max_loss × contracts × 100.
+        For debit trades: margin = debit paid (already reserved as cash).
+        """
+        if signal.net_credit < 0:
+            # Debit: margin = cost (already deducted from cash)
+            return abs(signal.net_credit) * contracts * 100
+
+        # Credit spread: margin = spread_width × contracts × 100
+        return signal.max_loss * contracts * 100
 
     def _can_accept(self, signal: Signal) -> bool:
         """Check position limits before accepting a new signal."""
@@ -492,6 +594,27 @@ class PortfolioBacktester:
             debit_cost = abs(signal.net_credit) * 100  # 1 contract estimate
             if debit_cost > self.capital * 0.10:
                 return False
+
+        # 6. Delta cap: reject if adding this trade would push portfolio delta
+        #    beyond the absolute delta limit
+        price = self._last_prices.get(signal.ticker, 0)
+        if price > 0:
+            iv = self._last_vols.get(signal.ticker, 0.20)
+            signal_delta = self._compute_signal_delta(
+                signal, 1, price, iv, self._last_rfr, self._last_date,
+            )
+            current_delta = self._compute_portfolio_delta()
+            new_delta = abs(current_delta + signal_delta)
+            if new_delta > self.max_abs_delta:
+                return False
+
+        # 7. Margin/buying power: reject if insufficient
+        margin_needed = self._compute_margin_requirement(signal, 1)
+        margin_used = sum(
+            p.max_loss_per_unit * p.contracts * 100 for p in self.open_positions
+        )
+        if margin_used + margin_needed > self.capital:
+            return False
 
         return True
 
@@ -624,6 +747,43 @@ class PortfolioBacktester:
         if pos in self.open_positions:
             self.open_positions.remove(pos)
         self.closed_trades.append(pos)
+
+    def _has_assignment_risk(
+        self, pos: Position, snapshot: MarketSnapshot,
+    ) -> bool:
+        """Check if any short leg has assignment risk.
+
+        Triggers when a short option is ≥1% ITM with ≤2 DTE.
+        This models real brokerage behavior where deep ITM shorts
+        near expiration get assigned, creating unwanted stock positions.
+        """
+        price = snapshot.prices.get(pos.ticker)
+        if price is None or price <= 0:
+            return False
+
+        for leg in pos.legs:
+            if leg.leg_type in (LegType.LONG_STOCK, LegType.SHORT_STOCK,
+                                LegType.LONG_CALL, LegType.LONG_PUT):
+                continue
+
+            if leg.expiration is None:
+                continue
+
+            dte = (leg.expiration - snapshot.date).days
+            if dte > 2:
+                continue
+
+            # Check if short leg is ≥1% ITM
+            is_call = "call" in leg.leg_type.value
+            if is_call:
+                itm_pct = (price - leg.strike) / price
+            else:
+                itm_pct = (leg.strike - price) / price
+
+            if itm_pct >= 0.01:
+                return True
+
+        return False
 
     def _settle_at_expiration(self, pos: Position, underlying_price: float) -> float:
         """Compute P&L at expiration based on whether legs are ITM/OTM."""
