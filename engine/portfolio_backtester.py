@@ -360,6 +360,13 @@ class PortfolioBacktester:
             else []
         )
 
+        # Recent past events (for post-event strategies like short straddles)
+        recent_events = (
+            self._calendar.get_recent_events(days_back=2, reference_date=ref_date)
+            if self._calendar
+            else []
+        )
+
         # Regime classification (use SPY prices if available, else first ticker)
         regime_val = None
         spy_key = next((t for t in self.tickers if t.upper() == "SPY"), None)
@@ -380,6 +387,7 @@ class PortfolioBacktester:
             realized_vol=realized_vol,
             rsi=rsi,
             upcoming_events=upcoming_events,
+            recent_events=recent_events,
             regime=regime_val,
         )
 

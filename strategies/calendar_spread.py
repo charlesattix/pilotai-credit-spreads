@@ -132,16 +132,23 @@ class CalendarSpreadStrategy(BaseStrategy):
     def manage_position(
         self, position: Position, market_data: MarketSnapshot,
     ) -> PositionAction:
-        # Close when front month expires
-        front_leg = position.legs[0] if position.legs else None
-        if front_leg and market_data.date >= front_leg.expiration:
-            return PositionAction.CLOSE_EXPIRY
-
         price = market_data.prices.get(position.ticker)
         if price is None:
             return PositionAction.HOLD
 
         iv = market_data.realized_vol.get(position.ticker, 0.20)
+
+        # Close when front month expires — use CLOSE_SIGNAL (not CLOSE_EXPIRY)
+        # so the backtester values the back leg via BS instead of intrinsic-only.
+        front_leg = position.legs[0] if position.legs else None
+        if front_leg and market_data.date >= front_leg.expiration:
+            return PositionAction.CLOSE_SIGNAL
+
+        # Also close if the back leg expires
+        back_leg = position.legs[1] if len(position.legs) > 1 else None
+        if back_leg and market_data.date >= back_leg.expiration:
+            return PositionAction.CLOSE_EXPIRY
+
         spread_value = estimate_spread_value(position, price, iv, market_data.date)
 
         entry_debit = abs(position.net_credit)

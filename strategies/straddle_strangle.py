@@ -26,17 +26,22 @@ class StraddleStrangleStrategy(BaseStrategy):
         mode = self._p("mode", "long_pre_event")
         event_types = self._p("event_types", "all")
 
-        matching_events = []
-        for event in market_data.upcoming_events:
-            et = event.get("event_type", "")
-            if event_types == "all":
-                matching_events.append(event)
-            elif event_types == "fomc_only" and et == "fomc":
-                matching_events.append(event)
-            elif event_types == "fomc_cpi" and et in ("fomc", "cpi"):
-                matching_events.append(event)
+        def _filter_events(events):
+            filtered = []
+            for event in events:
+                et = event.get("event_type", "")
+                if event_types == "all":
+                    filtered.append(event)
+                elif event_types == "fomc_only" and et == "fomc":
+                    filtered.append(event)
+                elif event_types == "fomc_cpi" and et in ("fomc", "cpi"):
+                    filtered.append(event)
+            return filtered
 
-        if not matching_events:
+        upcoming = _filter_events(market_data.upcoming_events)
+        recent = _filter_events(getattr(market_data, "recent_events", []))
+
+        if not upcoming and not recent:
             return []
 
         for ticker, price in market_data.prices.items():
@@ -45,13 +50,16 @@ class StraddleStrangleStrategy(BaseStrategy):
 
             iv = market_data.realized_vol.get(ticker, 0.20)
 
-            for event in matching_events:
-                if mode in ("long_pre_event", "both"):
+            # Long pre-event: use upcoming events
+            if mode in ("long_pre_event", "both"):
+                for event in upcoming:
                     sig = self._build_long(ticker, price, iv, market_data.date, event)
                     if sig:
                         signals.append(sig)
 
-                if mode in ("short_post_event", "both"):
+            # Short post-event: use recent (just-passed) events
+            if mode in ("short_post_event", "both"):
+                for event in recent:
                     sig = self._build_short(ticker, price, iv, market_data.date, event)
                     if sig:
                         signals.append(sig)
@@ -114,16 +122,14 @@ class StraddleStrangleStrategy(BaseStrategy):
         self, ticker: str, price: float, iv: float,
         date, event: Dict,
     ) -> Signal | None:
-        """Sell straddle/strangle after event (IV crush)."""
+        """Sell straddle/strangle after event (IV crush).
+
+        Called with events from recent_events (already occurred), so no
+        future-date guard is needed.
+        """
         target_dte = self._p("target_dte", 7)
         otm_pct = self._p("otm_pct", 0.0)
         iv_crush_pct = self._p("iv_crush_pct", 0.40)
-
-        # Only enter day after event
-        event_date = event.get("date")
-        if event_date and hasattr(event_date, "date"):
-            if date <= event_date:
-                return None  # event hasn't happened yet
 
         expiration = nearest_friday_expiration(date, target_dte, min_dte=2)
         dte = max((expiration - date).days, 1)

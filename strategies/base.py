@@ -157,6 +157,9 @@ class MarketSnapshot:
     # Economic calendar events within lookahead window
     upcoming_events: List[Dict] = field(default_factory=list)
 
+    # Economic events that recently occurred (within last 2 days)
+    recent_events: List[Dict] = field(default_factory=list)
+
     # Current market regime (from engine.regime.RegimeClassifier)
     regime: Optional[str] = None
 

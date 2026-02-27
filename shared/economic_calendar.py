@@ -90,6 +90,46 @@ class EconomicCalendar:
         events.sort(key=lambda e: e["date"])
         return events
 
+    def get_recent_events(
+        self,
+        days_back: int = 2,
+        reference_date: Optional[datetime] = None,
+    ) -> List[Dict]:
+        """Return economic events that occurred within *days_back* before *reference_date*.
+
+        Each event dict: ``{event_type, date, description, importance}``.
+        Sorted by date ascending.
+        """
+        ref = reference_date or datetime.now(timezone.utc)
+        if ref.tzinfo is None:
+            ref = ref.replace(tzinfo=timezone.utc)
+
+        lookback = ref - timedelta(days=days_back)
+        events: List[Dict] = []
+
+        for dt in self._fomc_dates:
+            if lookback <= dt < ref:
+                events.append(self._event("fomc", dt, "FOMC rate decision"))
+
+        for dt in self._cpi_dates:
+            if lookback <= dt < ref:
+                events.append(self._event("cpi", dt, "CPI inflation report"))
+
+        for dt in self._ppi_dates:
+            if lookback <= dt < ref:
+                events.append(self._event("ppi", dt, "PPI producer prices"))
+
+        for dt in self._jobs_dates:
+            if lookback <= dt < ref:
+                events.append(self._event("jobs", dt, "Non-farm payrolls"))
+
+        for dt in self._gdp_dates:
+            if lookback <= dt < ref:
+                events.append(self._event("gdp", dt, "GDP report"))
+
+        events.sort(key=lambda e: e["date"])
+        return events
+
     def is_event_tomorrow(
         self, reference_date: Optional[datetime] = None
     ) -> bool:
