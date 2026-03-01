@@ -125,6 +125,11 @@ class IronCondorStrategy(BaseStrategy):
             TradeLeg(LegType.LONG_CALL, call_long, expiration, entry_price=call_long_fill),
         ]
 
+        # Cap stop_loss_multiplier so threshold can't exceed max_loss
+        raw_sl = self._p("stop_loss_multiplier", 2.0)
+        max_sl = max_loss / combined_credit if combined_credit > 0 else raw_sl
+        capped_sl = min(raw_sl, max_sl)
+
         return Signal(
             strategy_name=self.name,
             ticker=ticker,
@@ -134,7 +139,7 @@ class IronCondorStrategy(BaseStrategy):
             max_loss=max_loss,
             max_profit=combined_credit,
             profit_target_pct=self._p("profit_target_pct", 0.50),
-            stop_loss_pct=self._p("stop_loss_multiplier", 2.0),
+            stop_loss_pct=capped_sl,
             score=55.0,
             signal_date=market_data.date,
             expiration=expiration,

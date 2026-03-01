@@ -137,6 +137,14 @@ class CreditSpreadStrategy(BaseStrategy):
             TradeLeg(long_leg_type, long_strike, expiration, entry_price=long_fill),
         ]
 
+        # Cap stop_loss_multiplier so the dollar threshold doesn't exceed
+        # max_loss.  stop fires when loss >= credit * multiplier, but loss
+        # can never exceed max_loss = spread_width - credit, so cap at
+        # max_loss / credit to keep the stop reachable.
+        raw_sl = self._p("stop_loss_multiplier", 2.5)
+        max_sl = max_loss / credit if credit > 0 else raw_sl
+        capped_sl = min(raw_sl, max_sl)
+
         return Signal(
             strategy_name=self.name,
             ticker=ticker,
@@ -146,7 +154,7 @@ class CreditSpreadStrategy(BaseStrategy):
             max_loss=max_loss,
             max_profit=credit,
             profit_target_pct=self._p("profit_target_pct", 0.50),
-            stop_loss_pct=self._p("stop_loss_multiplier", 2.5),
+            stop_loss_pct=capped_sl,
             score=50.0,
             signal_date=date,
             expiration=expiration,
@@ -219,7 +227,7 @@ class CreditSpreadStrategy(BaseStrategy):
             ParamDef("spread_width", "float", 10.0, low=2.0, high=20.0, step=1.0),
             ParamDef("credit_fraction", "float", 0.35, low=0.15, high=0.50, step=0.05),
             ParamDef("profit_target_pct", "float", 0.50, low=0.25, high=0.80, step=0.05),
-            ParamDef("stop_loss_multiplier", "float", 2.5, low=1.5, high=4.0, step=0.25),
+            ParamDef("stop_loss_multiplier", "float", 2.0, low=1.0, high=3.0, step=0.25),
             ParamDef("momentum_filter_pct", "float", 5.0, low=2.0, high=10.0, step=1.0),
             ParamDef("scan_weekday", "choice", "monday", choices=["monday", "any", "mon_wed_fri"]),
             ParamDef("max_risk_pct", "float", 0.02, low=0.005, high=0.05, step=0.005),
