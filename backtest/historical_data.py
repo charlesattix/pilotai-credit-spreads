@@ -32,11 +32,12 @@ _DEFAULT_LOOKBACK_YEARS = 2
 class HistoricalOptionsData:
     """Fetch and cache historical daily OHLCV for individual option contracts."""
 
-    def __init__(self, api_key: str, cache_dir: str = DATA_DIR):
+    def __init__(self, api_key: str, cache_dir: str = DATA_DIR, cache_only: bool = False):
         if not api_key:
             raise ValueError("api_key must be a non-empty string")
         self.api_key = api_key
         self.cache_dir = cache_dir
+        self.cache_only = cache_only  # If True, never hit Polygon API — cache miss = None
 
         # HTTP session with automatic retries for transient failures
         self.session = requests.Session()
@@ -173,6 +174,10 @@ class HistoricalOptionsData:
         if row is not None:
             return row[0]
 
+        # In cache_only mode, never hit the API — cache miss = None
+        if self.cache_only:
+            return None
+
         # Check if we already fetched this contract (just no data for this date)
         cur.execute(
             "SELECT 1 FROM option_daily WHERE contract_symbol = ? LIMIT 1",
@@ -198,9 +203,25 @@ class HistoricalOptionsData:
 
         Calls /v2/aggs/ticker/{symbol}/range/1/day/{start}/{end}
         One API call per contract; results cached for all future lookups.
+
+        Parses the OCC symbol to determine the contract's expiration date
+        and queries the correct date range (up to 1 year before expiration
+        through the expiration date).
         """
-        end = datetime.now()
-        start = end - timedelta(days=_DEFAULT_LOOKBACK_YEARS * 365)
+        # Parse expiration from OCC symbol: O:SPY200117P00450000 -> 200117
+        import re
+        m = re.search(r'[A-Z](\d{6})[PC]', symbol)
+        if m:
+            exp_str = m.group(1)
+            exp_date = datetime.strptime(exp_str, "%y%m%d")
+            # Options are typically listed ~1 year before expiry for monthlies,
+            # ~6 weeks for weeklies. Use 1 year to be safe.
+            start = exp_date - timedelta(days=365)
+            end = exp_date + timedelta(days=1)
+        else:
+            end = datetime.now()
+            start = end - timedelta(days=_DEFAULT_LOOKBACK_YEARS * 365)
+
         from_str = start.strftime("%Y-%m-%d")
         to_str = end.strftime("%Y-%m-%d")
 

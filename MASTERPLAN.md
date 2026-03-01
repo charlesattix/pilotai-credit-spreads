@@ -16,6 +16,19 @@ Stage 4: PAPER TRADE        → Alpaca paper trading, prove it in real-time
 Stage 5: GO LIVE            → Graduate to real money after 8+ weeks paper validation
 ```
 
+## ⚔️ CARDINAL RULE — NO SYNTHETIC DATA. EVER.
+
+**Synthetic/Black-Scholes pricing is the MORTAL ENEMY. It produces fake results that waste time and mislead decisions.**
+
+- ALL backtests MUST use real Polygon options data (cached bid/ask/greeks)
+- If real data is not cached for a trade → SKIP the trade. Do NOT fall back to BS pricing.
+- NEVER run the optimizer, endless optimizer, or any test on synthetic data
+- Any result produced with synthetic pricing is INVALID and must be discarded
+- The backtester must REJECT cache misses, not silently use fake prices
+- Real data first. Always. No exceptions. No shortcuts.
+
+**If you can't test it on real data, you don't test it at all. Wait for the cache.**
+
 ## Victory Conditions
 
 | Metric | Target | Minimum Acceptable |

@@ -266,6 +266,10 @@ def print_progress(state: Dict, run_number: int):
     print(f"  Best avg return: {state.get('best_avg_return', 'N/A')}")
     print(f"  Best overfit score: {state.get('best_overfit_score', 'N/A')}")
     print(f"  Best run ID: {state.get('best_run_id', 'N/A')}")
+    if state.get("last_wf_ratio") is not None:
+        print(f"  Last WF ratio: {state['last_wf_ratio']:.3f}")
+        print(f"  Last WF OOS return: {state.get('last_wf_oos_return', 'N/A')}")
+        print(f"  Last WF folds profitable: {state.get('last_wf_folds_profitable', 'N/A')}")
 
     # Phase 1 per-strategy counts
     p1 = state.get("phase1_history", {})
@@ -297,6 +301,14 @@ def main():
     parser.add_argument("--years", help="Comma-separated years")
     parser.add_argument("--tickers", help="Comma-separated tickers")
     parser.add_argument("--dry-run", action="store_true", help="Show plan without running")
+    parser.add_argument("--walk-forward", action="store_true",
+                        help="Run walk-forward validation on top-scoring runs")
+    parser.add_argument("--wf-interval", type=int, default=10,
+                        help="Run walk-forward every N runs on current best (default: 10)")
+    parser.add_argument("--wf-experiments", type=int, default=15,
+                        help="Experiments per fold in walk-forward (default: 15)")
+    parser.add_argument("--leaderboard", type=str, default=None,
+                        help="Path to leaderboard JSON (default: output/leaderboard.json)")
     parser.add_argument("--report-interval", type=int, default=100,
                         help="Print progress every N runs")
     args = parser.parse_args()
@@ -309,6 +321,7 @@ def main():
     )
     years = [int(y.strip()) for y in args.years.split(",")] if args.years else YEARS
     tickers = [t.strip() for t in args.tickers.split(",")] if args.tickers else DEFAULT_TICKERS
+    lb_path = Path(args.leaderboard) if args.leaderboard else None
 
     # Load state
     state = load_state()
@@ -333,6 +346,10 @@ def main():
     print(f"  Tickers    : {tickers}")
     print(f"  Phase      : {current_phase}")
     print(f"  Max runs   : {args.max_runs or 'unlimited'}")
+    print(f"  Walk-fwd   : {'ON (every ' + str(args.wf_interval) + ' runs, ' + str(args.wf_experiments) + ' exp/fold)' if args.walk_forward else 'OFF'}")
+    if lb_path:
+        print(f"  Leaderboard: {lb_path}")
+        print(f"  DATA MODE  : REAL DATA ONLY (no synthetic pricing)")
     print("=" * 72)
     print()
 
@@ -410,7 +427,7 @@ def main():
             note=f"endless phase{current_phase}",
             elapsed_sec=elapsed,
         )
-        append_to_leaderboard(entry)
+        append_to_leaderboard(entry, path=lb_path)
 
         # Log experiment
         log_entry = {
@@ -429,13 +446,60 @@ def main():
 
         # Update state
         state["total_runs"] = start_total + run_number
-        lb = load_leaderboard()
+        lb = load_leaderboard(path=lb_path)
         best = get_current_best(lb)
         if best:
             state["best_run_id"] = best["run_id"]
             state["best_avg_return"] = best["summary"]["avg_return"]
             state["best_overfit_score"] = best.get("overfit_score")
         save_state(state)
+
+        # Walk-forward validation on promising runs
+        if args.walk_forward and run_number % args.wf_interval == 0 and len(years) >= 4:
+            try:
+                from engine.walk_forward import WalkForwardOptimizer
+
+                # Use best params found so far across ALL runs
+                lb = load_leaderboard(path=lb_path)
+                best_entry = get_current_best(lb)
+                if best_entry and best_entry["summary"]["avg_return"] > 0:
+                    wf_strats = list(best_entry.get("strategies_config", strategies_config).keys())
+                    print(f"\n  >>> WALK-FORWARD VALIDATION (strategies: {', '.join(wf_strats)})")
+                    wfo = WalkForwardOptimizer(all_years=years)
+                    wf_results = wfo.run(
+                        strategy_names=wf_strats,
+                        tickers=tickers,
+                        n_experiments_per_fold=args.wf_experiments,
+                    )
+                    wf_data = wf_results.get("walk_forward", {})
+                    wf_ratio = wf_data.get("wf_ratio", 0)
+                    wf_oos = wf_data.get("avg_oos_annual_return", 0)
+                    wf_folds_ok = wf_data.get("folds_profitable", 0)
+                    wf_total = wf_data.get("total_folds", 0)
+
+                    state["last_wf_ratio"] = wf_ratio
+                    state["last_wf_oos_return"] = wf_oos
+                    state["last_wf_folds_profitable"] = f"{wf_folds_ok}/{wf_total}"
+
+                    # Log WF result
+                    wf_log = {
+                        "run_id": f"wf_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "phase": "walk_forward_validation",
+                        "strategies": wf_strats,
+                        "wf_ratio": wf_ratio,
+                        "avg_oos_return": wf_oos,
+                        "folds_profitable": f"{wf_folds_ok}/{wf_total}",
+                        "status": "complete",
+                    }
+                    append_to_opt_log(wf_log)
+                    save_state(state)
+
+                    if wf_ratio >= 0.70 and wf_oos >= 25:
+                        print(f"\n  !!! BREAKTHROUGH: WF ratio {wf_ratio:.3f}, OOS return {wf_oos:+.1f}% !!!")
+                        print(f"  !!! Walk-forward validated — this could be REAL EDGE !!!")
+            except Exception as e:
+                logger.warning("Walk-forward validation failed: %s", e)
 
         # Progress report
         if run_number % args.report_interval == 0:

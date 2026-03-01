@@ -107,9 +107,9 @@ class IronCondorStrategy(BaseStrategy):
         call_credit = call_short_fill - call_long_fill
         combined_credit = put_credit + call_credit
 
-        # Fallback heuristic
-        if combined_credit < spread_width * 0.10:
-            combined_credit = spread_width * 0.30
+        # Minimum credit filter: reject unfillable trades ($0.25/share minimum)
+        if combined_credit < 0.25:
+            return None
 
         if combined_credit < spread_width * min_combined_credit_pct:
             return None
@@ -197,8 +197,8 @@ class IronCondorStrategy(BaseStrategy):
             ParamDef("min_iv_rank", "float", 30.0, low=0.0, high=60.0, step=5.0),
             ParamDef("target_dte", "int", 35, low=21, high=60, step=5),
             ParamDef("min_dte", "int", 25, low=7, high=45, step=5),
-            ParamDef("otm_pct_put", "float", 0.05, low=0.02, high=0.12, step=0.01),
-            ParamDef("otm_pct_call", "float", 0.05, low=0.02, high=0.12, step=0.01),
+            ParamDef("otm_pct_put", "float", 0.05, low=0.02, high=0.08, step=0.01),
+            ParamDef("otm_pct_call", "float", 0.05, low=0.02, high=0.08, step=0.01),
             ParamDef("spread_width", "float", 10.0, low=2.0, high=15.0, step=1.0),
             ParamDef("min_combined_credit_pct", "float", 0.20, low=0.10, high=0.40, step=0.05),
             ParamDef("profit_target_pct", "float", 0.50, low=0.25, high=0.75, step=0.05),

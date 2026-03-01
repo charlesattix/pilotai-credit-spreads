@@ -30,7 +30,7 @@ from strategies.base import (
     Signal,
 )
 from shared.strike_selector import bs_delta
-from strategies.pricing import bs_price, calculate_rsi, estimate_spread_value, estimate_spread_value_with_friction
+from strategies.pricing import calculate_rsi
 
 logger = logging.getLogger(__name__)
 
@@ -142,11 +142,15 @@ class PortfolioBacktester:
                 if self._has_assignment_risk(pos, snapshot):
                     self._close_position(pos, PositionAction.CLOSE_SIGNAL, snapshot)
 
-            # --- Exit check: each strategy manages its own positions ---
+            # --- Exit check: use cached Polygon data for exit decisions when available ---
             positions_to_close: List[Tuple[Position, PositionAction]] = []
             for name, strategy in self.strategies:
                 for pos in self._positions_for(strategy.name):
-                    action = strategy.manage_position(pos, snapshot)
+                    # Prefer cache-based exit decision over strategy BS heuristic
+                    action = self._cache_based_exit_decision(pos, snapshot)
+                    if action is None:
+                        # No cache data: fall back to strategy's BS-based logic
+                        action = strategy.manage_position(pos, snapshot)
                     if action != PositionAction.HOLD:
                         positions_to_close.append((pos, action))
 
@@ -717,6 +721,60 @@ class PortfolioBacktester:
         self.open_positions.append(pos)
         return pos
 
+    def _cache_based_exit_decision(
+        self, pos: Position, snapshot: MarketSnapshot,
+    ) -> Optional[PositionAction]:
+        """Make exit decision using cached Polygon prices instead of BS heuristic.
+
+        Returns PositionAction if cache data is available, else None to signal
+        the caller should fall back to the strategy's BS-based manage_position().
+        """
+        # Expiration check (always valid, no cache needed)
+        if pos.legs and snapshot.date >= pos.legs[0].expiration:
+            return PositionAction.CLOSE_EXPIRY
+
+        # Stock-only positions: let strategy handle
+        has_options = any(
+            leg.leg_type not in (LegType.LONG_STOCK, LegType.SHORT_STOCK)
+            for leg in pos.legs
+        )
+        if not has_options:
+            return None
+
+        # Try to get cached spread value
+        cached = self._get_cached_spread_value(pos, snapshot.date.strftime("%Y-%m-%d"))
+        if cached is None:
+            return None  # No cache data — fall back to strategy BS logic
+
+        is_credit = pos.net_credit > 0
+        credit = pos.net_credit
+
+        if is_credit:
+            # Credit spread: cost_to_close = -cached (cached is negative for short spreads)
+            cost_to_close = -cached
+
+            # Profit target
+            profit_captured = credit - cost_to_close
+            if profit_captured >= credit * pos.profit_target_pct:
+                return PositionAction.CLOSE_PROFIT
+
+            # Stop loss
+            loss = cost_to_close - credit
+            if loss >= credit * pos.stop_loss_pct:
+                return PositionAction.CLOSE_STOP
+        else:
+            # Debit spread: we paid |net_credit|, position is now worth cached
+            entry_debit = abs(credit)
+            if entry_debit > 0:
+                profit = cached - entry_debit
+                if profit >= entry_debit * pos.profit_target_pct:
+                    return PositionAction.CLOSE_PROFIT
+                loss = entry_debit - cached
+                if loss >= entry_debit * pos.stop_loss_pct:
+                    return PositionAction.CLOSE_STOP
+
+        return PositionAction.HOLD
+
     def _close_position(
         self, pos: Position, action: PositionAction, snapshot: MarketSnapshot,
     ) -> None:
@@ -760,11 +818,11 @@ class PortfolioBacktester:
         if open_price is None:
             return False
 
-        # Try cache first
+        # Try cache first; on miss use intrinsic value (no BS fallback)
         cached = self._get_cached_spread_value(pos, snapshot.date.strftime("%Y-%m-%d"))
         if cached is not None:
             spread_value = cached
-        elif self.require_real_data:
+        else:
             # No cache data — use intrinsic value estimate (conservative)
             spread_value = 0.0
             for leg in pos.legs:
@@ -777,11 +835,6 @@ class PortfolioBacktester:
                 else:
                     iv_leg = max(leg.strike - open_price, 0)
                 spread_value += iv_leg if is_long else -iv_leg
-        else:
-            iv = snapshot.realized_vol.get(pos.ticker, 0.20)
-            spread_value = estimate_spread_value(
-                pos, open_price, iv, snapshot.date, snapshot.risk_free_rate,
-            )
 
         is_credit = pos.net_credit > 0
 
@@ -974,18 +1027,13 @@ class PortfolioBacktester:
                     pnl += (leg.entry_price - price) * pos.contracts
             return pnl
 
-        # Real data only: try cached Polygon prices, NO BS fallback
+        # Try cached Polygon prices; on miss use intrinsic value (no BS fallback)
         cached = self._get_cached_spread_value(pos, current_date.strftime("%Y-%m-%d"))
         if cached is not None:
             current_value = cached
-        elif self.require_real_data:
-            # No real data for this date — settle at intrinsic value (conservative)
-            return self._settle_at_expiration(pos, price)
         else:
-            # Legacy BS fallback (only when require_real_data=False)
-            current_value = estimate_spread_value_with_friction(
-                pos, price, iv, current_date, r, closing=True, vix=vix,
-            )
+            # No cache data — settle at intrinsic value (conservative)
+            return self._settle_at_expiration(pos, price)
 
         is_credit = pos.net_credit > 0
 
@@ -1031,11 +1079,11 @@ class PortfolioBacktester:
                     elif leg.leg_type == LegType.SHORT_STOCK:
                         unrealized += (leg.entry_price - price) * pos.contracts
             else:
-                # Real data only: try cached Polygon prices, NO BS fallback
+                # Try cached Polygon prices; on miss use intrinsic (no BS fallback)
                 cached = self._get_cached_spread_value(pos, date.strftime("%Y-%m-%d"))
                 if cached is not None:
                     current_value = cached
-                elif self.require_real_data:
+                else:
                     # No cache data — use intrinsic value for conservative MTM
                     intrinsic = 0.0
                     for leg in pos.legs:
@@ -1047,12 +1095,6 @@ class PortfolioBacktester:
                             iv_leg = max(leg.strike - price, 0)
                         intrinsic += iv_leg if is_long else -iv_leg
                     current_value = intrinsic
-                else:
-                    iv = snapshot.realized_vol.get(pos.ticker, 0.20)
-                    current_value = estimate_spread_value_with_friction(
-                        pos, price, iv, date, snapshot.risk_free_rate, closing=True,
-                        vix=snapshot.vix,
-                    )
                 if pos.net_credit > 0:
                     # Credit: collected premium, now would cost -current_value to close
                     unrealized += (pos.net_credit + current_value) * pos.contracts * 100

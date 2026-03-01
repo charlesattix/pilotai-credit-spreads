@@ -89,7 +89,6 @@ class CreditSpreadStrategy(BaseStrategy):
         min_dte = self._p("min_dte", 25)
         otm_pct = self._p("otm_pct", 0.05)
         spread_width = self._p("spread_width", 10.0)
-        credit_fraction = self._p("credit_fraction", 0.35)
 
         expiration = nearest_friday_expiration(date, target_dte, min_dte)
         dte = (expiration - date).days
@@ -118,14 +117,8 @@ class CreditSpreadStrategy(BaseStrategy):
         long_fill = get_fill_price(long_mid, price, long_strike, T, long_iv, "buy", vix=vix)
         credit = short_fill - long_fill
 
-        # Fallback: use heuristic credit if BS gives unreasonable result
-        min_credit = spread_width * 0.10
-        if credit < min_credit:
-            credit = spread_width * credit_fraction
-            # Re-derive fill prices from heuristic
-            short_fill = credit + long_fill
-
-        if credit <= 0:
+        # Minimum credit filter: reject unfillable trades ($0.25/share minimum)
+        if credit < 0.25:
             return None
 
         max_loss = spread_width - credit
@@ -223,9 +216,8 @@ class CreditSpreadStrategy(BaseStrategy):
             ParamDef("trend_ma_period", "int", 20, low=10, high=100, step=5),
             ParamDef("target_dte", "int", 35, low=14, high=60, step=5),
             ParamDef("min_dte", "int", 25, low=7, high=45, step=5),
-            ParamDef("otm_pct", "float", 0.05, low=0.02, high=0.15, step=0.01),
+            ParamDef("otm_pct", "float", 0.05, low=0.02, high=0.08, step=0.01),
             ParamDef("spread_width", "float", 10.0, low=2.0, high=20.0, step=1.0),
-            ParamDef("credit_fraction", "float", 0.35, low=0.15, high=0.50, step=0.05),
             ParamDef("profit_target_pct", "float", 0.50, low=0.25, high=0.80, step=0.05),
             ParamDef("stop_loss_multiplier", "float", 2.0, low=1.0, high=3.0, step=0.25),
             ParamDef("momentum_filter_pct", "float", 5.0, low=2.0, high=10.0, step=1.0),

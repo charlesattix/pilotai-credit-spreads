@@ -31,6 +31,10 @@ from typing import Any, Dict, List, Optional
 # ── paths ───────────────────────────────────────────────────────────────────
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
+
+from dotenv import load_dotenv
+load_dotenv(ROOT / ".env")
+
 OUTPUT = ROOT / "output"
 OUTPUT.mkdir(exist_ok=True)
 
@@ -66,8 +70,8 @@ def _save_json(path: Path, data):
         fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
-def load_leaderboard():
-    return _load_json(LEADERBOARD_PATH, [])
+def load_leaderboard(path: Optional[Path] = None):
+    return _load_json(path or LEADERBOARD_PATH, [])
 
 
 def load_opt_log():
@@ -144,6 +148,7 @@ def run_backtest(
         strategy_list.append((name, cls(params)))
 
     # Auto-load options cache if Polygon API key is available
+    # cache_only=True: never hit Polygon API during backtesting — use only pre-cached data
     options_cache = None
     if use_cache:
         try:
@@ -151,7 +156,7 @@ def run_backtest(
             from backtest.historical_data import HistoricalOptionsData
             api_key = os.environ.get("POLYGON_API_KEY", "")
             if api_key:
-                options_cache = HistoricalOptionsData(api_key)
+                options_cache = HistoricalOptionsData(api_key, cache_only=True)
         except Exception:
             pass
 
@@ -258,19 +263,20 @@ def compute_summary(results_by_year: dict) -> dict:
     }
 
 
-def append_to_leaderboard(entry: dict):
+def append_to_leaderboard(entry: dict, path: Optional[Path] = None):
     import fcntl
-    LEADERBOARD_PATH.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = LEADERBOARD_PATH.with_suffix(".lock")
+    target = path or LEADERBOARD_PATH
+    target.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = target.with_suffix(".lock")
     with open(lock_path, "w") as lf:
         fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
-        lb = load_leaderboard()
+        lb = load_leaderboard(target)
         lb.append(entry)
         lb.sort(key=lambda x: (
             (x.get("overfit_score") or 0) >= 0.70,
             x["summary"]["avg_return"]
         ), reverse=True)
-        _save_json(LEADERBOARD_PATH, lb)
+        _save_json(target, lb)
         fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
 
 
