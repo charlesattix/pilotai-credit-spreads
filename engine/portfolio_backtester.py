@@ -66,7 +66,10 @@ class PortfolioBacktester:
         self._options_cache = options_cache  # Optional[HistoricalOptionsData]
         self._cache_hits = 0
         self._cache_misses = 0
+        self._trades_skipped_no_data = 0  # trades rejected due to missing real data
         self.max_abs_delta = max_abs_delta  # portfolio-level delta cap
+        # CARDINAL RULE: No synthetic data. Ever. Cache miss = skip trade.
+        self.require_real_data = options_cache is not None
 
         # State
         self.capital = starting_capital
@@ -166,6 +169,16 @@ class PortfolioBacktester:
             for signal in all_signals:
                 if not self._can_accept(signal):
                     continue
+
+                # CARDINAL RULE: Real data only. Cache miss = skip trade.
+                if self.require_real_data:
+                    real_credit = self._get_real_entry_price(signal, date_dt)
+                    if real_credit is None:
+                        self._trades_skipped_no_data += 1
+                        continue
+                    # Override BS-computed net_credit with REAL market price
+                    signal.net_credit = real_credit
+
                 strategy = self._strategy_by_name(signal.strategy_name)
                 if strategy is None:
                     continue
@@ -194,10 +207,12 @@ class PortfolioBacktester:
                 "hits": self._cache_hits,
                 "misses": self._cache_misses,
                 "hit_rate_pct": round(hit_rate, 1),
+                "trades_skipped_no_data": self._trades_skipped_no_data,
+                "require_real_data": self.require_real_data,
             }
             logger.info(
-                "Cache stats: %d hits, %d misses (%.1f%% hit rate)",
-                self._cache_hits, self._cache_misses, hit_rate,
+                "Cache stats: %d hits, %d misses (%.1f%% hit rate), %d trades skipped (no real data)",
+                self._cache_hits, self._cache_misses, hit_rate, self._trades_skipped_no_data,
             )
 
         logger.info(
@@ -618,6 +633,56 @@ class PortfolioBacktester:
 
         return True
 
+    # Strike offsets to try when exact strike isn't found in cache.
+    # SPY has $0.50 increments near ATM, $1 further out, $5 deep OTM.
+    _STRIKE_SNAP_OFFSETS = [0, 0.5, -0.5, 1, -1, 1.5, -1.5, 2, -2]
+
+    def _get_real_entry_price(self, signal: Signal, date: datetime) -> Optional[float]:
+        """Look up real Polygon cache prices for ALL legs of a signal.
+
+        Snaps strikes to the nearest available cached strike within $2.
+        Returns the real net credit/debit if ALL legs have cached data,
+        or None if any leg is missing. NO BLACK-SCHOLES FALLBACK.
+        """
+        if self._options_cache is None:
+            return None
+
+        from backtest.historical_data import HistoricalOptionsData
+
+        date_str = date.strftime("%Y-%m-%d")
+        net_value = 0.0
+
+        for leg in signal.legs:
+            if leg.leg_type in (LegType.LONG_STOCK, LegType.SHORT_STOCK):
+                return None  # Stock legs use equity pricing
+
+            is_call = "call" in leg.leg_type.value
+            is_long = "long" in leg.leg_type.value
+            option_type = "C" if is_call else "P"
+
+            # Try exact strike first, then snap to nearby available strikes
+            price = None
+            for offset in self._STRIKE_SNAP_OFFSETS:
+                snapped = leg.strike + offset
+                symbol = HistoricalOptionsData.build_occ_symbol(
+                    signal.ticker, leg.expiration, snapped, option_type,
+                )
+                price = self._options_cache.get_contract_price(symbol, date_str)
+                if price is not None:
+                    if offset != 0:
+                        leg.strike = snapped  # Update leg to matched strike
+                    break
+
+            if price is None:
+                return None  # No nearby strike found — reject trade
+
+            if is_long:
+                net_value -= price  # Pay for long legs
+            else:
+                net_value += price  # Collect for short legs
+
+        return net_value  # Positive = net credit, negative = net debit
+
     def _open_position(
         self, signal: Signal, contracts: int, date: datetime,
     ) -> Position:
@@ -688,17 +753,35 @@ class PortfolioBacktester:
     ) -> bool:
         """Check if the gap open price would trigger this position's stop.
 
-        Mirrors strategy stop logic using estimate_spread_value (no friction)
-        at the open price instead of the close price.
+        Uses cached Polygon prices when available; falls back to intrinsic
+        value when require_real_data is True (no BS).
         """
         open_price = snapshot.open_prices.get(pos.ticker)
         if open_price is None:
             return False
 
-        iv = snapshot.realized_vol.get(pos.ticker, 0.20)
-        spread_value = estimate_spread_value(
-            pos, open_price, iv, snapshot.date, snapshot.risk_free_rate,
-        )
+        # Try cache first
+        cached = self._get_cached_spread_value(pos, snapshot.date.strftime("%Y-%m-%d"))
+        if cached is not None:
+            spread_value = cached
+        elif self.require_real_data:
+            # No cache data — use intrinsic value estimate (conservative)
+            spread_value = 0.0
+            for leg in pos.legs:
+                if leg.leg_type in (LegType.LONG_STOCK, LegType.SHORT_STOCK):
+                    continue
+                is_call = "call" in leg.leg_type.value
+                is_long = "long" in leg.leg_type.value
+                if is_call:
+                    iv_leg = max(open_price - leg.strike, 0)
+                else:
+                    iv_leg = max(leg.strike - open_price, 0)
+                spread_value += iv_leg if is_long else -iv_leg
+        else:
+            iv = snapshot.realized_vol.get(pos.ticker, 0.20)
+            spread_value = estimate_spread_value(
+                pos, open_price, iv, snapshot.date, snapshot.risk_free_rate,
+            )
 
         is_credit = pos.net_credit > 0
 
@@ -820,8 +903,9 @@ class PortfolioBacktester:
         """Look up spread value from Polygon options cache.
 
         For each leg, builds the OCC symbol and looks up the close price.
+        Snaps to nearest available strike within $2 if exact not found.
         Returns net spread value (short legs negative, long legs positive)
-        if ALL legs are found, else None (fall back to BS).
+        if ALL legs are found, else None.
         """
         if self._options_cache is None:
             return None
@@ -837,10 +921,16 @@ class PortfolioBacktester:
             is_long = "long" in leg.leg_type.value
             option_type = "C" if is_call else "P"
 
-            symbol = HistoricalOptionsData.build_occ_symbol(
-                pos.ticker, leg.expiration, leg.strike, option_type,
-            )
-            price = self._options_cache.get_contract_price(symbol, date_str)
+            price = None
+            for offset in self._STRIKE_SNAP_OFFSETS:
+                snapped = leg.strike + offset
+                symbol = HistoricalOptionsData.build_occ_symbol(
+                    pos.ticker, leg.expiration, snapped, option_type,
+                )
+                price = self._options_cache.get_contract_price(symbol, date_str)
+                if price is not None:
+                    break
+
             if price is None:
                 self._cache_misses += 1
                 return None
@@ -884,12 +974,15 @@ class PortfolioBacktester:
                     pnl += (leg.entry_price - price) * pos.contracts
             return pnl
 
-        # Try cached Polygon prices first, fall back to BS model
+        # Real data only: try cached Polygon prices, NO BS fallback
         cached = self._get_cached_spread_value(pos, current_date.strftime("%Y-%m-%d"))
         if cached is not None:
             current_value = cached
+        elif self.require_real_data:
+            # No real data for this date — settle at intrinsic value (conservative)
+            return self._settle_at_expiration(pos, price)
         else:
-            # Mark-to-market with friction for ALL exit types
+            # Legacy BS fallback (only when require_real_data=False)
             current_value = estimate_spread_value_with_friction(
                 pos, price, iv, current_date, r, closing=True, vix=vix,
             )
@@ -938,10 +1031,22 @@ class PortfolioBacktester:
                     elif leg.leg_type == LegType.SHORT_STOCK:
                         unrealized += (leg.entry_price - price) * pos.contracts
             else:
-                # Try cached Polygon prices first, fall back to BS
+                # Real data only: try cached Polygon prices, NO BS fallback
                 cached = self._get_cached_spread_value(pos, date.strftime("%Y-%m-%d"))
                 if cached is not None:
                     current_value = cached
+                elif self.require_real_data:
+                    # No cache data — use intrinsic value for conservative MTM
+                    intrinsic = 0.0
+                    for leg in pos.legs:
+                        is_call = "call" in leg.leg_type.value
+                        is_long = "long" in leg.leg_type.value
+                        if is_call:
+                            iv_leg = max(price - leg.strike, 0)
+                        else:
+                            iv_leg = max(leg.strike - price, 0)
+                        intrinsic += iv_leg if is_long else -iv_leg
+                    current_value = intrinsic
                 else:
                     iv = snapshot.realized_vol.get(pos.ticker, 0.20)
                     current_value = estimate_spread_value_with_friction(
@@ -1163,19 +1268,7 @@ class PortfolioBacktester:
             if t.realized_pnl > 0:
                 yearly[year]["wins"] += 1
 
-        # Compute return_pct and win_rate per year
-        for year in yearly:
-            y = yearly[year]
-            y["return_pct"] = round(
-                (y["total_pnl"] / self.starting_capital) * 100, 2
-            )
-            y["win_rate"] = round(
-                (y["wins"] / y["trades"]) * 100, 2
-            ) if y["trades"] else 0.0
-            # Remove intermediate keys
-            del y["wins"]
-
-        # Per-year max drawdown from equity curve
+        # Build per-year equity data and year-start equity from equity curve
         eq_by_year: Dict[str, List[float]] = {}
         for d, eq in self.equity_curve:
             yr = str(d.year)
@@ -1183,6 +1276,29 @@ class PortfolioBacktester:
                 eq_by_year[yr] = []
             eq_by_year[yr].append(eq)
 
+        # Year-start equity: first equity value of that year, or end of prior year
+        sorted_years = sorted(yearly.keys())
+        year_start_equity: Dict[str, float] = {}
+        for year in sorted_years:
+            if year in eq_by_year and eq_by_year[year]:
+                year_start_equity[year] = eq_by_year[year][0]
+            else:
+                year_start_equity[year] = self.starting_capital
+
+        # Compute return_pct and win_rate per year
+        for year in yearly:
+            y = yearly[year]
+            base = year_start_equity.get(year, self.starting_capital)
+            y["return_pct"] = round(
+                (y["total_pnl"] / base) * 100, 2
+            ) if base > 0 else 0.0
+            y["win_rate"] = round(
+                (y["wins"] / y["trades"]) * 100, 2
+            ) if y["trades"] else 0.0
+            # Remove intermediate keys
+            del y["wins"]
+
+        # Per-year max drawdown from equity curve
         for year in yearly:
             if year in eq_by_year and len(eq_by_year[year]) > 1:
                 eq = pd.Series(eq_by_year[year], dtype=float)
