@@ -298,10 +298,12 @@ def check_e_regime_diversity(results_by_year: dict) -> dict:
             continue
 
         months_with_trades = sum(1 for m in monthly.values() if m.get("trades", 0) > 0)
-        # Use the latest calendar month present as the denominator so that partial-year
-        # runs (e.g. Jan–Mar) are not penalised against a 12-month baseline.
-        last_month_num = int(max(monthly.keys()).split('-')[1])
-        year_scores[yr] = months_with_trades / max(1, last_month_num)
+        from_key = min(monthly.keys())
+        to_key   = max(monthly.keys())
+        from_y, from_m = int(from_key[:4]), int(from_key[5:])
+        to_y,   to_m   = int(to_key[:4]),   int(to_key[5:])
+        months_elapsed = (to_y - from_y) * 12 + (to_m - from_m) + 1
+        year_scores[yr] = months_with_trades / max(1, months_elapsed)
 
         # Concentration check
         total_pnl = sum(m.get("pnl", 0) for m in monthly.values())

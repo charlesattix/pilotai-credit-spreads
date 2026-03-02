@@ -1607,7 +1607,7 @@ class TestIronCondorExpiration:
 
         with patch.object(bt, '_find_real_spread', side_effect=[put_leg, call_leg]):
             result = bt._find_iron_condor_opportunity(
-                'SPY', datetime(2025, 1, 6), '2025-01-06', 470.0,
+                'SPY', datetime(2025, 1, 6), 470.0,
             )
 
         assert result is not None

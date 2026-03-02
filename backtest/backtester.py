@@ -561,7 +561,7 @@ class Backtester:
                                 else:
                                     self.capital += new_position.get('commission', 0)
                                     logger.debug("Portfolio exposure cap — skipping bull_put %s", _key)
-                            continue
+                            continue  # found a put: skip bear call + IC for this scan time
                     if len(open_positions) >= self.risk_params['max_positions']:
                         break
                     if _want_calls:

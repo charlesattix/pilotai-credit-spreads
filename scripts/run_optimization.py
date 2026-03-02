@@ -218,9 +218,12 @@ def _monthly_diversity_score(monthly_pnl: dict) -> float:
     if not monthly_pnl:
         return 0.0
     months_with_trades = sum(1 for v in monthly_pnl.values() if v.get("trades", 0) > 0)
-    # "YYYY-MM" keys — last month's ordinal tells us how many months were covered.
-    last_month_num = int(max(monthly_pnl.keys()).split('-')[1])
-    return months_with_trades / max(1, last_month_num)
+    from_key = min(monthly_pnl.keys())
+    to_key   = max(monthly_pnl.keys())
+    from_y, from_m = int(from_key[:4]), int(from_key[5:])
+    to_y,   to_m   = int(to_key[:4]),   int(to_key[5:])
+    months_elapsed = (to_y - from_y) * 12 + (to_m - from_m) + 1
+    return months_with_trades / max(1, months_elapsed)
 
 
 def run_all_years(params: dict, years: list, use_real_data: bool, ticker: str = "SPY",
