@@ -600,10 +600,9 @@ class Backtester:
                                 else:
                                     self.capital += condor.get('commission', 0)
                                     logger.debug("Portfolio exposure cap — skipping IC %s", _ic_key)
-                            continue
             else:
                 # Heuristic mode: one opportunity scan per week on Monday
-                if current_date.weekday() == 0:
+                if current_date.weekday() == 0 and not _skip_new_entries:
                     if len(open_positions) < self.risk_params['max_positions']:
                         new_position = None
                         if _want_puts:
@@ -619,7 +618,7 @@ class Backtester:
                             )
                             if bear_call:
                                 open_positions.append(bear_call)
-                            elif _ic_enabled and self._use_real_data:
+                            elif _ic_enabled:
                                 if len(open_positions) < self.risk_params['max_positions']:
                                     condor = self._find_iron_condor_opportunity(
                                         ticker, current_date, current_price,
@@ -984,12 +983,14 @@ class Backtester:
         min_combined_credit_pct = self.strategy_params.get('iron_condor', {}).get(
             'min_combined_credit_pct', 20
         )
-        min_combined_credit = spread_width * (min_combined_credit_pct / 100)
+        # Denominator is 2×spread_width (total IC risk) so the pct is intuitive:
+        # e.g. 20% of a 5-wide IC = $2.00 combined credit required.
+        min_combined_credit = (2 * spread_width) * (min_combined_credit_pct / 100)
         if combined_credit < min_combined_credit:
             logger.debug(
-                "IC combined credit $%.2f below minimum $%.2f (%.0f%% of $%.0fw) on %s — skipping",
+                "IC combined credit $%.2f below minimum $%.2f (%.0f%% of $%.0f IC risk) on %s — skipping",
                 combined_credit, min_combined_credit, min_combined_credit_pct,
-                spread_width, date_str,
+                2 * spread_width, date_str,
             )
             return None
 

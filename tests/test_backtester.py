@@ -998,6 +998,46 @@ class TestIntradayBacktest:
         # (price is above MA20 on the target day)
         assert self.mock_hd.get_available_strikes.call_count >= 14
 
+    def test_direction_both_tries_bear_call_when_put_returns_none(self):
+        """Regression: scan-loop continue must be inside if new_position: so that
+        bear calls are tried when direction='both' and the bull put returns None.
+
+        If continue were at the _want_puts indent level (outside if new_position:),
+        _find_bear_call_opportunity would never be called and this assertion fails.
+        """
+        import pandas as pd
+        from unittest.mock import patch
+
+        dates = pd.date_range('2024-11-18', periods=35, freq='B')
+        prices = [450.0 + i * 2 for i in range(len(dates))]
+        extra_df = pd.DataFrame(
+            {'Close': [prices[-1] + 2], 'Open': [prices[-1] + 2],
+             'High': [prices[-1] + 2], 'Low': [prices[-1] + 2], 'Volume': [1_000_000]},
+            index=pd.date_range('2025-01-06', periods=1, freq='B'),
+        )
+        price_data = pd.concat([
+            pd.DataFrame(
+                {'Close': prices, 'Open': prices, 'High': prices, 'Low': prices,
+                 'Volume': [1_000_000] * len(dates)},
+                index=dates,
+            ),
+            extra_df,
+        ])
+
+        # Default config has direction='both' — puts and calls both wanted.
+        # Mock put to return None; assert bear call scanner is still called.
+        with patch.object(self.bt, '_get_historical_data', return_value=price_data), \
+             patch.object(self.bt, '_find_backtest_opportunity', return_value=None) as mock_put, \
+             patch.object(self.bt, '_find_bear_call_opportunity', return_value=None) as mock_call:
+            self.bt.run_backtest('SPY', datetime(2025, 1, 6), datetime(2025, 1, 6))
+
+        assert mock_put.call_count > 0, "Bull put scanner was not called"
+        assert mock_call.call_count > 0, (
+            "Bear call scanner was never called despite direction='both' and bull put returning None. "
+            "This indicates the scan-loop continue fires outside if new_position: "
+            "and skips bear calls even when the bull put finds nothing."
+        )
+
 
 # ---------------------------------------------------------------------------
 # Tests for HistoricalOptionsData intraday methods
