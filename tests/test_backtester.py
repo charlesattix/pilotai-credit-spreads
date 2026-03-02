@@ -717,17 +717,40 @@ class TestBearCallBacktest:
         """Bear call should only trigger when price < MA20."""
         import pandas as pd
         dates = pd.date_range('2024-11-01', periods=50, freq='B')
-        # Downtrending prices
+        # Downtrending prices: final price well below MA20
         prices = [500 - i * 0.5 for i in range(50)]
         price_data = pd.DataFrame({'Close': prices}, index=dates)
 
         result = self.bt._find_bear_call_opportunity(
             'SPY', dates[-1].to_pydatetime(), prices[-1], price_data,
         )
-        # Should find opportunity if price < MA20
-        # (final price ~ 475.5, MA20 of last 20 is higher)
-        # This should not be None since trend is bearish
-        assert result is not None or prices[-1] >= price_data['Close'].rolling(20).mean().iloc[-1]
+        assert result is not None
+        assert result['option_type'] == 'C'
+        assert result['short_strike'] > prices[-1]  # OTM call
+
+    def test_bear_call_heuristic_expiration_profit_when_otm(self):
+        """Bear call: price below short strike at expiry → call OTM → expiration_profit."""
+        pos = _make_position(
+            credit=1.50, max_loss=3.50, contracts=1, commission=1.30,
+            spread_type='bear_call_spread', option_type='C',
+            short_strike=500, long_strike=505,
+        )
+        # Price 490 < short_strike 500 → call expired OTM → profit
+        self.bt._manage_positions([pos], datetime(2025, 2, 5), 490.0, 'SPY')
+        assert len(self.bt.trades) == 1
+        assert self.bt.trades[0]['exit_reason'] == 'expiration_profit'
+
+    def test_bear_call_heuristic_expiration_loss_when_itm(self):
+        """Bear call: price above short strike at expiry → call ITM → expiration_loss."""
+        pos = _make_position(
+            credit=1.50, max_loss=3.50, contracts=1, commission=1.30,
+            spread_type='bear_call_spread', option_type='C',
+            short_strike=500, long_strike=505,
+        )
+        # Price 510 > short_strike 500 → call expired ITM → loss
+        self.bt._manage_positions([pos], datetime(2025, 2, 5), 510.0, 'SPY')
+        assert len(self.bt.trades) == 1
+        assert self.bt.trades[0]['exit_reason'] == 'expiration_loss'
 
     def test_bear_call_close_position(self):
         """Bear call close should work same as bull put in heuristic mode."""
@@ -1502,3 +1525,70 @@ class TestIronCondorExpiration:
 
         assert len(self.bt.trades) == 1
         assert self.bt.trades[0]['option_type'] == 'IC'
+
+
+# ---------------------------------------------------------------------------
+# Regression test: VIX Monday prior-trading-day lookup (_prev_trading_val)
+# ---------------------------------------------------------------------------
+
+class TestVixMondayLookup:
+    """_prev_trading_val must find the prior Friday's VIX on Mondays.
+
+    If broken (date-1 gives Sunday, dict miss → default 20.0), a vix_max_entry
+    gate set below Friday's actual VIX would be silently bypassed on Mondays.
+    This test verifies the gate fires correctly.
+    """
+
+    def test_monday_vix_uses_prior_friday_not_default(self):
+        import pandas as pd
+
+        # 30 uptrending days + Monday 2025-01-06 as the target trading day.
+        base_dates = pd.date_range('2024-11-18', periods=35, freq='B')
+        prices = [450.0 + i * 1.5 for i in range(len(base_dates))]
+        mon = pd.Timestamp('2025-01-06')
+        price_data = pd.concat([
+            pd.DataFrame(
+                {'Close': prices, 'Open': prices, 'High': prices,
+                 'Low': prices, 'Volume': [1_000_000] * len(prices)},
+                index=base_dates,
+            ),
+            pd.DataFrame(
+                {'Close': [prices[-1] + 1.5], 'Open': [prices[-1] + 1.5],
+                 'High': [prices[-1] + 2.0], 'Low': [prices[-1] + 1.0],
+                 'Volume': [1_000_000]},
+                index=[mon],
+            ),
+        ])
+
+        mock_hd = _make_mock_historical_data()
+        mock_hd.get_available_strikes.return_value = [440, 445, 450]
+
+        cfg = _make_config()
+        # vix_max_entry=25 blocks entries when VIX > 25.
+        # Friday's VIX = 30.0 → should block Monday entries.
+        # Default fallback VIX = 20.0 → would NOT block → entries attempted.
+        cfg['strategy']['vix_max_entry'] = 25
+        cfg['strategy']['direction'] = 'both'
+
+        bt = Backtester(cfg, historical_data=mock_hd)
+
+        def _fake_iv_rank_series(start_arg, end_arg):
+            # Inject only a Friday entry (2025-01-03); no Sat/Sun/Mon entries.
+            bt._vix_by_date = {pd.Timestamp('2025-01-03'): 30.0}
+            return {}
+
+        with patch('backtest.backtester.Backtester._get_historical_data',
+                   return_value=price_data), \
+             patch.object(bt, '_build_iv_rank_series',
+                          side_effect=_fake_iv_rank_series), \
+             patch('backtest.backtester.Backtester._build_realized_vol_series',
+                   return_value={}):
+            bt.run_backtest('SPY', datetime(2025, 1, 6), datetime(2025, 1, 6))
+
+        # With fix: Monday lookup finds Friday's VIX=30.0 > vix_max_entry=25
+        # → _vix_too_high=True → _skip_new_entries=True → no scan attempted.
+        # If broken: default VIX=20.0 used → gate bypassed → strikes queried.
+        assert mock_hd.get_available_strikes.call_count == 0, (
+            "get_available_strikes was called — Monday VIX lookup returned "
+            "default 20.0 instead of Friday's 30.0, bypassing the vix_max_entry gate"
+        )

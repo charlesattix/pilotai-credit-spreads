@@ -453,7 +453,8 @@ class Backtester:
                 )
                 for _pos in list(open_positions):
                     _max_loss_dollars = _pos.get('max_loss', 0) * _pos.get('contracts', 1) * 100
-                    _pnl = -0.50 * _max_loss_dollars
+                    # P1-A fix: include exit commission — consistent with every other exit path.
+                    _pnl = -0.50 * _max_loss_dollars - _pos.get('commission', 0)
                     self._record_close(_pos, current_date, _pnl, 'vix_close_all')
                 open_positions = []
 
@@ -1514,7 +1515,14 @@ class Backtester:
                 if self._use_real_data:
                     self._close_at_expiration_real(pos, current_date)
                 else:
-                    if current_price > pos['short_strike']:
+                    # P1-B fix: profit condition depends on option type.
+                    # Bull put (P): profit when price > short_strike (put expires OTM).
+                    # Bear call (C): profit when price < short_strike (call expires OTM).
+                    if pos.get('option_type', 'P') == 'P':
+                        _expired_profit = current_price > pos['short_strike']
+                    else:
+                        _expired_profit = current_price < pos['short_strike']
+                    if _expired_profit:
                         self._close_position(pos, current_date, current_price, 'expiration_profit')
                     else:
                         self._close_position(pos, current_date, current_price, 'expiration_loss')

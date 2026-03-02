@@ -99,8 +99,18 @@ def _insert_daily_bars(conn: sqlite3.Connection, sym: str, bars: list) -> int:
             bar.get("oi"),  # open_interest — NULL on standard Polygon tier
         ))
 
+    # COUNT before/after is the only reliable way to get true insertion count.
+    # SQLite's changes() returns the count from only the *last* row of an
+    # executemany batch, not the total, so it always reads 0 or 1.
+    dates_in_batch = [r[1] for r in rows]
+    min_date, max_date = min(dates_in_batch), max(dates_in_batch)
+    before_count = conn.execute(
+        "SELECT COUNT(*) FROM option_daily "
+        "WHERE contract_symbol = ? AND date BETWEEN ? AND ?",
+        (sym, min_date, max_date),
+    ).fetchone()[0]
+
     cur = conn.cursor()
-    before = conn.execute("SELECT changes()").fetchone()[0]
     cur.executemany(
         "INSERT OR IGNORE INTO option_daily "
         "(contract_symbol, date, open, high, low, close, volume, open_interest) "
@@ -108,9 +118,13 @@ def _insert_daily_bars(conn: sqlite3.Connection, sym: str, bars: list) -> int:
         rows,
     )
     conn.commit()
-    # sqlite3 doesn't expose rowcount reliably for executemany; query changes()
-    new_rows = cur.execute("SELECT changes()").fetchone()[0]
-    return new_rows
+
+    after_count = conn.execute(
+        "SELECT COUNT(*) FROM option_daily "
+        "WHERE contract_symbol = ? AND date BETWEEN ? AND ?",
+        (sym, min_date, max_date),
+    ).fetchone()[0]
+    return after_count - before_count
 
 
 def run(dry_run: bool = False, limit: int = 0):

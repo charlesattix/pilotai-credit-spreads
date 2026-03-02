@@ -60,6 +60,10 @@ def calculate_dynamic_risk(
         Dollar risk budget for the new trade (>= 0).
     """
     base_risk_pct = 0.02  # default IV-rank baseline (2% of account in standard regime)
+    # NOTE: This 40% cap is independent of the backtester's max_portfolio_exposure_pct
+    # config param, which defaults to 100%.  In iv_scaled mode the effective exposure
+    # ceiling is min(max_portfolio_exposure_pct, 40%).  flat mode bypasses this function
+    # entirely so the heat cap does NOT apply there.
     max_portfolio_heat = 0.40
 
     if flat_risk_pct is not None:
