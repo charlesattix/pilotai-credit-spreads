@@ -185,10 +185,10 @@ class Optimizer:
 
     @staticmethod
     def compute_score(results: Dict) -> float:
-        """MASTERPLAN composite: (return/200) * (15/max_dd) * consistency.
+        """MASTERPLAN composite: (return/50) * (15/max_dd) * consistency.
 
         Components:
-        - return_component: yearly avg return / 200 (target is 200% annual)
+        - return_component: yearly avg return / 50 (target is 50% annual)
         - drawdown_component: 15 / abs(max_drawdown) (target is -15% max DD)
         - consistency: fraction of years profitable
 
@@ -208,7 +208,7 @@ class Optimizer:
         return_pct = combined.get("return_pct", 0)
         num_years = len(yearly) if yearly else 1
         avg_annual_return = return_pct / max(1, num_years)
-        return_component = min(2.0, max(0.0, avg_annual_return / 200.0))
+        return_component = min(2.0, max(0.0, avg_annual_return / 50.0))
 
         # Drawdown component
         max_dd = abs(combined.get("max_drawdown", -100))

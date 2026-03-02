@@ -26,9 +26,6 @@ class IronCondorStrategy(BaseStrategy):
 
     def generate_signals(self, market_data: MarketSnapshot) -> List[Signal]:
         signals = []
-        weekday = market_data.date.weekday()
-        if weekday not in (0, 1):  # Mon/Tue only
-            return []
 
         for ticker, price in market_data.prices.items():
             if ticker.startswith("^"):
@@ -187,7 +184,7 @@ class IronCondorStrategy(BaseStrategy):
             return 0
         if portfolio_state.total_risk >= portfolio_state.equity * portfolio_state.max_portfolio_risk_pct:
             return 0
-        return min(max(1, int(risk_budget / risk_per_unit)), 10)
+        return max(1, int(risk_budget / risk_per_unit))
 
     @classmethod
     def get_param_space(cls) -> List[ParamDef]:
@@ -203,5 +200,5 @@ class IronCondorStrategy(BaseStrategy):
             ParamDef("min_combined_credit_pct", "float", 0.20, low=0.10, high=0.40, step=0.05),
             ParamDef("profit_target_pct", "float", 0.50, low=0.25, high=0.75, step=0.05),
             ParamDef("stop_loss_multiplier", "float", 2.0, low=1.0, high=3.5, step=0.25),
-            ParamDef("max_risk_pct", "float", 0.02, low=0.005, high=0.04, step=0.005),
+            ParamDef("max_risk_pct", "float", 0.02, low=0.005, high=0.10, step=0.005),
         ]

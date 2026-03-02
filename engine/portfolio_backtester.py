@@ -46,10 +46,10 @@ class PortfolioBacktester:
         end_date: datetime,
         starting_capital: float = 100_000,
         commission_per_leg: float = 0.65,
-        max_positions: int = 10,
+        max_positions: int = 20,
         max_positions_per_strategy: int = 5,
-        max_portfolio_risk_pct: float = 0.40,
-        gap_threshold: float = 0.005,
+        max_portfolio_risk_pct: float = 0.60,
+        gap_threshold: float = 0.02,
         options_cache=None,
         max_abs_delta: float = 50.0,
     ):
@@ -603,10 +603,13 @@ class PortfolioBacktester:
         if total_risk + signal_risk > self.capital * self.max_portfolio_risk_pct:
             return False
 
-        # 4. No duplicate ticker+strategy combo
-        for p in self.open_positions:
-            if p.ticker == signal.ticker and p.strategy_name == signal.strategy_name:
-                return False
+        # 4. Max 3 positions per ticker+strategy combo (allows laddering)
+        ticker_strat_count = sum(
+            1 for p in self.open_positions
+            if p.ticker == signal.ticker and p.strategy_name == signal.strategy_name
+        )
+        if ticker_strat_count >= 3:
+            return False
 
         # 5. Debit trades: reject if cost > 10% of capital
         if signal.net_credit < 0:

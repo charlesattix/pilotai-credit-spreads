@@ -35,10 +35,6 @@ class CalendarSpreadStrategy(BaseStrategy):
             if iv_rank > max_iv_rank:
                 continue
 
-            # Only enter once per week (Monday)
-            if market_data.date.weekday() != 0:
-                continue
-
             iv = market_data.realized_vol.get(ticker, 0.20)
 
             sig = self._build_calendar(ticker, price, iv, market_data.date, vix=market_data.vix, rfr=market_data.risk_free_rate)
@@ -187,7 +183,7 @@ class CalendarSpreadStrategy(BaseStrategy):
             return 0
         if portfolio_state.total_risk >= portfolio_state.equity * portfolio_state.max_portfolio_risk_pct:
             return 0
-        return min(max(1, int(risk_budget / cost_per_unit)), 5)
+        return max(1, int(risk_budget / cost_per_unit))
 
     @classmethod
     def get_param_space(cls) -> List[ParamDef]:
@@ -200,5 +196,5 @@ class CalendarSpreadStrategy(BaseStrategy):
             ParamDef("max_iv_rank", "float", 40.0, low=15.0, high=60.0, step=5.0),
             ParamDef("profit_target_pct", "float", 0.30, low=0.15, high=0.60, step=0.05),
             ParamDef("stop_loss_pct", "float", 0.40, low=0.20, high=0.60, step=0.05),
-            ParamDef("max_risk_pct", "float", 0.015, low=0.005, high=0.03, step=0.005),
+            ParamDef("max_risk_pct", "float", 0.015, low=0.005, high=0.06, step=0.005),
         ]

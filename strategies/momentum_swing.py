@@ -342,12 +342,12 @@ class MomentumSwingStrategy(BaseStrategy):
             if risk_per_share <= 0:
                 return 0
             shares = int(risk_budget / risk_per_share)
-            return max(1, min(shares, 100))
+            return max(1, shares)
         else:
             cost_per_unit = abs(signal.net_credit) * 100
             if cost_per_unit <= 0:
                 return 0
-            return min(max(1, int(risk_budget / cost_per_unit)), 10)
+            return max(1, int(risk_budget / cost_per_unit))
 
     @classmethod
     def get_param_space(cls) -> List[ParamDef]:
@@ -361,7 +361,7 @@ class MomentumSwingStrategy(BaseStrategy):
             ParamDef("trailing_stop_pct", "float", 0.03, low=0.01, high=0.08, step=0.005),
             ParamDef("max_hold_days", "int", 20, low=5, high=40, step=5),
             ParamDef("profit_target_pct", "float", 0.06, low=0.02, high=0.15, step=0.01),
-            ParamDef("max_risk_pct", "float", 0.03, low=0.01, high=0.06, step=0.005),
+            ParamDef("max_risk_pct", "float", 0.03, low=0.01, high=0.10, step=0.005),
             ParamDef("use_breakout", "bool", True),
             ParamDef("use_ema_cross", "bool", True),
         ]

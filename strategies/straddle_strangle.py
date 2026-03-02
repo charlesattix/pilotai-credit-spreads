@@ -235,7 +235,7 @@ class StraddleStrangleStrategy(BaseStrategy):
             return 0
         if portfolio_state.total_risk >= portfolio_state.equity * portfolio_state.max_portfolio_risk_pct:
             return 0
-        return min(max(1, int(risk_budget / risk_per_unit)), 5)
+        return max(1, int(risk_budget / risk_per_unit))
 
     @classmethod
     def get_param_space(cls) -> List[ParamDef]:
@@ -249,6 +249,6 @@ class StraddleStrangleStrategy(BaseStrategy):
             ParamDef("iv_crush_pct", "float", 0.40, low=0.20, high=0.60, step=0.05),
             ParamDef("profit_target_pct", "float", 0.50, low=0.25, high=1.00, step=0.05),
             ParamDef("stop_loss_pct", "float", 0.50, low=0.25, high=0.75, step=0.05),
-            ParamDef("max_risk_pct", "float", 0.02, low=0.005, high=0.04, step=0.005),
+            ParamDef("max_risk_pct", "float", 0.02, low=0.005, high=0.08, step=0.005),
             ParamDef("event_types", "choice", "all", choices=["all", "fomc_only", "fomc_cpi"]),
         ]

@@ -188,7 +188,7 @@ class GammaLottoStrategy(BaseStrategy):
         if cost_per_contract <= 0:
             return 0
 
-        return max(1, min(5, int(risk_budget / cost_per_contract)))
+        return max(1, int(risk_budget / cost_per_contract))
 
     @classmethod
     def get_param_space(cls) -> List[ParamDef]:

@@ -199,7 +199,7 @@ class DebitSpreadStrategy(BaseStrategy):
             return 0
         if portfolio_state.total_risk >= portfolio_state.equity * portfolio_state.max_portfolio_risk_pct:
             return 0
-        return min(max(1, int(risk_budget / cost_per_unit)), 10)
+        return max(1, int(risk_budget / cost_per_unit))
 
     @classmethod
     def get_param_space(cls) -> List[ParamDef]:

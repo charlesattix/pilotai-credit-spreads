@@ -207,7 +207,7 @@ class CreditSpreadStrategy(BaseStrategy):
             return 0
 
         contracts = max(1, int(risk_budget / risk_per_unit))
-        return min(contracts, 10)
+        return contracts
 
     @classmethod
     def get_param_space(cls) -> List[ParamDef]:
@@ -221,6 +221,6 @@ class CreditSpreadStrategy(BaseStrategy):
             ParamDef("profit_target_pct", "float", 0.50, low=0.25, high=0.80, step=0.05),
             ParamDef("stop_loss_multiplier", "float", 2.0, low=1.0, high=3.0, step=0.25),
             ParamDef("momentum_filter_pct", "float", 5.0, low=2.0, high=10.0, step=1.0),
-            ParamDef("scan_weekday", "choice", "monday", choices=["monday", "any", "mon_wed_fri"]),
-            ParamDef("max_risk_pct", "float", 0.02, low=0.005, high=0.05, step=0.005),
+            ParamDef("scan_weekday", "choice", "any", choices=["monday", "any", "mon_wed_fri"]),
+            ParamDef("max_risk_pct", "float", 0.02, low=0.005, high=0.10, step=0.005),
         ]
