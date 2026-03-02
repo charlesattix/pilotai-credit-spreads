@@ -124,7 +124,7 @@ def get_current_best(leaderboard: list):
 
 # ── Backtester runner ────────────────────────────────────────────────────────
 
-def _build_config(params: dict) -> dict:
+def _build_config(params: dict, starting_capital: float = 100_000) -> dict:
     """Merge params into a config dict the Backtester accepts."""
     return {
         "strategy": {
@@ -141,7 +141,11 @@ def _build_config(params: dict) -> dict:
                 "enabled":                 params.get("iron_condor_enabled", False),
                 "min_combined_credit_pct": params.get("ic_min_combined_credit_pct", 20),
             },
-            "iv_rank_min_entry":   params.get("iv_rank_min_entry", 0),
+            "iv_rank_min_entry":     params.get("iv_rank_min_entry", 0),
+            # VIX regime filter params (new)
+            "vix_max_entry":         params.get("vix_max_entry", 0),
+            "vix_close_all":         params.get("vix_close_all", 0),
+            "vix_dynamic_sizing":    params.get("vix_dynamic_sizing", {}),
         },
         "risk": {
             "stop_loss_multiplier": params.get("stop_loss_multiplier", 2.5),
@@ -152,7 +156,7 @@ def _build_config(params: dict) -> dict:
             "drawdown_cb_pct":      params.get("drawdown_cb_pct", 20),
         },
         "backtest": {
-            "starting_capital":   100_000,
+            "starting_capital":   starting_capital,
             "commission_per_contract": 0.65,
             "slippage":           0.05,
             "exit_slippage":      0.10,
@@ -163,15 +167,22 @@ def _build_config(params: dict) -> dict:
             "exclude_months": params.get("exclude_months", []),
             # Monte Carlo DTE range (forwarded when run_monte_carlo.py injects it into params)
             "monte_carlo": params.get("monte_carlo", {}),
+            # Liquidity framework (all default OFF → zero behavior change for existing configs)
+            "volume_gate":         params.get("volume_gate", False),
+            "min_volume_ratio":    params.get("min_volume_ratio", 50),
+            "volume_size_cap_pct": params.get("volume_size_cap_pct", 0.02),
+            "oi_gate":             params.get("oi_gate", False),
+            "oi_min_factor":       params.get("oi_min_factor", 2),
         },
     }
 
 
-def run_year(ticker: str, year: int, params: dict, use_real_data: bool, seed: Optional[int] = None) -> dict:
+def run_year(ticker: str, year: int, params: dict, use_real_data: bool,
+             seed: Optional[int] = None, starting_capital: float = 100_000) -> dict:
     """Run a single-year backtest and return the results dict."""
     from backtest.backtester import Backtester
 
-    config = _build_config(params)
+    config = _build_config(params, starting_capital=starting_capital)
     start = datetime(year, 1, 1)
     end   = datetime(year, 12, 31)
 
@@ -206,19 +217,32 @@ def _monthly_diversity_score(monthly_pnl: dict) -> float:
     return months_with_trades / 12
 
 
-def run_all_years(params: dict, years: list, use_real_data: bool, ticker: str = "SPY") -> dict:
-    """Run backtest for all requested years. Returns dict keyed by year string."""
+def run_all_years(params: dict, years: list, use_real_data: bool, ticker: str = "SPY",
+                  continuous_capital: bool = False) -> dict:
+    """Run backtest for all requested years. Returns dict keyed by year string.
+
+    When continuous_capital=True, the ending equity of each year becomes the
+    starting capital for the next year, modeling true multi-year compounding.
+    Years are always run in chronological order when this mode is active.
+    """
     results = {}
-    for year in years:
+    # Continuous capital requires chronological order so capital flows correctly.
+    ordered_years = sorted(years) if continuous_capital else years
+    current_capital: float = 100_000  # initial; overwritten per year in continuous mode
+    for year in ordered_years:
         t0 = time.time()
         print(f"  Running {year}...", end=" ", flush=True)
         try:
-            r = run_year(ticker, year, params, use_real_data)
+            cap = current_capital if continuous_capital else 100_000
+            r = run_year(ticker, year, params, use_real_data, starting_capital=cap)
             elapsed = time.time() - t0
             ret = r.get("return_pct", 0)
             trades = r.get("total_trades", 0)
-            print(f"{ret:+.1f}%  {trades} trades  ({elapsed:.0f}s)")
+            print(f"{ret:+.1f}%  {trades} trades  ({elapsed:.0f}s)"
+                  + (f"  [capital ${r.get('ending_capital', cap):,.0f}]" if continuous_capital else ""))
             results[str(year)] = r
+            if continuous_capital:
+                current_capital = r.get("ending_capital", current_capital)
         except Exception as e:
             print(f"ERROR: {e}")
             logger.exception("Year %d failed", year)
@@ -317,6 +341,8 @@ def main():
     parser.add_argument("--hypothesis", default="", help="Pre-run hypothesis")
     parser.add_argument("--ticker",     default="SPY", help="Ticker to backtest (default SPY)")
     parser.add_argument("--no-validate", action="store_true", help="Skip overfit validation")
+    parser.add_argument("--continuous-capital", action="store_true",
+                        help="Pass ending equity of each year as starting capital for next year")
     parser.add_argument("--run-id",     help="Override auto-generated run ID")
     args = parser.parse_args()
 
@@ -370,7 +396,8 @@ def main():
 
     t_total = time.time()
     print("Running backtests...")
-    results_by_year = run_all_years(params, years, use_real, ticker=args.ticker)
+    results_by_year = run_all_years(params, years, use_real, ticker=args.ticker,
+                                    continuous_capital=args.continuous_capital)
     elapsed_total = time.time() - t_total
 
     summary = compute_summary(results_by_year)
@@ -402,13 +429,14 @@ def main():
         return slim
 
     entry = {
-        "run_id":           run_id,
-        "experiment_id":    exp_id,
-        "timestamp":        datetime.utcnow().isoformat(),
-        "params":           params,
-        "ticker":           args.ticker,
-        "mode":             "real" if use_real else "heuristic",
-        "years_run":        years,
+        "run_id":               run_id,
+        "experiment_id":        exp_id,
+        "timestamp":            datetime.utcnow().isoformat(),
+        "params":               params,
+        "ticker":               args.ticker,
+        "mode":                 "real" if use_real else "heuristic",
+        "continuous_capital":   args.continuous_capital,
+        "years_run":            years,
         "results":          {yr: _slim(r) for yr, r in results_by_year.items()},
         "summary":          summary,
         "overfit_score":    overfit_score,

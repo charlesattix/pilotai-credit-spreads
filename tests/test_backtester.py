@@ -70,6 +70,9 @@ def _make_mock_historical_data():
     # Default: no intraday data — _check_intraday_exits falls back to daily close.
     # Individual tests that exercise intraday paths override this.
     mock.get_intraday_spread_prices.return_value = None
+    # Volume gate: return None → fail-open (no behavior change for existing tests).
+    mock.get_prev_daily_volume.return_value = None
+    mock.get_prev_daily_oi.return_value = None
     return mock
 
 
@@ -431,7 +434,7 @@ class TestExpirationReal:
         assert self.bt.trades[0]['pnl'] == pytest.approx(298.70, rel=1e-4)
 
     def test_expiration_with_value(self):
-        """Spread expiring with value should compute real P&L."""
+        """Spread expiring with value should compute real P&L including exit slippage."""
         pos = _make_position(credit=1.50, max_loss=3.50, contracts=1, commission=1.30)
         pos['option_type'] = 'P'
 
@@ -445,8 +448,10 @@ class TestExpirationReal:
 
         assert len(self.bt.trades) == 1
         assert self.bt.trades[0]['exit_reason'] == 'expiration_loss'
-        # PnL = (1.50 - 2.50) * 1 * 100 - 1.30 = -101.30
-        assert self.bt.trades[0]['pnl'] == pytest.approx(-101.30, rel=1e-4)
+        # P1-B fix: exit slippage (0.10 at VIX=20) is now applied on expiration buy-back.
+        # exit_cost = 2.50 + 0.10 = 2.60
+        # PnL = (1.50 - 2.60) * 1 * 100 - 1.30 = -111.30
+        assert self.bt.trades[0]['pnl'] == pytest.approx(-111.30, rel=1e-4)
 
     def test_expiration_no_data_assumes_max_loss(self):
         """If no expiration data, conservatively assume max loss (not expired worthless)."""
@@ -1121,8 +1126,9 @@ class TestIntradayHistoricalData:
 
         assert result is not None
         assert result['spread_value'] == pytest.approx(1.50, rel=1e-6)   # 2.50 - 1.00
-        # Each leg's half-range is 0.20, but capped at $0.05/leg → total = 0.10
-        assert result['slippage'] == pytest.approx(0.10, rel=1e-6)
+        # Each leg's half-range is 0.20; cap is $0.25/leg so both flow through uncapped.
+        # Total slippage = 0.20 + 0.20 = 0.40
+        assert result['slippage'] == pytest.approx(0.40, rel=1e-6)
 
         hd.close()
 

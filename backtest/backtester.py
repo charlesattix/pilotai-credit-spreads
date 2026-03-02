@@ -240,6 +240,10 @@ class Backtester:
         self._current_iv_rank: float = 25.0       # default = standard regime
         self._current_portfolio_risk: float = 0.0
 
+        # Raw VIX level — populated alongside IV rank, used for regime filter
+        self._vix_by_date: dict = {}
+        self._current_vix: float = 20.0           # default = low-vol regime
+
         # Realized-vol state (fixes constant σ=25% bias in delta selection)
         self._realized_vol_by_date: dict = {}
         self._current_realized_vol: float = 0.25  # fallback = 25%
@@ -283,15 +287,43 @@ class Backtester:
         _exc = self.backtest_config.get('exclude_months', [])
         self._exclude_months: set = set(_exc) if _exc else set()
 
+        # Liquidity framework: volume gate + adaptive sizing
+        # volume_gate: hard reject when min_vol < min_vol_ratio × contracts
+        # volume_size_cap_pct: cap contracts at this fraction of min daily volume
+        # oi_gate: disabled by default — OI data absent on standard Polygon tier
+        self._volume_gate:    bool  = self.backtest_config.get('volume_gate', False)
+        self._min_vol_ratio:  float = float(self.backtest_config.get('min_volume_ratio', 50))
+        self._vol_size_cap:   float = float(self.backtest_config.get('volume_size_cap_pct', 0.02))
+        self._oi_gate:        bool  = self.backtest_config.get('oi_gate', False)
+        self._oi_min_factor:  float = float(self.backtest_config.get('oi_min_factor', 2))
+        self._volume_skipped: int   = 0   # exposed in results dict
+
         # Trade history
         self.trades = []
         self.equity_curve = []
+        # P1-D: ruin stop — set True when capital ≤ 0; blocks all new entries thereafter
+        self._ruin_triggered: bool = False
         # P5a: Friday fallback trigger counter (incremented during run_backtest)
         self._friday_fallback_count = 0
 
         mode = "real data" if self._use_real_data else "heuristic"
         logger.info("Backtester initialized (%s mode, delta_selection=%s)",
                     mode, self._use_delta_selection)
+
+    def _vix_scaled_exit_slippage(self) -> float:
+        """Return exit slippage adjusted for the current VIX regime.
+
+        During low-vol regimes (VIX ≤ 20) exit slippage equals the base value.
+        During stress (VIX rising toward 40) spreads widen so buy-back friction
+        increases proportionally, capped at 3× to avoid implausible estimates.
+
+        Formula: base * min(3.0, 1 + max(0, (VIX − 20) × 0.1))
+          VIX=20 → 1.0×   VIX=30 → 2.0×   VIX=40+ → 3.0× (cap)
+
+        Incorporates slippage_multiplier so brutality tests (2×, 3×) still stack.
+        """
+        vix_scale = min(3.0, 1.0 + max(0.0, (self._current_vix - 20.0) * 0.1))
+        return self.exit_slippage * self._slippage_multiplier * vix_scale
 
     def run_backtest(
         self,
@@ -347,6 +379,10 @@ class Backtester:
         self.equity_curve = [(start_date, self.capital)]
         # P5a: reset fallback counter at the start of each backtest run
         self._friday_fallback_count = 0
+        # Reset volume gate skip counter
+        self._volume_skipped = 0
+        # P1-D: reset ruin flag
+        self._ruin_triggered = False
 
         open_positions = []
 
@@ -366,8 +402,9 @@ class Backtester:
 
             current_price = float(price_data.loc[lookup_date, 'Close'])
 
-            # Set current IV Rank + portfolio heat for sizing calculations (Upgrade 3)
+            # Set current IV Rank + VIX level + portfolio heat for sizing calculations
             self._current_iv_rank = self._iv_rank_by_date.get(lookup_date, 25.0)
+            self._current_vix = self._vix_by_date.get(lookup_date, 20.0)
             self._current_realized_vol = self._realized_vol_by_date.get(lookup_date, 0.25)
             self._current_portfolio_risk = sum(
                 p.get('max_loss', 0) * p.get('contracts', 1) * 100
@@ -375,15 +412,38 @@ class Backtester:
             )
 
             logger.debug(
-                "%s  price=%.2f  open_positions=%d  ivr=%.0f",
+                "%s  price=%.2f  open_positions=%d  ivr=%.0f  vix=%.1f",
                 current_date.strftime("%Y-%m-%d"), current_price,
-                len(open_positions), self._current_iv_rank,
+                len(open_positions), self._current_iv_rank, self._current_vix,
             )
 
             # Check existing positions
             open_positions = self._manage_positions(
                 open_positions, current_date, current_price, ticker
             )
+
+            # VIX spike: force-close ALL open positions when VIX crosses exit threshold.
+            # Models a managed risk-off exit (e.g. VIX 20→30 in a crash).
+            #
+            # PnL assumption: -50% of max loss per position.
+            # Rationale: when VIX first crosses the threshold the spread has widened
+            # significantly but underlying hasn't moved to full-stop territory yet.
+            # Empirically, closing credit spreads when VIX first spikes ~25-30 typically
+            # costs 1–2× the original credit received (i.e. 20-40% of max loss on a
+            # 5-wide spread with 8% credit). -50% of max loss is a conservative mid-point
+            # that avoids both the "free exit" (PnL=0) and "full stop-out" extremes.
+            _vix_close_all = self.strategy_params.get('vix_close_all', 0)
+            if _vix_close_all > 0 and self._current_vix > _vix_close_all and open_positions:
+                logger.debug(
+                    "%s  VIX %.1f > close_all %.0f — force-closing %d positions at -50%% max loss",
+                    current_date.strftime("%Y-%m-%d"), self._current_vix,
+                    _vix_close_all, len(open_positions),
+                )
+                for _pos in list(open_positions):
+                    _max_loss_dollars = _pos.get('max_loss', 0) * _pos.get('contracts', 1) * 100
+                    _pnl = -0.50 * _max_loss_dollars
+                    self._record_close(_pos, current_date, _pnl, 'vix_close_all')
+                open_positions = []
 
             # Look for new opportunities.
             # Real-data mode: simulate all 14 intraday scan times per trading day.
@@ -406,11 +466,23 @@ class Backtester:
             _iv_rank_min = self.strategy_params.get('iv_rank_min_entry', 0)
             _iv_too_low  = _iv_rank_min > 0 and self._current_iv_rank < _iv_rank_min
 
+            # VIX regime entry gate: block new entries when raw VIX exceeds threshold.
+            # vix_max_entry=0 (default) disables the filter.
+            # Typical values: 20 (strict), 25 (moderate), 30 (permissive).
+            _vix_max = self.strategy_params.get('vix_max_entry', 0)
+            _vix_too_high = _vix_max > 0 and self._current_vix > _vix_max
+
             # P7: Outlier month exclusion — skip new entries but still manage positions
             _month_str = current_date.strftime("%Y-%m")
             _excluded_month = _month_str in self._exclude_months
 
-            _skip_new_entries = _drawdown_pct < _cb_threshold or _iv_too_low or _excluded_month
+            _skip_new_entries = (
+                _drawdown_pct < _cb_threshold
+                or _iv_too_low
+                or _vix_too_high
+                or _excluded_month
+                or self._ruin_triggered  # P1-D: halt all entries after capital reaches zero
+            )
 
             _ic_enabled = self.strategy_params.get('iron_condor', {}).get('enabled', False)
 
@@ -629,11 +701,16 @@ class Backtester:
                 result = _calc_ivr(window, float(vix.loc[ts]))
                 iv_rank_map[ts] = result["iv_rank"]
 
+            # Store raw VIX closes for regime filter (vix_max_entry / vix_close_all)
+            self._vix_by_date = {ts: float(vix.loc[ts]) for ts in vix.index}
+
             logger.debug(
-                "IV rank series built: %d dates, range %.0f–%.0f",
+                "IV rank series built: %d dates, range %.0f–%.0f  VIX range %.1f–%.1f",
                 len(iv_rank_map),
                 min(iv_rank_map.values()) if iv_rank_map else 0,
                 max(iv_rank_map.values()) if iv_rank_map else 0,
+                min(self._vix_by_date.values()) if self._vix_by_date else 0,
+                max(self._vix_by_date.values()) if self._vix_by_date else 0,
             )
             return iv_rank_map
         except Exception as e:
@@ -696,7 +773,10 @@ class Backtester:
     ) -> Optional[Dict]:
         """Find a bull put spread opportunity."""
         _mp = self._trend_ma_period
-        recent_data = price_data.loc[:date].tail(_mp + 20)
+        # P1-A fix: exclude today's close — a real system only knows prior-day closes
+        # when placing an entry order. loc[:date] is inclusive and leaks today's close.
+        _prev_date = pd.Timestamp((date - timedelta(days=1)).date())
+        recent_data = price_data.loc[:_prev_date].tail(_mp + 20)
 
         if len(recent_data) < min(20, _mp):
             return None
@@ -767,7 +847,9 @@ class Backtester:
     ) -> Optional[Dict]:
         """Find a bear call spread opportunity (bearish/neutral trend)."""
         _mp = self._trend_ma_period
-        recent_data = price_data.loc[:date].tail(_mp + 20)
+        # P1-A fix: exclude today's close (same as bull put fix above)
+        _prev_date = pd.Timestamp((date - timedelta(days=1)).date())
+        recent_data = price_data.loc[:_prev_date].tail(_mp + 20)
 
         if len(recent_data) < min(20, _mp):
             return None
@@ -900,20 +982,34 @@ class Backtester:
 
         stop_loss_multiplier = self.risk_params['stop_loss_multiplier']
         commission_cost = self.commission * 4  # 4 legs (entry)
-        max_loss = spread_width - combined_credit  # only one wing can fully lose
+        # P0-C fix: worst case is BOTH wings simultaneously ITM (gap open / flash crash).
+        # One-wing assumption leads to ~2x oversizing and miscalibrated stop thresholds.
+        max_loss = (2 * spread_width) - combined_credit
 
         risk_per_spread = max_loss * 100
         if risk_per_spread <= 0:
             return None
 
-        # IV-scaled sizing (Upgrade 3)
+        # P0-B fix: mirror _find_real_spread sizing logic exactly —
+        # use compound-aware account_base and respect sizing_mode (flat vs iv_scaled).
         from ml.position_sizer import calculate_dynamic_risk, get_contract_size
-        current_portfolio_risk = getattr(self, '_current_portfolio_risk', 0.0)
-        iv_rank = getattr(self, '_current_iv_rank', 25.0)
-        trade_dollar_risk = calculate_dynamic_risk(
-            self.starting_capital, iv_rank, current_portfolio_risk
-        )
-        contracts = max(1, get_contract_size(trade_dollar_risk, spread_width, combined_credit))
+        account_base = self.capital if self._compound else self.starting_capital
+        max_contracts_cap = self.risk_params.get('max_contracts', 999)
+        if self._sizing_mode == 'flat':
+            flat_risk_pct = self.risk_params.get('max_risk_per_trade', 2.0) / 100.0
+            trade_dollar_risk = account_base * flat_risk_pct
+        else:
+            current_portfolio_risk = getattr(self, '_current_portfolio_risk', 0.0)
+            iv_rank = getattr(self, '_current_iv_rank', 25.0)
+            _max_risk = self.risk_params.get('max_risk_per_trade')
+            trade_dollar_risk = calculate_dynamic_risk(
+                account_base, iv_rank, current_portfolio_risk,
+                max_risk_pct=_max_risk,
+            )
+        contracts = max(1, get_contract_size(
+            trade_dollar_risk, spread_width, combined_credit,
+            max_contracts=max_contracts_cap,
+        ))
 
         scan_time_mins = (scan_hour or 0) * 60 + (scan_minute or 0)
         market_open_mins = _FIRST_BAR_HOUR * 60 + _FIRST_BAR_MINUTE
@@ -1113,17 +1209,89 @@ class Backtester:
         account_base = self.capital if self._compound else self.starting_capital
         max_contracts_cap = self.risk_params.get('max_contracts', 999)
         if self._sizing_mode == 'flat':
-            # Flat risk: always risk exactly max_risk_per_trade % of account_base
+            # Flat risk: always risk exactly max_risk_per_trade % of account_base,
+            # optionally scaled down by VIX level (vix_dynamic_sizing config).
             flat_risk_pct = self.risk_params.get('max_risk_per_trade', 2.0) / 100.0
+            # VIX dynamic sizing: scale position size based on current VIX level.
+            # Config: {"full_below": 18, "half_below": 22, "quarter_below": 25}
+            # Above quarter_below → 0 (blocked by vix_max_entry gate before reaching here).
+            _vds = self.strategy_params.get('vix_dynamic_sizing', {})
+            if _vds:
+                _vix = self._current_vix
+                _full  = _vds.get('full_below', 18)
+                _half  = _vds.get('half_below', 22)
+                _qtr   = _vds.get('quarter_below', 25)
+                if _vix < _full:
+                    _vix_scale = 1.0
+                elif _vix < _half:
+                    _vix_scale = 0.5
+                elif _vix < _qtr:
+                    _vix_scale = 0.25
+                else:
+                    _vix_scale = 0.0
+                flat_risk_pct *= _vix_scale
             trade_dollar_risk = account_base * flat_risk_pct
         else:
             # IV-scaled sizing (Upgrade 3): risk budget varies with IV Rank.
+            # P0-A fix: pass max_risk_per_trade as ceiling so configured risk is respected.
             current_portfolio_risk = getattr(self, '_current_portfolio_risk', 0.0)
             iv_rank = getattr(self, '_current_iv_rank', 25.0)
+            _max_risk = self.risk_params.get('max_risk_per_trade')
             trade_dollar_risk = calculate_dynamic_risk(
-                account_base, iv_rank, current_portfolio_risk
+                account_base, iv_rank, current_portfolio_risk,
+                max_risk_pct=_max_risk,
             )
         contracts = max(1, get_contract_size(trade_dollar_risk, spread_width, credit, max_contracts=max_contracts_cap))
+
+        # ── Volume gate + adaptive sizing (real-data mode only) ──────────────
+        if self._use_real_data and (self._volume_gate or self._vol_size_cap > 0):
+            short_sym = self.historical_data.build_occ_symbol(ticker, expiration, short_strike, ot)
+            long_sym  = self.historical_data.build_occ_symbol(ticker, expiration, long_strike, ot)
+            sv = self.historical_data.get_prev_daily_volume(short_sym, date_str)
+            lv = self.historical_data.get_prev_daily_volume(long_sym, date_str)
+
+            if sv is not None and lv is not None:
+                min_vol = min(sv, lv)
+                # Hard reject: need min_vol_ratio × contracts in daily volume
+                if self._volume_gate and min_vol < self._min_vol_ratio * contracts:
+                    logger.debug(
+                        "vol-gate: skip %s %s/%s  vol=%d < %.0f×%d",
+                        ot, short_strike, long_strike, min_vol,
+                        self._min_vol_ratio, contracts,
+                    )
+                    self._volume_skipped += 1
+                    return None
+                # Adaptive cap: contracts ≤ volume_size_cap_pct × min_vol
+                if self._vol_size_cap > 0:
+                    vol_cap = max(1, int(min_vol * self._vol_size_cap))
+                    contracts = min(contracts, vol_cap)
+            else:
+                # P1-C fix: log at WARNING so cache misses are visible; support fail-closed.
+                _on_miss = self.backtest_config.get('volume_gate_on_miss', 'open')
+                if _on_miss == 'closed' and self._volume_gate:
+                    logger.warning(
+                        "vol-gate: cache miss for %s or %s on %s — fail-CLOSED "
+                        "(volume_gate_on_miss=closed)",
+                        short_sym, long_sym, date_str,
+                    )
+                    self._volume_skipped += 1
+                    return None
+                else:
+                    logger.warning(
+                        "vol-gate: cache miss for %s or %s on %s — fail-open "
+                        "(set volume_gate_on_miss=closed to reject on miss)",
+                        short_sym, long_sym, date_str,
+                    )
+
+        # ── OI gate (disabled by default — data rarely available on standard tier) ──
+        if self._use_real_data and self._oi_gate:
+            short_sym = self.historical_data.build_occ_symbol(ticker, expiration, short_strike, ot)
+            oi = self.historical_data.get_prev_daily_oi(short_sym, date_str)
+            if oi is not None and oi < self._oi_min_factor * contracts:
+                logger.debug("oi-gate: skip %s %s  oi=%d < %.0f×%d",
+                             ot, short_strike, oi, self._oi_min_factor, contracts)
+                self._volume_skipped += 1
+                return None
 
         position = {
             'ticker': ticker,
@@ -1328,7 +1496,7 @@ class Backtester:
                     if reason in ('profit_target', 'stop_loss'):
                         # Apply exit slippage on ALL exits: buying back at a worse price
                         # than mid is realistic whether the fill is favorable or adverse.
-                        exit_cost = spread_value + self.exit_slippage * self._slippage_multiplier
+                        exit_cost = spread_value + self._vix_scaled_exit_slippage()
                         pnl = (pos['credit'] - exit_cost) * pos['contracts'] * 100 - pos['commission']
                         self._record_close(pos, current_date, pnl, reason)
                         continue
@@ -1375,7 +1543,7 @@ class Backtester:
             if profit >= pos['profit_target']:
                 if self._use_real_data:
                     # Apply exit slippage on profit-target exits — buying back costs more than mid.
-                    exit_cost = current_spread_value + self.exit_slippage
+                    exit_cost = current_spread_value + self._vix_scaled_exit_slippage()
                     pnl = (pos['credit'] - exit_cost) * pos['contracts'] * 100 - pos['commission']
                     self._record_close(pos, current_date, pnl, 'profit_target')
                 else:
@@ -1385,7 +1553,7 @@ class Backtester:
             loss = current_spread_value - pos['credit']
             if loss >= pos['stop_loss']:
                 if self._use_real_data:
-                    exit_cost = current_spread_value + self.exit_slippage
+                    exit_cost = current_spread_value + self._vix_scaled_exit_slippage()
                     pnl = (pos['credit'] - exit_cost) * pos['contracts'] * 100 - pos['commission']
                     self._record_close(pos, current_date, pnl, 'stop_loss')
                 else:
@@ -1415,14 +1583,56 @@ class Backtester:
             if put_prices is not None and call_prices is not None:
                 closing_spread_value = put_prices['spread_value'] + call_prices['spread_value']
                 if closing_spread_value > 0.05:
-                    pnl = (pos['credit'] - closing_spread_value) * pos['contracts'] * 100 - pos['commission']
+                    # P1-B fix: buying back residual value at expiration still costs bid/ask.
+                    exit_cost = closing_spread_value + self._vix_scaled_exit_slippage()
+                    pnl = (pos['credit'] - exit_cost) * pos['contracts'] * 100 - pos['commission']
                     reason = 'expiration_loss' if pnl < 0 else 'expiration_profit'
                 else:
+                    # Expired worthless — position lapses, no buy-back transaction needed
                     pnl = pos['credit'] * pos['contracts'] * 100 - pos['commission']
                     reason = 'expiration_profit'
             else:
-                pnl = pos['credit'] * pos['contracts'] * 100 - pos['commission']
-                reason = 'expiration_profit'
+                # P0-D fix: one or both legs have no price data at expiration.
+                # Use underlying-price intrinsic settlement for each wing independently,
+                # mirroring the individual-spread fallback (lines below).
+                underlying_price = self._get_underlying_price_at(expiration_date)
+                if underlying_price is not None:
+                    put_short = pos['short_strike']
+                    put_long  = pos['long_strike']
+                    if underlying_price >= put_short:
+                        put_intrinsic = 0.0
+                    elif underlying_price <= put_long:
+                        put_intrinsic = put_short - put_long  # spread_width, full put loss
+                    else:
+                        put_intrinsic = put_short - underlying_price
+
+                    call_short = pos['call_short_strike']
+                    call_long  = pos['call_long_strike']
+                    if underlying_price <= call_short:
+                        call_intrinsic = 0.0
+                    elif underlying_price >= call_long:
+                        call_intrinsic = call_long - call_short  # spread_width, full call loss
+                    else:
+                        call_intrinsic = underlying_price - call_short
+
+                    total_intrinsic = put_intrinsic + call_intrinsic
+                    pnl = (pos['credit'] - total_intrinsic) * pos['contracts'] * 100 - pos['commission']
+                    reason = 'expiration_no_data'
+                    logger.debug(
+                        "IC no option data for %s put=%s/%s call=%s/%s exp %s, "
+                        "underlying=%.2f → put_intr=%.2f call_intr=%.2f pnl=%.2f",
+                        pos['ticker'], put_short, put_long, call_short, call_long,
+                        date_str, underlying_price, put_intrinsic, call_intrinsic, pnl,
+                    )
+                else:
+                    # No underlying data either — conservative: record as max loss
+                    pnl = -pos['max_loss'] * pos['contracts'] * 100 - pos['commission']
+                    reason = 'expiration_no_data'
+                    logger.warning(
+                        "IC no expiration data (option or underlying) for %s exp %s "
+                        "— recording as max loss (conservative)",
+                        pos['ticker'], date_str,
+                    )
             self._record_close(pos, expiration_date, pnl, reason)
             return
 
@@ -1435,12 +1645,14 @@ class Backtester:
 
         if prices is not None:
             closing_spread_value = prices["spread_value"]
-            # If short leg still has value > 0.05, it's a loss scenario
+            # If short leg still has value > 0.05, it must be bought back — costs bid/ask
             if closing_spread_value > 0.05:
-                pnl = (pos['credit'] - closing_spread_value) * pos['contracts'] * 100 - pos['commission']
+                # P1-B fix: apply VIX-scaled exit slippage on expiration buy-back
+                exit_cost = closing_spread_value + self._vix_scaled_exit_slippage()
+                pnl = (pos['credit'] - exit_cost) * pos['contracts'] * 100 - pos['commission']
                 reason = 'expiration_loss' if pnl < 0 else 'expiration_profit'
             else:
-                # Expired worthless — max profit
+                # Expired worthless — position lapses, no buy-back transaction needed
                 pnl = pos['credit'] * pos['contracts'] * 100 - pos['commission']
                 reason = 'expiration_profit'
         else:
@@ -1530,6 +1742,15 @@ class Backtester:
         """Record a closed position (used by real-data mode)."""
         self.capital += pnl
 
+        # P1-D: ruin stop — if capital reaches zero or below, block all future entries
+        if self.capital <= 0 and not self._ruin_triggered:
+            self._ruin_triggered = True
+            _date_str = exit_date.strftime("%Y-%m-%d") if hasattr(exit_date, 'strftime') else str(exit_date)
+            logger.warning(
+                "RUIN EVENT on %s: capital dropped to $%.2f — halting all new entries",
+                _date_str, self.capital,
+            )
+
         max_risk = pos['max_loss'] * pos['contracts'] * 100
         _pos_type = pos.get('type', '')
         trade = {
@@ -1618,10 +1839,10 @@ class Backtester:
             pnl = -position['max_loss'] * position['contracts'] * 100
         elif exit_reason == 'profit_target':
             pnl = position['profit_target'] * position['contracts'] * 100
-            pnl -= self.exit_slippage * self._slippage_multiplier * position['contracts'] * 100  # buy-back friction
+            pnl -= self._vix_scaled_exit_slippage() * position['contracts'] * 100  # buy-back friction
         elif exit_reason == 'stop_loss':
             pnl = -position['stop_loss'] * position['contracts'] * 100
-            pnl -= self.exit_slippage * self._slippage_multiplier * position['contracts'] * 100  # buy-back friction
+            pnl -= self._vix_scaled_exit_slippage() * position['contracts'] * 100  # buy-back friction
         else:
             pnl = 0
 
@@ -1680,6 +1901,8 @@ class Backtester:
                 'max_win_streak': 0,
                 'max_loss_streak': 0,
                 'friday_fallback_count': self._friday_fallback_count,
+                'volume_skipped': self._volume_skipped,
+                'ruin_triggered': self._ruin_triggered,
             }
 
         trades_df = pd.DataFrame(self.trades)
@@ -1801,6 +2024,10 @@ class Backtester:
             'max_loss_streak': max_loss_streak,
             # P5a: how often did Mon/Wed targets have no data and fall back to Friday?
             'friday_fallback_count': self._friday_fallback_count,
+            # Liquidity framework: spreads rejected by volume gate
+            'volume_skipped': self._volume_skipped,
+            # P1-D: whether capital reached zero during the backtest
+            'ruin_triggered': self._ruin_triggered,
         }
 
         return results

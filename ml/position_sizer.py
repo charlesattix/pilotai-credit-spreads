@@ -27,6 +27,7 @@ def calculate_dynamic_risk(
     iv_rank: float,
     current_portfolio_risk: float,
     flat_risk_pct: Optional[float] = None,
+    max_risk_pct: Optional[float] = None,
 ) -> float:
     """Return the dollar risk budget for one new trade.
 
@@ -51,11 +52,14 @@ def calculate_dynamic_risk(
         flat_risk_pct: If set, use this fixed percentage (e.g. 10.0 for 10%)
                        instead of the IV-rank tiers.  Matches
                        max_risk_per_trade from config.yaml.
+        max_risk_pct: If set, caps the IV-rank-derived target at this percentage
+                      (e.g. 10.0 for 10%). Has no effect when flat_risk_pct is
+                      set. Allows iv_scaled mode to respect max_risk_per_trade.
 
     Returns:
         Dollar risk budget for the new trade (>= 0).
     """
-    base_risk_pct = 0.02
+    base_risk_pct = 0.02  # default IV-rank baseline (2% of account in standard regime)
     max_portfolio_heat = 0.40
 
     if flat_risk_pct is not None:
@@ -67,6 +71,11 @@ def calculate_dynamic_risk(
     else:
         multiplier = min(1.5, 1.0 + ((iv_rank - 50) / 100.0))
         target_risk_pct = base_risk_pct * multiplier
+
+    # P0-A fix: cap IV-rank result at configured max_risk_per_trade when provided.
+    # flat_risk_pct already IS the configured value, so cap only applies to iv_scaled mode.
+    if max_risk_pct is not None and flat_risk_pct is None:
+        target_risk_pct = min(target_risk_pct, max_risk_pct / 100.0)
 
     trade_dollar_risk = account_value * target_risk_pct
 

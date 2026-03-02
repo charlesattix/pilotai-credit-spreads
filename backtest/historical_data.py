@@ -75,6 +75,14 @@ class HistoricalOptionsData:
                 PRIMARY KEY (contract_symbol, date)
             )
         """)
+        # Safe no-op migration: add open_interest column if not already present.
+        # Polygon standard/starter tier does not include OI in daily agg bars;
+        # it will be stored as NULL until a premium tier is used.
+        try:
+            self._conn.execute("ALTER TABLE option_daily ADD COLUMN open_interest INTEGER")
+            self._conn.commit()
+        except sqlite3.OperationalError:
+            pass  # column already exists — normal on subsequent runs
         cur.execute("""
             CREATE TABLE IF NOT EXISTS option_contracts (
                 ticker          TEXT NOT NULL,
@@ -221,12 +229,13 @@ class HistoricalOptionsData:
                 bar.get("l"),
                 bar.get("c"),
                 bar.get("v", 0),
+                bar.get("oi"),  # open_interest — None on standard Polygon tier → NULL
             ))
 
         cur.executemany(
             "INSERT OR IGNORE INTO option_daily "
-            "(contract_symbol, date, open, high, low, close, volume) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "(contract_symbol, date, open, high, low, close, volume, open_interest) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             rows,
         )
         self._conn.commit()
@@ -399,6 +408,60 @@ class HistoricalOptionsData:
         }
 
     # ------------------------------------------------------------------
+    # Volume / OI lookups (cache-only — backfill_volume.py pre-populates)
+    # ------------------------------------------------------------------
+
+    def get_prev_daily_volume(self, contract_symbol: str, before_date: str) -> Optional[int]:
+        """Return the most recent daily volume for a contract BEFORE a given date.
+
+        Cache-only — no live Polygon call.  The backfill script pre-populates
+        option_daily so this lookup has data on entry day.
+
+        Uses the *previous* day's volume to avoid lookahead bias at entry time.
+
+        Args:
+            contract_symbol: OCC symbol (e.g. "O:SPY250321P00450000")
+            before_date: Entry date "YYYY-MM-DD" — returns latest row strictly before this.
+
+        Returns:
+            Volume as int, or None on cache miss (caller fails-open → trade allowed).
+        """
+        cur = self._conn.cursor()
+        cur.execute(
+            "SELECT volume FROM option_daily "
+            "WHERE contract_symbol = ? AND date < ? AND volume IS NOT NULL "
+            "ORDER BY date DESC LIMIT 1",
+            (contract_symbol, before_date),
+        )
+        row = cur.fetchone()
+        return int(row[0]) if row is not None else None
+
+    def get_prev_daily_oi(self, contract_symbol: str, before_date: str) -> Optional[int]:
+        """Return the most recent open_interest for a contract BEFORE a given date.
+
+        Identical pattern to get_prev_daily_volume but queries open_interest.
+        Returns None on standard Polygon tier (column stored as NULL).
+        OI gate is disabled by default so this is always a no-op unless a
+        premium tier populates the column.
+
+        Args:
+            contract_symbol: OCC symbol
+            before_date: Entry date "YYYY-MM-DD"
+
+        Returns:
+            OI as int, or None if unavailable.
+        """
+        cur = self._conn.cursor()
+        cur.execute(
+            "SELECT open_interest FROM option_daily "
+            "WHERE contract_symbol = ? AND date < ? AND open_interest IS NOT NULL "
+            "ORDER BY date DESC LIMIT 1",
+            (contract_symbol, before_date),
+        )
+        row = cur.fetchone()
+        return int(row[0]) if row is not None else None
+
+    # ------------------------------------------------------------------
     # Intraday 5-min bar support
     # ------------------------------------------------------------------
 
@@ -545,9 +608,11 @@ class HistoricalOptionsData:
 
         # Model bid/ask slippage from bar high-low range, capped per leg.
         # Raw bar range conflates directional momentum with actual bid/ask spread.
-        # Cap prevents outlier bars in volatile markets from inflating friction
-        # beyond realistic OTM SPY bid/ask (~$0.02-$0.10/leg in practice).
-        _CAP = 0.05  # max slippage per leg — matches config fallback as natural ceiling
+        # Cap raised from $0.05 → $0.25/leg so crash-period bid/ask widening
+        # (e.g. March 2020: VIX=80, SPY option spreads $0.50-$2+) flows through
+        # rather than being capped at an unrealistically low value. Normal
+        # regimes (bar range $0.02-$0.08/leg) are unaffected by the higher cap.
+        _CAP = 0.25  # max slippage per leg
         sh_hl = short_bar["high"] - short_bar["low"] if (short_bar["high"] and short_bar["low"]) else 0.0
         lg_hl = long_bar["high"] - long_bar["low"] if (long_bar["high"] and long_bar["low"]) else 0.0
         slippage = min(sh_hl / 2, _CAP) + min(lg_hl / 2, _CAP)
