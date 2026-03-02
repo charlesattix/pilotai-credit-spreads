@@ -418,10 +418,6 @@ class Backtester:
             self._current_iv_rank = _prev_trading_val(self._iv_rank_by_date, lookup_date, 25.0)
             self._current_vix = _prev_trading_val(self._vix_by_date, lookup_date, 20.0)
             self._current_realized_vol = _prev_trading_val(self._realized_vol_by_date, lookup_date, 0.25)
-            self._current_portfolio_risk = sum(
-                p.get('max_loss', 0) * p.get('contracts', 1) * 100
-                for p in open_positions
-            )
 
             logger.debug(
                 "%s  price=%.2f  open_positions=%d  ivr=%.0f  vix=%.1f",
@@ -432,6 +428,13 @@ class Backtester:
             # Check existing positions
             open_positions = self._manage_positions(
                 open_positions, current_date, current_price, ticker
+            )
+
+            # Portfolio risk computed AFTER managing positions so that same-day
+            # expirations/stops are excluded from new-entry sizing calculations.
+            self._current_portfolio_risk = sum(
+                p.get('max_loss', 0) * p.get('contracts', 1) * 100
+                for p in open_positions
             )
 
             # VIX spike: force-close ALL open positions when VIX crosses exit threshold.
@@ -457,6 +460,10 @@ class Backtester:
                     _pnl = -0.50 * _max_loss_dollars - _pos.get('commission', 0)
                     self._record_close(_pos, current_date, _pnl, 'vix_close_all')
                 open_positions = []
+                # _current_portfolio_risk is stale (reflects pre-close positions) after
+                # vix_close_all. In practice vix_close_all VIX levels also trigger
+                # _vix_too_high, which sets _skip_new_entries=True and blocks new entries
+                # before any sizing call that reads _current_portfolio_risk.
 
             # Look for new opportunities.
             # Real-data mode: simulate all 14 intraday scan times per trading day.
@@ -1089,7 +1096,7 @@ class Backtester:
             'max_loss': max_loss,
             'profit_target': combined_credit * self._profit_target_pct,
             'stop_loss': combined_credit * stop_loss_multiplier,
-            'commission': commission_cost,  # exit commission (4 legs)
+            'commission': commission_cost,  # exit-side commission (4 legs, deducted from PnL at close)
             'status': 'open',
             'option_type': 'IC',
             'current_value': combined_credit * contracts * 100,
@@ -1097,7 +1104,7 @@ class Backtester:
             'slippage_applied': slippage_applied,
         }
 
-        self.capital -= commission_cost  # entry commission
+        self.capital -= commission_cost  # entry-side commission (4 legs, deducted from capital now)
 
         logger.debug(
             "Opened iron_condor: %s put=%s/%s call=%s/%s credit=$%.2f (%d contracts)%s",
@@ -1642,7 +1649,9 @@ class Backtester:
             )
             if put_prices is not None and call_prices is not None:
                 closing_spread_value = put_prices['spread_value'] + call_prices['spread_value']
-                if closing_spread_value > 0.05:
+                # 0.10 = 2 × 0.05 per-wing threshold: treat IC as worthless only when
+                # BOTH wings are effectively worthless (consistent with single-spread logic).
+                if closing_spread_value > 0.10:
                     # IC closes two separate spreads — each incurs bid-ask slippage.
                     exit_cost = closing_spread_value + 2 * self._vix_scaled_exit_slippage()
                     pnl = (pos['credit'] - exit_cost) * pos['contracts'] * 100 - pos['commission']

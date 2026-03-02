@@ -1665,6 +1665,39 @@ class TestIronCondorExpiration:
         assert result['contracts'] == expected   # 12
         assert result['contracts'] == 12         # explicit sanity check
 
+    def test_ic_intraday_exit_applies_double_slippage(self):
+        """IC profit-target triggered by intraday data uses 2× exit slippage.
+
+        Closing an IC requires buying back two separate spreads (put + call),
+        each incurring bid-ask friction.  The single-spread path uses 1×; the
+        IC path must use 2×.  This test catches any regression where the
+        _slip_legs multiplier is dropped on the intraday exit branch.
+
+        At VIX=20: _vix_scaled_exit_slippage() = 0.10 × 1.0 = 0.10  (exit_slippage default)
+          combined spread_value = 0.80 → profit 1.20 ≥ profit_target 1.00
+          exit_cost (2×) = 0.80 + 2×0.10 = 1.00  → pnl = (2.00-1.00)×100 - 1.30 = 98.70
+          exit_cost (1×) = 0.80 + 1×0.10 = 0.90  → pnl = (2.00-0.90)×100 - 1.30 = 108.70 (wrong)
+        """
+        pos = _make_ic_position(credit=2.00, max_loss=8.00, contracts=1, commission=1.30)
+        pos['entry_scan_time'] = None   # check all scan times
+        pos['expiration'] = datetime(2025, 2, 21)  # not expired on test date
+
+        self.bt._current_vix = 20.0  # → vix_scale=1.0, slippage=0.05 per leg
+
+        # First intraday scan: put=0.40, call=0.40 → combined=0.80 → profit_target hit
+        self.mock_hd.get_intraday_spread_prices.side_effect = [
+            {'spread_value': 0.40, 'short_close': 0.50, 'long_close': 0.10},
+            {'spread_value': 0.40, 'short_close': 0.50, 'long_close': 0.10},
+        ]
+
+        self.bt._manage_positions([pos], datetime(2025, 2, 1), 460.0, 'SPY')
+
+        assert len(self.bt.trades) == 1
+        assert self.bt.trades[0]['exit_reason'] == 'profit_target'
+        # 2× slippage: exit_cost = 0.80 + 2×0.10 = 1.00 → pnl = 100 - 1.30 = 98.70
+        # 1× slippage: exit_cost = 0.80 + 1×0.10 = 0.90 → pnl = 110 - 1.30 = 108.70 (wrong)
+        assert self.bt.trades[0]['pnl'] == pytest.approx(98.70, rel=1e-4)
+
 
 # ---------------------------------------------------------------------------
 # Regression test: VIX Monday prior-trading-day lookup (_prev_trading_val)
@@ -1779,4 +1812,145 @@ class TestHeuristicModeGate:
         assert mock_h.call_count == 0, (
             "_find_heuristic_spread was called despite exclude_months=['2025-01']. "
             "The heuristic Monday gate is not checking _skip_new_entries."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Regression tests: R8 P1 commission refund on duplicate-key rejection
+# ---------------------------------------------------------------------------
+
+class TestCommissionRefundOnDupKey:
+    """14 scan times returning the same position key: only 1 commission kept.
+
+    _find_real_spread (and _find_iron_condor_opportunity) deducts commission
+    from self.capital before returning.  If the scan loop detects a duplicate
+    key (_entered_today or _open_keys), the position is discarded — the
+    commission must be refunded via the else: branch added in R8 P1.
+    """
+
+    def setup_method(self):
+        self.mock_hd = _make_mock_historical_data()
+        self.bt = Backtester(_make_config(), historical_data=self.mock_hd)
+        self.bt.capital = 100_000
+
+    def _make_price_data(self):
+        import pandas as pd
+        dates = pd.date_range('2024-11-18', periods=35, freq='B')
+        prices = [450.0 + i * 2 for i in range(len(dates))]
+        return pd.concat([
+            pd.DataFrame(
+                {'Close': prices, 'Open': prices, 'High': prices,
+                 'Low': prices, 'Volume': [1_000_000] * len(dates)},
+                index=dates,
+            ),
+            pd.DataFrame(
+                {'Close': [prices[-1] + 2], 'Open': [prices[-1] + 2],
+                 'High': [prices[-1] + 2], 'Low': [prices[-1] + 2],
+                 'Volume': [1_000_000]},
+                index=pd.date_range('2025-01-06', periods=1, freq='B'),
+            ),
+        ])
+
+    def test_duplicate_bull_put_key_refunds_commission(self):
+        """14 scan times returning the same (expiry, strike) bull put → 1 net commission."""
+        from unittest.mock import patch
+
+        commission = 1.30
+        dummy_put = {
+            'type': 'bull_put_spread', 'option_type': 'P',
+            'short_strike': 450.0, 'long_strike': 445.0,
+            'expiration': datetime(2025, 3, 21), 'credit': 1.20,
+            'max_loss': 380.0, 'contracts': 1, 'commission': commission,
+            'entry_price': 452.0, 'slippage_applied': 0.05, 'entry_scan_time': None,
+            'entry_date': datetime(2025, 1, 6), 'ticker': 'SPY',
+            'profit_target': 0.60, 'stop_loss': 3.00, 'status': 'open',
+            'current_value': 120.0,
+        }
+
+        def fake_put(*args, **kwargs):
+            self.bt.capital -= commission   # mimics _find_real_spread deduction
+            return dict(dummy_put)
+
+        capital_before = self.bt.capital
+
+        with patch.object(self.bt, '_get_historical_data', return_value=self._make_price_data()), \
+             patch.object(self.bt, '_find_backtest_opportunity', side_effect=fake_put), \
+             patch.object(self.bt, '_find_bear_call_opportunity', return_value=None), \
+             patch.object(self.bt, '_close_at_expiration_real', return_value=None):
+            self.bt.run_backtest('SPY', datetime(2025, 1, 6), datetime(2025, 1, 6))
+
+        # 14 calls: 1 accepted (commission kept), 13 dup-key refunded
+        assert self.bt.capital == pytest.approx(capital_before - commission, rel=1e-6), (
+            "Dup-key commission refund not firing for bull put."
+        )
+
+    def test_duplicate_bear_call_key_refunds_commission(self):
+        """14 scan times returning the same (expiry, strike) bear call → 1 net commission."""
+        from unittest.mock import patch
+
+        commission = 1.30
+        dummy_call = {
+            'type': 'bear_call_spread', 'option_type': 'C',
+            'short_strike': 480.0, 'long_strike': 485.0,
+            'expiration': datetime(2025, 3, 21), 'credit': 1.10,
+            'max_loss': 390.0, 'contracts': 1, 'commission': commission,
+            'entry_price': 452.0, 'slippage_applied': 0.05, 'entry_scan_time': None,
+            'entry_date': datetime(2025, 1, 6), 'ticker': 'SPY',
+            'profit_target': 0.55, 'stop_loss': 2.75, 'status': 'open',
+            'current_value': 110.0,
+        }
+
+        def fake_call(*args, **kwargs):
+            self.bt.capital -= commission
+            return dict(dummy_call)
+
+        capital_before = self.bt.capital
+
+        with patch.object(self.bt, '_get_historical_data', return_value=self._make_price_data()), \
+             patch.object(self.bt, '_find_backtest_opportunity', return_value=None), \
+             patch.object(self.bt, '_find_bear_call_opportunity', side_effect=fake_call), \
+             patch.object(self.bt, '_close_at_expiration_real', return_value=None):
+            self.bt.run_backtest('SPY', datetime(2025, 1, 6), datetime(2025, 1, 6))
+
+        assert self.bt.capital == pytest.approx(capital_before - commission, rel=1e-6), (
+            "Dup-key commission refund not firing for bear call."
+        )
+
+    def test_duplicate_ic_key_refunds_commission(self):
+        """14 scan times returning the same IC key → 1 net commission."""
+        from unittest.mock import patch
+
+        commission = 2.60   # 4 legs × 0.65
+        dummy_ic = {
+            'type': 'iron_condor', 'option_type': 'IC',
+            'short_strike': 445.0, 'long_strike': 440.0,
+            'call_short_strike': 475.0, 'call_long_strike': 480.0,
+            'expiration': datetime(2025, 3, 21), 'credit': 2.30,
+            'max_loss': 7.70, 'contracts': 1, 'commission': commission,
+            'entry_price': 452.0, 'slippage_applied': 0.10, 'entry_scan_time': None,
+            'entry_date': datetime(2025, 1, 6), 'ticker': 'SPY',
+            'profit_target': 1.15, 'stop_loss': 5.75, 'status': 'open',
+            'current_value': 230.0,
+        }
+
+        cfg = _make_config()
+        cfg['strategy']['iron_condor'] = {'enabled': True}
+        bt = Backtester(cfg, historical_data=self.mock_hd)
+        bt.capital = 100_000
+
+        def fake_ic(*args, **kwargs):
+            bt.capital -= commission
+            return dict(dummy_ic)
+
+        capital_before = bt.capital
+
+        with patch.object(bt, '_get_historical_data', return_value=self._make_price_data()), \
+             patch.object(bt, '_find_backtest_opportunity', return_value=None), \
+             patch.object(bt, '_find_bear_call_opportunity', return_value=None), \
+             patch.object(bt, '_find_iron_condor_opportunity', side_effect=fake_ic), \
+             patch.object(bt, '_close_at_expiration_real', return_value=None):
+            bt.run_backtest('SPY', datetime(2025, 1, 6), datetime(2025, 1, 6))
+
+        assert bt.capital == pytest.approx(capital_before - commission, rel=1e-6), (
+            "Dup-key commission refund not firing for IC."
         )
