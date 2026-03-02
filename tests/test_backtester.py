@@ -1374,12 +1374,56 @@ class TestRuinTriggered:
         assert self.bt.capital > 0
         assert self.bt._ruin_triggered is False
 
-    def test_ruin_blocks_skip_new_entries(self):
-        """Once _ruin_triggered, _skip_new_entries must evaluate True."""
-        self.bt._ruin_triggered = True
-        # _skip_new_entries is computed inline in run_backtest; test the flag directly
-        # by confirming it is or-ed into the gate (read from the instance attribute)
-        assert self.bt._ruin_triggered is True
+    def test_ruin_blocks_new_entries_in_backtest(self):
+        """After _ruin_triggered fires, run_backtest must not attempt any entry scans.
+
+        Patches _manage_positions to trigger ruin on the first call, then asserts
+        that get_available_strikes is never called (entry gate blocked by ruin flag).
+        """
+        import pandas as pd
+
+        mock_hd = _make_mock_historical_data()
+        mock_hd.get_available_strikes.return_value = [440, 445, 450]
+
+        cfg = _make_config()
+        cfg['backtest']['compound'] = True
+        bt = Backtester(cfg, historical_data=mock_hd)
+
+        dates = pd.date_range('2024-11-18', periods=30, freq='B')
+        prices = [450.0 + i for i in range(len(dates))]
+        price_data = pd.DataFrame(
+            {'Close': prices, 'Open': prices, 'High': prices,
+             'Low': prices, 'Volume': [1_000_000] * len(prices)},
+            index=dates,
+        )
+
+        # On the first manage_positions call, simulate a ruinous loss by setting
+        # _ruin_triggered = True (as _record_close would do after capital <= 0).
+        real_manage = bt._manage_positions
+        calls = []
+
+        def fake_manage(positions, current_date, current_price, ticker_arg):
+            calls.append(current_date)
+            if len(calls) == 1:
+                bt._ruin_triggered = True   # simulate capital wiped on day 1
+            return real_manage(positions, current_date, current_price, ticker_arg)
+
+        with patch('backtest.backtester.Backtester._get_historical_data',
+                   return_value=price_data), \
+             patch('backtest.backtester.Backtester._build_iv_rank_series',
+                   return_value={}), \
+             patch('backtest.backtester.Backtester._build_realized_vol_series',
+                   return_value={}), \
+             patch.object(bt, '_manage_positions', side_effect=fake_manage):
+            bt.run_backtest('SPY', dates[-2].to_pydatetime(), dates[-1].to_pydatetime())
+
+        # _ruin_triggered=True is ORed into _skip_new_entries immediately after
+        # _manage_positions returns — so no scan fires on either day.
+        # If the ruin gate were missing, get_available_strikes would be called 28+ times.
+        assert mock_hd.get_available_strikes.call_count == 0, (
+            f"get_available_strikes called {mock_hd.get_available_strikes.call_count} times "
+            "after ruin — _ruin_triggered is not gating new entries"
+        )
 
     def test_ruin_resets_on_new_run(self):
         """_ruin_triggered must reset to False at the start of run_backtest."""
@@ -1525,6 +1569,60 @@ class TestIronCondorExpiration:
 
         assert len(self.bt.trades) == 1
         assert self.bt.trades[0]['option_type'] == 'IC'
+
+    def test_ic_flat_risk_sizing_uses_double_width(self):
+        """IC contracts must be sized on spread_width * 2, not single-wing width.
+
+        Regression for P0-B: using single width doubles the per-contract max-loss
+        denominator underflow, causing ~2x oversizing of IC positions.
+
+        Setup: capital=$100K, 10% flat risk, 5-wide spread, combined_credit=2.30
+          correct:  int(10_000 / ((10.0 - 2.30) * 100)) = int(10000/770) = 12
+          bugged:   int(10_000 / ((5.0  - 2.30) * 100)) = int(10000/270) = 37
+        """
+        from ml.position_sizer import get_contract_size
+
+        cfg = _make_config()
+        cfg['backtest']['sizing_mode'] = 'flat'
+        cfg['risk']['max_risk_per_trade'] = 10.0
+        cfg['risk']['stop_loss_multiplier'] = 2.5
+        cfg['strategy']['spread_width'] = 5.0
+        mock_hd = _make_mock_historical_data()
+
+        bt = Backtester(cfg, historical_data=mock_hd)
+        bt.capital = 100_000
+        bt.starting_capital = 100_000
+
+        expiry = datetime(2025, 2, 21)
+        put_leg = {
+            'credit': 1.20,
+            'short_strike': 450.0, 'long_strike': 445.0,
+            'expiration': expiry, 'slippage_applied': 0.05, 'entry_scan_time': None,
+        }
+        call_leg = {
+            'credit': 1.10,
+            'short_strike': 480.0, 'long_strike': 485.0,
+            'expiration': expiry, 'slippage_applied': 0.05, 'entry_scan_time': None,
+        }
+
+        with patch.object(bt, '_find_real_spread', side_effect=[put_leg, call_leg]):
+            result = bt._find_iron_condor_opportunity(
+                'SPY', datetime(2025, 1, 6), '2025-01-06', 470.0,
+            )
+
+        assert result is not None
+        assert result['type'] == 'iron_condor'
+
+        # Verify contract count uses 2×spread_width (=10.0) in the max-loss denominator.
+        combined_credit = 1.20 + 1.10  # = 2.30
+        expected = get_contract_size(
+            100_000 * (10.0 / 100),   # trade_dollar_risk = 10_000
+            5.0 * 2,                   # spread_width * 2 = 10.0 for IC
+            combined_credit,
+            max_contracts=999,
+        )
+        assert result['contracts'] == expected   # 12
+        assert result['contracts'] == 12         # explicit sanity check
 
 
 # ---------------------------------------------------------------------------

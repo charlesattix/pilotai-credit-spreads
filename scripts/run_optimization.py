@@ -211,11 +211,16 @@ def _monthly_diversity_score(monthly_pnl: dict) -> float:
     """
     What fraction of months had at least one trade?
     Returns 0.0-1.0.
+
+    Denominator is derived from the latest month present in monthly_pnl so that
+    partial-year runs (e.g. Jan–Mar) are not penalised against a 12-month baseline.
     """
     if not monthly_pnl:
         return 0.0
     months_with_trades = sum(1 for v in monthly_pnl.values() if v.get("trades", 0) > 0)
-    return months_with_trades / 12
+    # "YYYY-MM" keys — last month's ordinal tells us how many months were covered.
+    last_month_num = int(max(monthly_pnl.keys()).split('-')[1])
+    return months_with_trades / max(1, last_month_num)
 
 
 def run_all_years(params: dict, years: list, use_real_data: bool, ticker: str = "SPY",
