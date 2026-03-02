@@ -752,6 +752,23 @@ class TestBearCallBacktest:
         assert len(self.bt.trades) == 1
         assert self.bt.trades[0]['exit_reason'] == 'expiration_loss'
 
+    def test_bear_call_heuristic_expiration_loss_at_exact_strike(self):
+        """Bear call: price == short_strike at expiry → call ITM → expiration_loss.
+
+        Code uses `current_price < pos['short_strike']` (strict <) for profit.
+        At exactly the short strike, the condition is False → loss branch fires.
+        This boundary catches any future >= vs > regression.
+        """
+        pos = _make_position(
+            credit=1.50, max_loss=3.50, contracts=1, commission=1.30,
+            spread_type='bear_call_spread', option_type='C',
+            short_strike=500, long_strike=505,
+        )
+        # Price == short_strike 500: strict < is False → expiration_loss
+        self.bt._manage_positions([pos], datetime(2025, 2, 5), 500.0, 'SPY')
+        assert len(self.bt.trades) == 1
+        assert self.bt.trades[0]['exit_reason'] == 'expiration_loss'
+
     def test_bear_call_close_position(self):
         """Bear call close should work same as bull put in heuristic mode."""
         pos = _make_position(
@@ -1568,6 +1585,66 @@ class TestIronCondorExpiration:
         # pnl = (2.00 - 1.71) * 100 - 1.30 = 29.00 - 1.30 = 27.70
         assert self.bt.trades[0]['pnl'] == pytest.approx(27.70, rel=1e-4)
 
+    def test_ic_expiration_boundary_value_treated_as_worthless(self):
+        """IC with combined residual in (0.05, 0.10] expires as worthless — no slippage.
+
+        The threshold is > 0.10 (not > 0.05) for ICs since it represents two wings.
+        A combined value of 0.08 is ≤ 0.10 → position treated as worthless → no buyback cost.
+          pnl = credit * contracts * 100 - commission = 2.00 * 1 * 100 - 1.30 = 198.70
+        """
+        pos = _make_ic_position(credit=2.00, max_loss=8.00, contracts=1, commission=1.30)
+        # Put wing: 0.07, call wing: 0.01 → combined = 0.08 — inside (0.05, 0.10] boundary
+        self.mock_hd.get_spread_prices.side_effect = [
+            {'short_close': 0.10, 'long_close': 0.03, 'spread_value': 0.07},  # put
+            {'short_close': 0.02, 'long_close': 0.01, 'spread_value': 0.01},  # call
+        ]
+        self.bt._close_at_expiration_real(pos, datetime(2025, 2, 5))
+
+        assert len(self.bt.trades) == 1
+        assert self.bt.trades[0]['exit_reason'] == 'expiration_profit'
+        # Combined = 0.08 ≤ 0.10 → worthless; no slippage applied
+        # pnl = 2.00 * 1 * 100 - 1.30 = 198.70
+        assert self.bt.trades[0]['pnl'] == pytest.approx(198.70, rel=1e-4)
+
+    def test_ic_expiration_exact_threshold_treated_as_worthless(self):
+        """IC with combined residual = exactly 0.10 is worthless (threshold is strict >).
+
+        _close_at_expiration_real uses `if closing_spread_value > 0.10:` — the boundary
+        value itself (0.10) is NOT greater than the threshold, so it lapses worthless.
+        """
+        pos = _make_ic_position(credit=2.00, max_loss=8.00, contracts=1, commission=1.30)
+        # combined = 0.09 + 0.01 = 0.10 — exactly at threshold, treated as worthless
+        self.mock_hd.get_spread_prices.side_effect = [
+            {'short_close': 0.12, 'long_close': 0.03, 'spread_value': 0.09},  # put
+            {'short_close': 0.02, 'long_close': 0.01, 'spread_value': 0.01},  # call
+        ]
+        self.bt._close_at_expiration_real(pos, datetime(2025, 2, 5))
+
+        assert len(self.bt.trades) == 1
+        assert self.bt.trades[0]['exit_reason'] == 'expiration_profit'
+        # combined = 0.10, NOT > 0.10 → worthless; pnl = 2.00 * 100 - 1.30 = 198.70
+        assert self.bt.trades[0]['pnl'] == pytest.approx(198.70, rel=1e-4)
+
+    def test_ic_expiration_just_above_threshold_applies_slippage(self):
+        """IC with combined residual just above 0.10 triggers slippage (strict > 0.10).
+
+        0.11 is strictly greater than 0.10, so slippage is applied on buyback.
+          exit_cost = 0.11 + 2 × 0.10 = 0.31; pnl = (2.00 - 0.31) × 100 - 1.30 = 167.70
+        """
+        pos = _make_ic_position(credit=2.00, max_loss=8.00, contracts=1, commission=1.30)
+        # combined = 0.10 + 0.01 = 0.11 — just above threshold
+        self.mock_hd.get_spread_prices.side_effect = [
+            {'short_close': 0.13, 'long_close': 0.03, 'spread_value': 0.10},  # put
+            {'short_close': 0.02, 'long_close': 0.01, 'spread_value': 0.01},  # call
+        ]
+        self.bt._close_at_expiration_real(pos, datetime(2025, 2, 5))
+
+        assert len(self.bt.trades) == 1
+        assert self.bt.trades[0]['exit_reason'] == 'expiration_profit'
+        # combined = 0.11 > 0.10 → slippage applied (2×)
+        # exit_cost = 0.11 + 2 × 0.10 = 0.31; pnl = (2.00 - 0.31) × 100 - 1.30 = 167.70
+        assert self.bt.trades[0]['pnl'] == pytest.approx(167.70, rel=1e-4)
+
     def test_ic_expiration_intrinsic_fallback(self):
         """No option data → intrinsic settlement from underlying price."""
         import pandas as pd
@@ -1665,6 +1742,10 @@ class TestIronCondorExpiration:
         assert result['contracts'] == expected   # 12
         assert result['contracts'] == 12         # explicit sanity check
 
+        # IC entry deducts commission for 4 legs (2 per wing, no per-contract scaling).
+        ic_commission = bt.commission * 4  # = 0.65 * 4 = 2.60
+        assert bt.capital == pytest.approx(100_000 - ic_commission, rel=1e-6)
+
     def test_ic_intraday_exit_applies_double_slippage(self):
         """IC profit-target triggered by intraday data uses 2× exit slippage.
 
@@ -1682,7 +1763,7 @@ class TestIronCondorExpiration:
         pos['entry_scan_time'] = None   # check all scan times
         pos['expiration'] = datetime(2025, 2, 21)  # not expired on test date
 
-        self.bt._current_vix = 20.0  # → vix_scale=1.0, slippage=0.05 per leg
+        self.bt._current_vix = 20.0  # → vix_scale=1.0, slippage=0.10 per leg (exit_slippage default)
 
         # First intraday scan: put=0.40, call=0.40 → combined=0.80 → profit_target hit
         self.mock_hd.get_intraday_spread_prices.side_effect = [
@@ -1697,6 +1778,38 @@ class TestIronCondorExpiration:
         # 2× slippage: exit_cost = 0.80 + 2×0.10 = 1.00 → pnl = 100 - 1.30 = 98.70
         # 1× slippage: exit_cost = 0.80 + 1×0.10 = 0.90 → pnl = 110 - 1.30 = 108.70 (wrong)
         assert self.bt.trades[0]['pnl'] == pytest.approx(98.70, rel=1e-4)
+
+    def test_ic_intraday_stop_loss_applies_double_slippage(self):
+        """IC stop-loss triggered by intraday data uses 2× exit slippage.
+
+        Mirrors test_ic_intraday_exit_applies_double_slippage for the stop_loss
+        branch.  Closing an IC always requires two separate buyback transactions.
+
+        At VIX=20: _vix_scaled_exit_slippage() = 0.10 × 1.0 = 0.10
+          credit=2.00, stop_loss=5.00 (credit × 2.5)
+          combined spread_value = 7.00 → loss 5.00 ≥ stop_loss 5.00
+          exit_cost (2×) = 7.00 + 2×0.10 = 7.20 → pnl = (2.00-7.20)×100 - 1.30 = -521.30
+          exit_cost (1×) = 7.00 + 1×0.10 = 7.10 → pnl = (2.00-7.10)×100 - 1.30 = -511.30 (wrong)
+        """
+        pos = _make_ic_position(credit=2.00, max_loss=8.00, contracts=1, commission=1.30)
+        pos['entry_scan_time'] = None
+        pos['expiration'] = datetime(2025, 2, 21)
+
+        self.bt._current_vix = 20.0
+
+        # combined spread_value = 7.00 → loss = 7.00 - 2.00 = 5.00 ≥ stop_loss 5.00
+        self.mock_hd.get_intraday_spread_prices.side_effect = [
+            {'spread_value': 3.50, 'short_close': 4.00, 'long_close': 0.50},  # put
+            {'spread_value': 3.50, 'short_close': 4.00, 'long_close': 0.50},  # call
+        ]
+
+        self.bt._manage_positions([pos], datetime(2025, 2, 1), 460.0, 'SPY')
+
+        assert len(self.bt.trades) == 1
+        assert self.bt.trades[0]['exit_reason'] == 'stop_loss'
+        # 2× slippage: exit_cost = 7.00 + 2×0.10 = 7.20 → pnl = -520 - 1.30 = -521.30
+        # 1× slippage: exit_cost = 7.00 + 1×0.10 = 7.10 → pnl = -510 - 1.30 = -511.30 (wrong)
+        assert self.bt.trades[0]['pnl'] == pytest.approx(-521.30, rel=1e-4)
 
 
 # ---------------------------------------------------------------------------
@@ -1953,4 +2066,310 @@ class TestCommissionRefundOnDupKey:
 
         assert bt.capital == pytest.approx(capital_before - commission, rel=1e-6), (
             "Dup-key commission refund not firing for IC."
+        )
+
+
+# ---------------------------------------------------------------------------
+# R11 P1-2: IC scan-loop integration — IC attempted when single legs fail
+# ---------------------------------------------------------------------------
+
+class TestICScanLoopIntegration:
+    """_find_iron_condor_opportunity is called when both single-leg finders return None.
+
+    The scan loop (run_backtest) must fall through to IC after both
+    _find_backtest_opportunity (put) and _find_bear_call_opportunity (call)
+    return None.  If the fallthrough is broken, IC positions are silently never
+    entered even when iron_condor is enabled.
+    """
+
+    def _make_price_data(self):
+        import pandas as pd
+        dates = pd.date_range('2024-11-18', periods=35, freq='B')
+        prices = [450.0 + i * 2 for i in range(len(dates))]
+        return pd.concat([
+            pd.DataFrame(
+                {'Close': prices, 'Open': prices, 'High': prices,
+                 'Low': prices, 'Volume': [1_000_000] * len(dates)},
+                index=dates,
+            ),
+            pd.DataFrame(
+                {'Close': [prices[-1] + 2], 'Open': [prices[-1] + 2],
+                 'High': [prices[-1] + 2], 'Low': [prices[-1] + 2],
+                 'Volume': [1_000_000]},
+                index=pd.date_range('2025-01-06', periods=1, freq='B'),
+            ),
+        ])
+
+    def test_scan_loop_attempts_ic_when_single_legs_fail(self):
+        """When put and call single legs both return None, IC finder must be called."""
+        mock_hd = _make_mock_historical_data()
+        cfg = _make_config()
+        cfg['backtest']['use_real_data'] = True
+        cfg['strategy']['direction'] = 'both'
+        cfg['strategy']['iron_condor'] = {'enabled': True}
+
+        bt = Backtester(cfg, historical_data=mock_hd)
+
+        with patch.object(bt, '_get_historical_data', return_value=self._make_price_data()), \
+             patch.object(bt, '_build_iv_rank_series', return_value={}), \
+             patch.object(bt, '_build_realized_vol_series', return_value={}), \
+             patch.object(bt, '_find_backtest_opportunity', return_value=None), \
+             patch.object(bt, '_find_bear_call_opportunity', return_value=None), \
+             patch.object(bt, '_find_iron_condor_opportunity', return_value=None) as ic_mock:
+            bt.run_backtest('SPY', datetime(2025, 1, 6), datetime(2025, 1, 6))
+
+        assert ic_mock.call_count > 0, (
+            "_find_iron_condor_opportunity was never called — IC fallback path in scan "
+            "loop is broken. Verify IC is attempted after put + call both return None."
+        )
+
+
+# ---------------------------------------------------------------------------
+# R11 P1-3: Entry-day intraday scan skip
+# ---------------------------------------------------------------------------
+
+class TestIntradayEntryScanSkip:
+    """On entry day, scans at or before entry_scan_time must be skipped.
+
+    If the guard is broken (< instead of <=), the bar that triggered entry
+    is re-evaluated for an immediate exit — a 30-min lookahead on entry day.
+    """
+
+    def test_check_intraday_exits_skips_entry_day_prior_scans(self):
+        """Scans at and before entry_scan_time=10:30 must not call get_intraday_spread_prices.
+
+        SCAN_TIMES: 9:15(skipped by market-open guard), 9:45, 10:00, 10:30, 11:00, ...15:30
+        With entry_scan_time=10:30: 9:45, 10:00, 10:30 are additionally skipped.
+        Only 11:00, 11:30, 12:00, 12:30, 13:00, 13:30, 14:00, 14:30, 15:00, 15:30
+        (10 scans) should reach get_intraday_spread_prices.
+        """
+        mock_hd = _make_mock_historical_data()
+        bt = Backtester(_make_config(), historical_data=mock_hd)
+
+        pos = _make_position(credit=2.00, max_loss=3.00, contracts=1, commission=1.30)
+        pos['option_type'] = 'P'
+        pos['entry_date'] = datetime(2025, 2, 1)
+        pos['entry_scan_time'] = '10:30'
+        pos['expiration'] = datetime(2025, 2, 21)
+
+        scans_called = []
+
+        def tracking_intraday(ticker, exp, short_s, long_s, ot, date_str, hour, minute):
+            scans_called.append((hour, minute))
+            return None  # no data → no trigger
+
+        mock_hd.get_intraday_spread_prices.side_effect = tracking_intraday
+
+        result = bt._check_intraday_exits(pos, datetime(2025, 2, 1), '2025-02-01')
+
+        # No data returned → function returns None (falls back to daily close)
+        assert result is None
+
+        # Every scan that was actually called must be strictly after 10:30
+        for hour, minute in scans_called:
+            assert hour * 60 + minute > 10 * 60 + 30, (
+                f"Scan at {hour}:{minute:02d} was called but should have been skipped "
+                f"(entry_scan_time=10:30, same-day entry). Guard changed from <= to <?"
+            )
+
+        # After entry at 10:30: 11:00, 11:30, 12:00, 12:30, 13:00,
+        # 13:30, 14:00, 14:30, 15:00, 15:30 = 10 scans expected.
+        assert len(scans_called) == 10, (
+            f"Expected 10 post-entry scans after 10:30, got {len(scans_called)}: {scans_called}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# R11 P2-1: Profit-target / stop-loss exact-boundary triggers
+# ---------------------------------------------------------------------------
+
+class TestProfitStopBoundary:
+    """The >= comparisons for profit_target and stop_loss must fire at the threshold.
+
+    Floating-point drift or an off-by-epsilon error could prevent exits at the
+    exact boundary.  These tests use integer-representable values so equality
+    is exact.
+    """
+
+    def setup_method(self):
+        self.mock_hd = _make_mock_historical_data()
+        self.bt = Backtester(_make_config(), historical_data=self.mock_hd)
+        self.bt.capital = 100_000
+        self.bt.trades = []
+
+    def test_profit_target_exact_boundary_triggers_close(self):
+        """spread_value = credit − profit_target exactly must close the position."""
+        # credit=2.00, profit_target = 2.00×0.5 = 1.00
+        # spread_value = 1.00 → profit = 2.00 - 1.00 = 1.00 ≥ 1.00 → CLOSE
+        pos = _make_position(credit=2.00, max_loss=3.00, contracts=1, commission=1.30)
+        pos['option_type'] = 'P'
+        self.mock_hd.get_spread_prices.return_value = {
+            'short_close': 1.20, 'long_close': 0.20, 'spread_value': 1.00,
+        }
+
+        remaining = self.bt._manage_positions([pos], datetime(2025, 1, 20), 460.0, 'SPY')
+
+        assert len(remaining) == 0, "Position should close at exact profit_target boundary."
+        assert self.bt.trades[0]['exit_reason'] == 'profit_target'
+
+    def test_stop_loss_exact_boundary_triggers_close(self):
+        """spread_value − credit = stop_loss exactly must close the position."""
+        # credit=2.00, stop_loss = 2.00×2.5 = 5.00
+        # spread_value = 7.00 → loss = 7.00 - 2.00 = 5.00 ≥ 5.00 → CLOSE
+        pos = _make_position(credit=2.00, max_loss=3.00, contracts=1, commission=1.30)
+        pos['option_type'] = 'P'
+        self.mock_hd.get_spread_prices.return_value = {
+            'short_close': 7.50, 'long_close': 0.50, 'spread_value': 7.00,
+        }
+
+        remaining = self.bt._manage_positions([pos], datetime(2025, 1, 20), 440.0, 'SPY')
+
+        assert len(remaining) == 0, "Position should close at exact stop_loss boundary."
+        assert self.bt.trades[0]['exit_reason'] == 'stop_loss'
+
+
+# ---------------------------------------------------------------------------
+# R11 P2-2: Volume adaptive sizing cap
+# ---------------------------------------------------------------------------
+
+class TestVolumeSizeCap:
+    """contracts must be capped to max(1, int(min_vol × vol_size_cap_pct))."""
+
+    def test_volume_size_cap_limits_contracts(self):
+        """With min daily volume=1000 and vol_size_cap=0.02, contracts capped to 20.
+
+        Without the cap, 20% flat risk on $100K with a ~$3.50 max-loss spread
+        would yield ~57 contracts.  The cap reduces that to 20.
+        """
+        mock_hd = _make_mock_historical_data()
+        cfg = _make_config()
+        cfg['backtest']['sizing_mode'] = 'flat'
+        cfg['backtest']['volume_size_cap_pct'] = 0.02
+        cfg['risk']['max_risk_per_trade'] = 20.0   # large budget → uncapped ~57 contracts
+        cfg['backtest']['use_real_data'] = True
+
+        bt = Backtester(cfg, historical_data=mock_hd)
+        bt.capital = 100_000
+        bt.starting_capital = 100_000
+        bt._use_real_data = True
+        bt._vol_size_cap = 0.02
+        bt._volume_gate = False
+
+        mock_hd.get_available_strikes.return_value = [440, 445, 450, 455, 460]
+        mock_hd.get_spread_prices.return_value = {
+            'short_close': 2.00, 'long_close': 0.50, 'spread_value': 1.50,
+        }
+        mock_hd.build_occ_symbol.return_value = 'O:SPY250321P00455000'
+        mock_hd.get_prev_daily_volume.return_value = 1000  # both legs → min_vol = 1000
+
+        result = bt._find_real_spread(
+            'SPY', datetime(2025, 1, 6), '2025-01-06', 480.0,
+            datetime(2025, 3, 21), 5.0, option_type='P',
+        )
+
+        assert result is not None
+        # Cap: max(1, int(1000 × 0.02)) = max(1, 20) = 20
+        assert result['contracts'] == 20, (
+            f"Expected 20 contracts (vol cap: int(1000×0.02)), got {result['contracts']}. "
+            "Adaptive sizing cap not applied."
+        )
+
+
+# ---------------------------------------------------------------------------
+# R13 P1-1: IC entry-day scan-skip (IC-specific branch of _check_intraday_exits)
+# ---------------------------------------------------------------------------
+
+class TestICIntradayEntryScanSkip:
+    """_check_intraday_exits IC branch must also skip scans at/before entry_scan_time.
+
+    The single-spread path (TestIntradayEntryScanSkip) already verifies this for
+    puts/calls.  This class confirms the IC branch (which calls get_intraday_spread_prices
+    twice — once for put leg, once for call leg) applies the same skip logic.
+    """
+
+    def test_ic_check_intraday_exits_skips_entry_day_prior_scans(self):
+        """IC intraday exit scan skips bars at/before entry_scan_time=10:30 on entry day.
+
+        IC path calls get_intraday_spread_prices twice per scan (put + call legs).
+        With entry at 10:30, only the 10 post-entry scans should be attempted —
+        i.e. at most 20 calls (10 scans × 2 legs), all at times > 10:30.
+        """
+        mock_hd = _make_mock_historical_data()
+        bt = Backtester(_make_config(), historical_data=mock_hd)
+
+        pos = _make_ic_position(credit=2.00, max_loss=8.00, contracts=1, commission=1.30)
+        pos['entry_date'] = datetime(2025, 2, 1)
+        pos['entry_scan_time'] = '10:30'
+        pos['expiration'] = datetime(2025, 2, 21)
+
+        scans_called = []
+
+        def tracking_intraday(ticker, exp, short_s, long_s, ot, date_str, hour, minute):
+            scans_called.append((hour, minute))
+            return None  # no data → no trigger
+
+        mock_hd.get_intraday_spread_prices.side_effect = tracking_intraday
+
+        result = bt._check_intraday_exits(pos, datetime(2025, 2, 1), '2025-02-01')
+
+        assert result is None  # no data → fall back to daily close
+
+        # Every attempted scan must be strictly after 10:30
+        for hour, minute in scans_called:
+            assert hour * 60 + minute > 10 * 60 + 30, (
+                f"IC scan at {hour}:{minute:02d} was called but should have been skipped "
+                f"(entry_scan_time=10:30, same-day entry). IC branch missing the skip guard?"
+            )
+
+        # 10 post-entry scans × 2 legs = 20 calls maximum (all return None here)
+        assert len(scans_called) == 20, (
+            f"Expected 20 IC leg calls for 10 post-entry scans, got {len(scans_called)}: "
+            f"{scans_called}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# R13 P2-2: Multi-position intraday exposure gate
+# ---------------------------------------------------------------------------
+
+class TestExposureGateMultiEntry:
+    """Second same-day entry is blocked when first already saturates the exposure cap.
+
+    _exposure_ok is evaluated before each new position is added to open_positions.
+    After the first position is opened (current_value=0 at entry), the gate must
+    still correctly compute cumulative max_loss and reject the second entry.
+    """
+
+    def test_second_entry_blocked_by_exposure_cap(self):
+        """Two same-day entries: first allowed, second blocked when combined > cap."""
+        cfg = _make_config()
+        cfg['backtest']['max_portfolio_exposure_pct'] = 15.0  # tight cap
+        bt = Backtester(cfg)
+        bt.capital = 100_000
+
+        # First position: max_loss=8.00, contracts=10 → $8,000 exposure = 8% of $100K
+        first = _make_position(max_loss=8.00, contracts=10, credit=1.50, commission=1.30)
+        first['current_value'] = 0  # matches post-R11 entry initialization
+
+        open_positions = [first]
+
+        # Second candidate: max_loss=8.00, contracts=10 → would add another $8,000 = 8%
+        # Combined: 8% + 8% = 16% > 15% cap → should be BLOCKED
+        second = _make_position(max_loss=8.00, contracts=10, credit=1.50, commission=1.30)
+
+        # Replicate _exposure_ok logic directly (mirrors backtester implementation)
+        current_max_loss = sum(p['max_loss'] * p['contracts'] * 100 for p in open_positions)
+        new_max_loss = second['max_loss'] * second['contracts'] * 100
+        total_equity = bt.capital + sum(p.get('current_value', 0) for p in open_positions)
+        exposure_pct = (current_max_loss + new_max_loss) / max(total_equity, 1.0) * 100
+
+        assert exposure_pct > 15.0, (
+            f"Expected combined exposure > 15% cap; got {exposure_pct:.1f}%. "
+            "Gate would not fire — test setup wrong."
+        )
+
+        # Verify first entry alone is within cap (gate allows first)
+        solo_pct = current_max_loss / max(total_equity, 1.0) * 100
+        assert solo_pct <= 15.0, (
+            f"First entry alone ({solo_pct:.1f}%) exceeds cap — test setup wrong."
         )

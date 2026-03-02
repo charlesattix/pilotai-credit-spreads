@@ -317,10 +317,14 @@ class Backtester:
         During stress (VIX rising toward 40) spreads widen so buy-back friction
         increases proportionally, capped at 3× to avoid implausible estimates.
 
-        Formula: base * min(3.0, 1 + max(0, (VIX − 20) × 0.1))
+        Formula: base * slippage_multiplier * min(3.0, 1 + max(0, (VIX − 20) × 0.1))
           VIX=20 → 1.0×   VIX=30 → 2.0×   VIX=40+ → 3.0× (cap)
 
-        Incorporates slippage_multiplier so brutality tests (2×, 3×) still stack.
+        Design note: slippage_multiplier and vix_scale compound multiplicatively.
+        At multiplier=2, VIX=30: result is 4× base (not 2×).  This is intentional —
+        brutality tests probe "how bad could it get"; VIX stress further amplifies
+        that, making the test more conservative.  Use multiplier=1 to isolate
+        pure VIX scaling.
         """
         vix_scale = min(3.0, 1.0 + max(0.0, (self._current_vix - 20.0) * 0.1))
         return self.exit_slippage * self._slippage_multiplier * vix_scale
@@ -534,6 +538,11 @@ class Backtester:
                         return True
                     current_max_loss = sum(p['max_loss'] * p['contracts'] * 100 for p in open_positions)
                     new_max_loss = pos['max_loss'] * pos['contracts'] * 100
+                    # current_value is 0 at entry and updated to (credit−spread_value)×contracts×100
+                    # by _manage_positions on subsequent days.  Same-day entries already in
+                    # open_positions appear here with current_value=0, making total_equity
+                    # slightly conservative (earlier intraday entries aren't counted as equity).
+                    # This is intentional — the bias is safe and avoids lookahead.
                     total_equity = self.capital + sum(p.get('current_value', 0) for p in open_positions)
                     equity = max(total_equity, 1.0)
                     return (current_max_loss + new_max_loss) / equity * 100 <= self._max_portfolio_exposure_pct
@@ -636,13 +645,8 @@ class Backtester:
                             )
                             if bear_call:
                                 open_positions.append(bear_call)
-                            elif _ic_enabled:
-                                if len(open_positions) < self.risk_params['max_positions']:
-                                    condor = self._find_iron_condor_opportunity(
-                                        ticker, current_date, current_price,
-                                    )
-                                    if condor:
-                                        open_positions.append(condor)
+                            # Note: IC fallback is not available in heuristic mode —
+                            # _find_iron_condor_opportunity requires real data.
 
             # Record equity
             position_value = sum(pos.get('current_value', 0) for pos in open_positions)
@@ -1096,10 +1100,10 @@ class Backtester:
             'max_loss': max_loss,
             'profit_target': combined_credit * self._profit_target_pct,
             'stop_loss': combined_credit * stop_loss_multiplier,
-            'commission': commission_cost,  # exit-side commission (4 legs, deducted from PnL at close)
+            'commission': commission_cost,  # round-trip: 4 legs at entry (deducted at line 1107) + 4 legs at exit (deducted from PnL in _record_close) = 8 legs total
             'status': 'open',
             'option_type': 'IC',
-            'current_value': combined_credit * contracts * 100,
+            'current_value': 0,  # unrealized PnL at entry ≈ 0; _manage_positions updates each day
             'entry_scan_time': f"{scan_hour:02d}:{scan_minute:02d}" if use_intraday else None,
             'slippage_applied': slippage_applied,
         }
@@ -1137,6 +1141,11 @@ class Backtester:
         entry pricing and models slippage from the actual bar bid/ask spread
         width (bar high - bar low).  Falls back to daily close when no scan
         time is given (legacy daily mode).
+
+        skip_commission: if True, do not deduct entry commission from capital.
+            Used by _find_iron_condor_opportunity so each leg fetch doesn't
+            charge commission separately; the IC charges one 4-leg commission
+            for the full position.
         """
         exp_str = expiration.strftime("%Y-%m-%d")
         ot = option_type[0].upper()
@@ -1362,7 +1371,7 @@ class Backtester:
             'stop_loss': credit * self.risk_params['stop_loss_multiplier'],
             'commission': commission_cost,
             'status': 'open',
-            'current_value': credit * contracts * 100,
+            'current_value': 0,  # unrealized PnL at entry ≈ 0; _manage_positions updates each day
             'option_type': ot,
             'entry_scan_time': f"{scan_hour:02d}:{scan_minute:02d}" if use_intraday else None,
             'slippage_applied': slippage,
@@ -1427,7 +1436,7 @@ class Backtester:
             'stop_loss': credit * self.risk_params['stop_loss_multiplier'],
             'commission': commission_cost,
             'status': 'open',
-            'current_value': credit * contracts * 100,
+            'current_value': 0,  # unrealized PnL at entry ≈ 0; _manage_positions updates each day
             'option_type': ot,
         }
 
@@ -1565,7 +1574,7 @@ class Backtester:
                         self._record_close(pos, current_date, pnl, reason)
                         continue
                     # 'no_trigger' — had intraday data but no exit; skip daily close check
-                    pos['current_value'] = -spread_value * pos['contracts'] * 100
+                    pos['current_value'] = (pos['credit'] - spread_value) * pos['contracts'] * 100
                     remaining_positions.append(pos)
                     continue
 
@@ -1580,6 +1589,9 @@ class Backtester:
                         pos['call_short_strike'], pos['call_long_strike'], 'C', date_str,
                     )
                     if put_prices is None or call_prices is None:
+                        # No price data for one or both wings today — carry forward prior
+                        # day's current_value mark.  Equity curve may be slightly stale
+                        # on data-gap days; this is expected behaviour, not a bug.
                         remaining_positions.append(pos)
                         continue
                     current_spread_value = put_prices['spread_value'] + call_prices['spread_value']
@@ -1627,8 +1639,8 @@ class Backtester:
                     self._close_position(pos, current_date, current_price, 'stop_loss')
                 continue
 
-            # Update current value
-            pos['current_value'] = -current_spread_value * pos['contracts'] * 100
+            # Update current value — unrealized PnL = credit collected minus current buyback cost
+            pos['current_value'] = (pos['credit'] - current_spread_value) * pos['contracts'] * 100
 
             remaining_positions.append(pos)
 
@@ -1925,6 +1937,7 @@ class Backtester:
             'entry_date': position['entry_date'],
             'exit_date': exit_date,
             'exit_reason': exit_reason,
+            'expiration': position.get('expiration'),  # matches _record_close schema
             'short_strike': position['short_strike'],
             'long_strike': position['long_strike'],
             'credit': position['credit'],
