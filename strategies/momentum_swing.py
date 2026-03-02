@@ -330,6 +330,8 @@ class MomentumSwingStrategy(BaseStrategy):
     def size_position(
         self, signal: Signal, portfolio_state: PortfolioState,
     ) -> int:
+        from shared.constants import MAX_CONTRACTS_PER_TRADE
+
         max_risk_pct = self._p("max_risk_pct", 0.03)
         risk_budget = portfolio_state.equity * max_risk_pct
 
@@ -347,7 +349,8 @@ class MomentumSwingStrategy(BaseStrategy):
             cost_per_unit = abs(signal.net_credit) * 100
             if cost_per_unit <= 0:
                 return 0
-            return max(1, int(risk_budget / cost_per_unit))
+            contracts = max(1, int(risk_budget / cost_per_unit))
+            return min(contracts, MAX_CONTRACTS_PER_TRADE)
 
     @classmethod
     def get_param_space(cls) -> List[ParamDef]:

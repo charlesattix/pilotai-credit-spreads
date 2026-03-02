@@ -778,6 +778,23 @@ class PortfolioBacktester:
 
         return PositionAction.HOLD
 
+    @staticmethod
+    def _clamp_defined_risk_pnl(pos: Position, pnl: float) -> float:
+        """Clamp PnL to defined-risk bounds before commissions.
+
+        A spread can never profit more than max_profit or lose more than
+        max_loss per unit.  Cached Polygon prices and intrinsic-value
+        estimates can occasionally exceed these theoretical bounds due to
+        bid/ask noise, stale quotes, or strike-snap rounding.
+        """
+        if pos.max_profit_per_unit > 0:
+            max_profit = pos.max_profit_per_unit * pos.contracts * 100
+            pnl = min(pnl, max_profit)
+        if pos.max_loss_per_unit > 0:
+            max_loss = pos.max_loss_per_unit * pos.contracts * 100
+            pnl = max(pnl, -max_loss)
+        return pnl
+
     def _close_position(
         self, pos: Position, action: PositionAction, snapshot: MarketSnapshot,
     ) -> None:
@@ -790,6 +807,14 @@ class PortfolioBacktester:
         else:
             pnl = self._compute_exit_pnl(pos, action, price, iv, snapshot.date,
                                         vix=snapshot.vix, r=snapshot.risk_free_rate)
+
+        # Clamp to defined-risk bounds before commissions
+        pnl = self._clamp_defined_risk_pnl(pos, pnl)
+
+        # A stop-loss exit should never be profitable.  The decision to stop
+        # is made by one pricing path; settlement may use different prices.
+        if action == PositionAction.CLOSE_STOP:
+            pnl = min(pnl, 0.0)
 
         # Exit commission
         num_legs = len(pos.legs)
@@ -868,6 +893,12 @@ class PortfolioBacktester:
             pos, PositionAction.CLOSE_STOP, open_price, iv, snapshot.date,
             vix=snapshot.vix, r=snapshot.risk_free_rate,
         )
+
+        # Clamp to defined-risk bounds before commissions
+        pnl = self._clamp_defined_risk_pnl(pos, pnl)
+
+        # Gap stops should never be profitable
+        pnl = min(pnl, 0.0)
 
         # Exit commission
         num_legs = len(pos.legs)

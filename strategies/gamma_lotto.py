@@ -180,6 +180,8 @@ class GammaLottoStrategy(BaseStrategy):
     def size_position(
         self, signal: Signal, portfolio_state: PortfolioState,
     ) -> int:
+        from shared.constants import MAX_CONTRACTS_PER_TRADE
+
         max_risk_pct = self._p("max_risk_pct", 0.005)  # 0.5% MASTERPLAN cap
         risk_budget = portfolio_state.equity * max_risk_pct
 
@@ -188,7 +190,8 @@ class GammaLottoStrategy(BaseStrategy):
         if cost_per_contract <= 0:
             return 0
 
-        return max(1, int(risk_budget / cost_per_contract))
+        contracts = max(1, int(risk_budget / cost_per_contract))
+        return min(contracts, MAX_CONTRACTS_PER_TRADE)
 
     @classmethod
     def get_param_space(cls) -> List[ParamDef]:

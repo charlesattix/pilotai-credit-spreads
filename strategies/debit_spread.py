@@ -192,6 +192,8 @@ class DebitSpreadStrategy(BaseStrategy):
     def size_position(
         self, signal: Signal, portfolio_state: PortfolioState,
     ) -> int:
+        from shared.constants import MAX_CONTRACTS_PER_TRADE
+
         max_risk_pct = self._p("max_risk_pct", 0.02)
         risk_budget = portfolio_state.equity * max_risk_pct
         cost_per_unit = abs(signal.net_credit) * 100
@@ -199,7 +201,8 @@ class DebitSpreadStrategy(BaseStrategy):
             return 0
         if portfolio_state.total_risk >= portfolio_state.equity * portfolio_state.max_portfolio_risk_pct:
             return 0
-        return max(1, int(risk_budget / cost_per_unit))
+        contracts = max(1, int(risk_budget / cost_per_unit))
+        return min(contracts, MAX_CONTRACTS_PER_TRADE)
 
     @classmethod
     def get_param_space(cls) -> List[ParamDef]:

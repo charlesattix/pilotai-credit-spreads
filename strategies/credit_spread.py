@@ -195,6 +195,8 @@ class CreditSpreadStrategy(BaseStrategy):
     def size_position(
         self, signal: Signal, portfolio_state: PortfolioState,
     ) -> int:
+        from shared.constants import MAX_CONTRACTS_PER_TRADE
+
         max_risk_pct = self._p("max_risk_pct", 0.02)
         risk_budget = portfolio_state.equity * max_risk_pct
 
@@ -207,7 +209,7 @@ class CreditSpreadStrategy(BaseStrategy):
             return 0
 
         contracts = max(1, int(risk_budget / risk_per_unit))
-        return contracts
+        return min(contracts, MAX_CONTRACTS_PER_TRADE)
 
     @classmethod
     def get_param_space(cls) -> List[ParamDef]:
