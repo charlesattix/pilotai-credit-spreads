@@ -454,11 +454,15 @@ class TestExpirationReal:
         assert self.bt.trades[0]['pnl'] == pytest.approx(-111.30, rel=1e-4)
 
     def test_expiration_no_data_assumes_max_loss(self):
-        """If no expiration data, conservatively assume max loss (not expired worthless)."""
+        """If no option data AND no underlying price, conservatively record max loss."""
+        import pandas as pd
         pos = _make_position(credit=1.50, max_loss=3.50, contracts=1, commission=1.30)
         pos['option_type'] = 'P'
 
         self.mock_hd.get_spread_prices.return_value = None
+        # Explicitly empty price_data so _get_underlying_price_at returns None,
+        # forcing the conservative max-loss path (not the intrinsic fallback).
+        self.bt._price_data = pd.DataFrame()
 
         self.bt._close_at_expiration_real(pos, datetime(2025, 2, 5))
 
@@ -1388,3 +1392,113 @@ class TestRuinTriggered:
             results = bt.run_backtest('SPY', datetime(2025, 1, 1), datetime(2025, 1, 5))
         assert 'ruin_triggered' in results
         assert results['ruin_triggered'] is False
+
+
+# ---------------------------------------------------------------------------
+# Tests for Iron Condor expiration (IC code coverage)
+# ---------------------------------------------------------------------------
+
+def _make_ic_position(credit=2.00, max_loss=8.00, contracts=1, commission=1.30):
+    """Return a minimal iron condor position dict for testing."""
+    return {
+        'ticker': 'SPY',
+        'type': 'iron_condor',
+        'entry_date': datetime(2025, 1, 1),
+        'expiration': datetime(2025, 2, 5),
+        'short_strike': 450,       # put short
+        'long_strike': 445,        # put long
+        'call_short_strike': 480,  # call short
+        'call_long_strike': 485,   # call long
+        'credit': credit,
+        'contracts': contracts,
+        'max_loss': max_loss,
+        'profit_target': credit * 0.5,
+        'stop_loss': credit * 2.5,
+        'commission': commission,
+        'status': 'open',
+        'current_value': credit * contracts * 100,
+        'option_type': 'IC',
+    }
+
+
+class TestIronCondorExpiration:
+    """IC expiration paths: worthless, with-value, intrinsic fallback, max-loss, type field."""
+
+    def setup_method(self):
+        self.mock_hd = _make_mock_historical_data()
+        self.bt = Backtester(_make_config(), historical_data=self.mock_hd)
+        self.bt.capital = 100000
+        self.bt.trades = []
+
+    def test_ic_expiration_worthless(self):
+        """Both IC wings expire worthless → full credit profit."""
+        pos = _make_ic_position(credit=2.00, max_loss=8.00, contracts=1, commission=1.30)
+        self.mock_hd.get_spread_prices.side_effect = [
+            {'short_close': 0.02, 'long_close': 0.01, 'spread_value': 0.01},  # put
+            {'short_close': 0.02, 'long_close': 0.01, 'spread_value': 0.01},  # call
+        ]
+        self.bt._close_at_expiration_real(pos, datetime(2025, 2, 5))
+
+        assert len(self.bt.trades) == 1
+        assert self.bt.trades[0]['exit_reason'] == 'expiration_profit'
+        # 2.00 * 1 * 100 - 1.30 = 198.70
+        assert self.bt.trades[0]['pnl'] == pytest.approx(198.70, rel=1e-4)
+
+    def test_ic_expiration_with_value_applies_slippage(self):
+        """IC with combined wing residual > 0.05 applies exit slippage."""
+        pos = _make_ic_position(credit=2.00, max_loss=8.00, contracts=1, commission=1.30)
+        # Put wing has value 1.50; call wing worthless (0.01) → combined 1.51 > 0.05
+        self.mock_hd.get_spread_prices.side_effect = [
+            {'short_close': 2.00, 'long_close': 0.50, 'spread_value': 1.50},  # put
+            {'short_close': 0.02, 'long_close': 0.01, 'spread_value': 0.01},  # call
+        ]
+        self.bt._close_at_expiration_real(pos, datetime(2025, 2, 5))
+
+        assert len(self.bt.trades) == 1
+        assert self.bt.trades[0]['exit_reason'] == 'expiration_profit'
+        # exit_cost = 1.51 + 0.10 (VIX=20 slippage) = 1.61
+        # pnl = (2.00 - 1.61) * 100 - 1.30 = 39.00 - 1.30 = 37.70
+        assert self.bt.trades[0]['pnl'] == pytest.approx(37.70, rel=1e-4)
+
+    def test_ic_expiration_intrinsic_fallback(self):
+        """No option data → intrinsic settlement from underlying price."""
+        import pandas as pd
+        pos = _make_ic_position(credit=2.00, max_loss=8.00, contracts=1, commission=1.30)
+        self.mock_hd.get_spread_prices.side_effect = [None, None]
+        # Underlying at 447: between put_long(445) and put_short(450)
+        # put_intrinsic = 450 - 447 = 3.0; call_intrinsic = 0 (447 < call_short 480)
+        self.bt._price_data = pd.DataFrame(
+            {'Close': [447.0]},
+            index=[pd.Timestamp('2025-02-05')],
+        )
+        self.bt._close_at_expiration_real(pos, datetime(2025, 2, 5))
+
+        assert len(self.bt.trades) == 1
+        assert self.bt.trades[0]['exit_reason'] == 'expiration_no_data'
+        # pnl = (2.00 - 3.00) * 1 * 100 - 1.30 = -101.30
+        assert self.bt.trades[0]['pnl'] == pytest.approx(-101.30, rel=1e-4)
+
+    def test_ic_expiration_no_data_max_loss(self):
+        """No option data and no underlying price → conservative max loss."""
+        import pandas as pd
+        pos = _make_ic_position(credit=2.00, max_loss=8.00, contracts=1, commission=1.30)
+        self.mock_hd.get_spread_prices.side_effect = [None, None]
+        self.bt._price_data = pd.DataFrame()  # empty → _get_underlying_price_at returns None
+        self.bt._close_at_expiration_real(pos, datetime(2025, 2, 5))
+
+        assert len(self.bt.trades) == 1
+        assert self.bt.trades[0]['exit_reason'] == 'expiration_no_data'
+        # pnl = -8.00 * 1 * 100 - 1.30 = -801.30
+        assert self.bt.trades[0]['pnl'] == pytest.approx(-801.30, rel=1e-4)
+
+    def test_ic_record_close_stores_ic_option_type(self):
+        """_record_close must store 'IC' (not 'P') for iron_condor positions."""
+        pos = _make_ic_position(credit=2.00, max_loss=8.00, contracts=1, commission=1.30)
+        self.mock_hd.get_spread_prices.side_effect = [
+            {'short_close': 0.01, 'long_close': 0.00, 'spread_value': 0.01},  # put worthless
+            {'short_close': 0.01, 'long_close': 0.00, 'spread_value': 0.01},  # call worthless
+        ]
+        self.bt._close_at_expiration_real(pos, datetime(2025, 2, 5))
+
+        assert len(self.bt.trades) == 1
+        assert self.bt.trades[0]['option_type'] == 'IC'

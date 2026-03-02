@@ -393,6 +393,15 @@ class Backtester:
         # Simulate trading day by day — start at backtest start, not the warmup prefix
         current_date = start_date
 
+        def _prev_trading_val(d, before, default):
+            """Return the most recent value in dict d with key strictly < before.
+
+            Using max(k < today) handles weekends correctly: on Monday, date-1 gives
+            Sunday which is absent from the trading-day-keyed dict.  This finds Friday.
+            """
+            keys = [k for k in d if k < before]
+            return d[max(keys)] if keys else default
+
         while current_date <= end_date:
             lookup_date = pd.Timestamp(current_date.date())
 
@@ -403,13 +412,12 @@ class Backtester:
             current_price = float(price_data.loc[lookup_date, 'Close'])
 
             # Set current IV Rank + VIX level + portfolio heat for sizing calculations.
-            # Fix: use prior trading day's close to avoid lookahead — at 9:30 AM entry
-            # time, today's VIX/IV-rank close isn't known yet (it's set at 4:00 PM).
-            # Using date-1 correctly reflects what a live system would have available.
-            _prev_lookup = pd.Timestamp((current_date - timedelta(days=1)).date())
-            self._current_iv_rank = self._iv_rank_by_date.get(_prev_lookup, 25.0)
-            self._current_vix = self._vix_by_date.get(_prev_lookup, 20.0)
-            self._current_realized_vol = self._realized_vol_by_date.get(_prev_lookup, 0.25)
+            # Fix: use the most recent prior trading day's close to avoid lookahead.
+            # At 9:30 AM entry time, today's VIX/IV-rank is unknown (set at 4:00 PM).
+            # max(k < today) handles Mondays correctly (skips non-trading Saturday/Sunday).
+            self._current_iv_rank = _prev_trading_val(self._iv_rank_by_date, lookup_date, 25.0)
+            self._current_vix = _prev_trading_val(self._vix_by_date, lookup_date, 20.0)
+            self._current_realized_vol = _prev_trading_val(self._realized_vol_by_date, lookup_date, 0.25)
             self._current_portfolio_risk = sum(
                 p.get('max_loss', 0) * p.get('contracts', 1) * 100
                 for p in open_positions
@@ -1001,6 +1009,22 @@ class Backtester:
         max_contracts_cap = self.risk_params.get('max_contracts', 999)
         if self._sizing_mode == 'flat':
             flat_risk_pct = self.risk_params.get('max_risk_per_trade', 2.0) / 100.0
+            # Mirror single-spread vix_dynamic_sizing: scale position when VIX is elevated.
+            _vds = self.strategy_params.get('vix_dynamic_sizing', {})
+            if _vds:
+                _vix = self._current_vix
+                _full = _vds.get('full_below', 18)
+                _half = _vds.get('half_below', 22)
+                _qtr  = _vds.get('quarter_below', 25)
+                if _vix < _full:
+                    _vix_scale = 1.0
+                elif _vix < _half:
+                    _vix_scale = 0.5
+                elif _vix < _qtr:
+                    _vix_scale = 0.25
+                else:
+                    _vix_scale = 0.0
+                flat_risk_pct *= _vix_scale
             trade_dollar_risk = account_base * flat_risk_pct
         else:
             current_portfolio_risk = getattr(self, '_current_portfolio_risk', 0.0)
@@ -1773,7 +1797,7 @@ class Backtester:
             'expiration': pos.get('expiration'),
             'short_strike': pos['short_strike'],
             'long_strike': pos['long_strike'],
-            'option_type': 'C' if _pos_type == 'bear_call_spread' else 'P',
+            'option_type': 'C' if _pos_type == 'bear_call_spread' else ('IC' if _pos_type == 'iron_condor' else 'P'),
             'credit': pos['credit'],
             'contracts': pos['contracts'],
             'pnl': pnl,
