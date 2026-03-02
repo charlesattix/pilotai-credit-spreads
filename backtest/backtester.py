@@ -561,6 +561,11 @@ class Backtester:
                                 else:
                                     self.capital += new_position.get('commission', 0)
                                     logger.debug("Portfolio exposure cap — skipping bull_put %s", _key)
+                            else:
+                                # Duplicate (same expiry/strike already open) — refund commission
+                                # already deducted inside _find_real_spread.
+                                self.capital += new_position.get('commission', 0)
+                                logger.debug("Duplicate key — refunding commission for bull_put %s", _key)
                             continue  # found a put: skip bear call + IC for this scan time
                     if len(open_positions) >= self.risk_params['max_positions']:
                         break
@@ -579,6 +584,9 @@ class Backtester:
                                 else:
                                     self.capital += bear_call.get('commission', 0)
                                     logger.debug("Portfolio exposure cap — skipping bear_call %s", _key)
+                            else:
+                                self.capital += bear_call.get('commission', 0)
+                                logger.debug("Duplicate key — refunding commission for bear_call %s", _key)
                             continue
                     # Iron condor fallback — only if enabled in config
                     if _ic_enabled and len(open_positions) < self.risk_params['max_positions']:
@@ -600,6 +608,9 @@ class Backtester:
                                 else:
                                     self.capital += condor.get('commission', 0)
                                     logger.debug("Portfolio exposure cap — skipping IC %s", _ic_key)
+                            else:
+                                self.capital += condor.get('commission', 0)
+                                logger.debug("Duplicate key — refunding commission for IC %s", _ic_key)
             else:
                 # Heuristic mode: one opportunity scan per week on Monday
                 if current_date.weekday() == 0 and not _skip_new_entries:
@@ -1540,7 +1551,9 @@ class Backtester:
                     if reason in ('profit_target', 'stop_loss'):
                         # Apply exit slippage on ALL exits: buying back at a worse price
                         # than mid is realistic whether the fill is favorable or adverse.
-                        exit_cost = spread_value + self._vix_scaled_exit_slippage()
+                        # IC closes two separate spreads — each incurs bid-ask slippage.
+                        _slip_legs = 2 if pos['type'] == 'iron_condor' else 1
+                        exit_cost = spread_value + _slip_legs * self._vix_scaled_exit_slippage()
                         pnl = (pos['credit'] - exit_cost) * pos['contracts'] * 100 - pos['commission']
                         self._record_close(pos, current_date, pnl, reason)
                         continue
@@ -1587,7 +1600,9 @@ class Backtester:
             if profit >= pos['profit_target']:
                 if self._use_real_data:
                     # Apply exit slippage on profit-target exits — buying back costs more than mid.
-                    exit_cost = current_spread_value + self._vix_scaled_exit_slippage()
+                    # IC closes two separate spreads — each incurs bid-ask slippage.
+                    _slip_legs = 2 if pos['type'] == 'iron_condor' else 1
+                    exit_cost = current_spread_value + _slip_legs * self._vix_scaled_exit_slippage()
                     pnl = (pos['credit'] - exit_cost) * pos['contracts'] * 100 - pos['commission']
                     self._record_close(pos, current_date, pnl, 'profit_target')
                 else:
@@ -1597,7 +1612,8 @@ class Backtester:
             loss = current_spread_value - pos['credit']
             if loss >= pos['stop_loss']:
                 if self._use_real_data:
-                    exit_cost = current_spread_value + self._vix_scaled_exit_slippage()
+                    _slip_legs = 2 if pos['type'] == 'iron_condor' else 1
+                    exit_cost = current_spread_value + _slip_legs * self._vix_scaled_exit_slippage()
                     pnl = (pos['credit'] - exit_cost) * pos['contracts'] * 100 - pos['commission']
                     self._record_close(pos, current_date, pnl, 'stop_loss')
                 else:
@@ -1627,8 +1643,8 @@ class Backtester:
             if put_prices is not None and call_prices is not None:
                 closing_spread_value = put_prices['spread_value'] + call_prices['spread_value']
                 if closing_spread_value > 0.05:
-                    # P1-B fix: buying back residual value at expiration still costs bid/ask.
-                    exit_cost = closing_spread_value + self._vix_scaled_exit_slippage()
+                    # IC closes two separate spreads — each incurs bid-ask slippage.
+                    exit_cost = closing_spread_value + 2 * self._vix_scaled_exit_slippage()
                     pnl = (pos['credit'] - exit_cost) * pos['contracts'] * 100 - pos['commission']
                     reason = 'expiration_loss' if pnl < 0 else 'expiration_profit'
                 else:

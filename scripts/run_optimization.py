@@ -68,7 +68,7 @@ BASELINE_PARAMS = {
     "sizing_mode":       "iv_scaled",  # iv_scaled | flat
     # Phase 4: iron condors
     "iron_condor_enabled":          False,
-    "ic_min_combined_credit_pct":   20,   # % of spread width combined credit floor
+    "ic_min_combined_credit_pct":   20,   # % of total IC risk (2×spread_width) combined credit floor
     # Phase 4 (CRITIQUE): IV Rank entry gate — only sell when IVR >= threshold
     "iv_rank_min_entry":            0,    # 0 = disabled; 20-25 recommended floor
 }

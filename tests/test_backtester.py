@@ -298,7 +298,7 @@ class TestRealPricing:
         self.mock_hd.get_spread_prices.assert_called()
 
     def test_find_real_spread_skips_low_credit(self):
-        """Should skip spreads with credit below 20% of spread width."""
+        """Should skip spreads with credit below min_credit_pct (default 15%) of spread width."""
         self.mock_hd.get_available_strikes.return_value = [440, 445, 450]
         self.mock_hd.get_spread_prices.return_value = {
             'short_close': 0.50,
@@ -1563,9 +1563,10 @@ class TestIronCondorExpiration:
 
         assert len(self.bt.trades) == 1
         assert self.bt.trades[0]['exit_reason'] == 'expiration_profit'
-        # exit_cost = 1.51 + 0.10 (VIX=20 slippage) = 1.61
-        # pnl = (2.00 - 1.61) * 100 - 1.30 = 39.00 - 1.30 = 37.70
-        assert self.bt.trades[0]['pnl'] == pytest.approx(37.70, rel=1e-4)
+        # IC closes two spreads — 2× slippage applied.
+        # exit_cost = 1.51 + 2 * 0.10 (VIX=20) = 1.71
+        # pnl = (2.00 - 1.71) * 100 - 1.30 = 29.00 - 1.30 = 27.70
+        assert self.bt.trades[0]['pnl'] == pytest.approx(27.70, rel=1e-4)
 
     def test_ic_expiration_intrinsic_fallback(self):
         """No option data → intrinsic settlement from underlying price."""
@@ -1729,4 +1730,53 @@ class TestVixMondayLookup:
         assert mock_hd.get_available_strikes.call_count == 0, (
             "get_available_strikes was called — Monday VIX lookup returned "
             "default 20.0 instead of Friday's 30.0, bypassing the vix_max_entry gate"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Regression: heuristic mode respects _skip_new_entries (R7 P1-1 fix)
+# ---------------------------------------------------------------------------
+
+class TestHeuristicModeGate:
+    """Heuristic Monday scan must check _skip_new_entries.
+
+    Before R7 P1-1, the `if current_date.weekday() == 0:` check did not
+    include `and not _skip_new_entries`, so exclude_months, drawdown CB,
+    ruin, VIX gate, and IV-rank gate were all silently bypassed in heuristic
+    mode.  This test asserts that exclude_months correctly blocks heuristic
+    entries on a Monday that falls in the excluded month.
+    """
+
+    def test_exclude_months_blocks_heuristic_entries(self):
+        import pandas as pd
+        from unittest.mock import patch
+
+        # Monday 2025-01-06; exclude_months=['2025-01'] → gate must fire.
+        cfg = _make_config()
+        cfg['backtest']['exclude_months'] = ['2025-01']
+        bt = Backtester(cfg)  # no historical_data → heuristic mode
+
+        dates = pd.date_range('2024-11-18', periods=30, freq='B')
+        prices = [450.0 + i * 2 for i in range(len(dates))]
+        price_data = pd.concat([
+            pd.DataFrame(
+                {'Close': prices, 'Open': prices, 'High': prices,
+                 'Low': prices, 'Volume': [1_000_000] * len(dates)},
+                index=dates,
+            ),
+            pd.DataFrame(
+                {'Close': [prices[-1] + 2], 'Open': [prices[-1] + 2],
+                 'High': [prices[-1] + 2], 'Low': [prices[-1] + 2],
+                 'Volume': [1_000_000]},
+                index=pd.date_range('2025-01-06', periods=1, freq='B'),
+            ),
+        ])
+
+        with patch.object(bt, '_get_historical_data', return_value=price_data), \
+             patch.object(bt, '_find_heuristic_spread', return_value=None) as mock_h:
+            bt.run_backtest('SPY', datetime(2025, 1, 6), datetime(2025, 1, 6))
+
+        assert mock_h.call_count == 0, (
+            "_find_heuristic_spread was called despite exclude_months=['2025-01']. "
+            "The heuristic Monday gate is not checking _skip_new_entries."
         )
