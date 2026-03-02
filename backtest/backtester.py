@@ -402,10 +402,14 @@ class Backtester:
 
             current_price = float(price_data.loc[lookup_date, 'Close'])
 
-            # Set current IV Rank + VIX level + portfolio heat for sizing calculations
-            self._current_iv_rank = self._iv_rank_by_date.get(lookup_date, 25.0)
-            self._current_vix = self._vix_by_date.get(lookup_date, 20.0)
-            self._current_realized_vol = self._realized_vol_by_date.get(lookup_date, 0.25)
+            # Set current IV Rank + VIX level + portfolio heat for sizing calculations.
+            # Fix: use prior trading day's close to avoid lookahead — at 9:30 AM entry
+            # time, today's VIX/IV-rank close isn't known yet (it's set at 4:00 PM).
+            # Using date-1 correctly reflects what a live system would have available.
+            _prev_lookup = pd.Timestamp((current_date - timedelta(days=1)).date())
+            self._current_iv_rank = self._iv_rank_by_date.get(_prev_lookup, 25.0)
+            self._current_vix = self._vix_by_date.get(_prev_lookup, 20.0)
+            self._current_realized_vol = self._realized_vol_by_date.get(_prev_lookup, 0.25)
             self._current_portfolio_risk = sum(
                 p.get('max_loss', 0) * p.get('contracts', 1) * 100
                 for p in open_positions
@@ -1006,8 +1010,11 @@ class Backtester:
                 account_base, iv_rank, current_portfolio_risk,
                 max_risk_pct=_max_risk,
             )
+        # NEW-1 fix: IC worst-case is both wings ITM simultaneously (= 2×spread_width).
+        # get_contract_size recomputes max_loss_per_contract from its width argument,
+        # so we must pass the effective IC width (2× single wing) to get correct sizing.
         contracts = max(1, get_contract_size(
-            trade_dollar_risk, spread_width, combined_credit,
+            trade_dollar_risk, spread_width * 2, combined_credit,
             max_contracts=max_contracts_cap,
         ))
 
@@ -1026,7 +1033,11 @@ class Backtester:
             'ticker': ticker,
             'type': 'iron_condor',
             'entry_date': date,
-            'expiration': expiration,
+            # NEW-2 fix: use the expiration that the put leg actually resolved to.
+            # On Friday fallback, put_leg['expiration'] is friday_exp, not the original
+            # Monday/Wednesday target. Storing the wrong date causes _manage_positions
+            # to close the IC 4 days early against incorrect option data.
+            'expiration': put_leg['expiration'],
             # Put spread leg (backward compat with _record_close)
             'short_strike': put_leg['short_strike'],
             'long_strike': put_leg['long_strike'],

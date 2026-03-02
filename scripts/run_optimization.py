@@ -173,6 +173,7 @@ def _build_config(params: dict, starting_capital: float = 100_000) -> dict:
             "volume_size_cap_pct": params.get("volume_size_cap_pct", 0.02),
             "oi_gate":             params.get("oi_gate", False),
             "oi_min_factor":       params.get("oi_min_factor", 2),
+            "volume_gate_on_miss": params.get("volume_gate_on_miss", "open"),
         },
     }
 
