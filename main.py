@@ -717,11 +717,14 @@ Examples:
 
         elif args.command == 'scheduler':
             from shared.scheduler import ScanScheduler
+            from scripts.daily_report import generate_daily_report
+            import zoneinfo
 
             _scan_count = 0
+            _daily_report_sent = None  # tracks which date we already reported
 
             def scan_and_sync():
-                nonlocal _scan_count
+                nonlocal _scan_count, _daily_report_sent
                 system.scan_opportunities()
                 system.paper_trader.sync_alpaca_orders()
                 _scan_count += 1
@@ -730,6 +733,18 @@ Examples:
                 # our normal exit path (expiration, manual close, etc.).
                 if _scan_count % 3 == 0:
                     system.paper_trader.reconcile_positions()
+
+                # Daily report at 4:15 PM ET (once per day)
+                try:
+                    et = zoneinfo.ZoneInfo("America/New_York")
+                    now_et = datetime.now(et)
+                    today_str = now_et.strftime("%Y-%m-%d")
+                    if now_et.hour >= 16 and now_et.minute >= 15 and _daily_report_sent != today_str:
+                        report = generate_daily_report(report_date=today_str)
+                        logger.info("Daily P&L report:\n%s", report)
+                        _daily_report_sent = today_str
+                except Exception as e:
+                    logger.warning(f"Daily report generation failed (non-fatal): {e}")
 
             scheduler = ScanScheduler(scan_fn=scan_and_sync)
 

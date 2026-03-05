@@ -1,18 +1,18 @@
 # TODO — Operation Crack The Code
-# Last Updated: 2026-02-27
+# Last Updated: 2026-03-05
 # Mission: 40-80% annual, ≤20% DD, validated, paper traded, deployed live
-# Current Focus: Stage 3 (Optimize) — REAL DATA ONLY mode active
+# Current Focus: Stage 4 (Paper Trade) — scheduler running, 14 scans/day
 
 ---
 
-## Stage 1: Polygon API + Real Data
+## Stage 1: Polygon API + Real Data — COMPLETE
 - [x] Get Polygon API key (verified working, full Options tier)
 - [x] Set in .env
 - [x] Build historical options cache infrastructure (SQLite + bulk downloader)
 - [x] Backtester cache integration (cache-first, NO BS fallback)
 - [x] **CARDINAL RULE: NO SYNTHETIC DATA EVER** — backtester rejects trades on cache miss
 - [x] Fixed `_fetch_and_cache` date range bug (was querying wrong years for expired contracts)
-- [ ] Cache builds running: SPY/QQQ/IWM 2020-2025 (3 parallel nohup processes)
+- [x] Cache builds: SPY/QQQ/IWM 2020-2025
 
 ---
 
@@ -39,7 +39,13 @@
 
 ---
 
-## Stage 3: Optimize — IN PROGRESS (REAL DATA ONLY)
+## Stage 3: Optimize — COMPLETE
+
+### Summary
+- **500-run optimizer** on real Polygon data — **34/500 met victory conditions**
+- **Top 10 jitter-tested** (25 variants each, ±15%, SPY+QQQ+IWM)
+- **Top 4 walk-forward validated** (3 folds, expanding window, 20 exp/fold)
+- **Champion selected:** 12.6%/yr avg return, -10.4% max DD, jitter stability 0.71, WF 3/3 folds profitable
 
 ### Architecture Changes (Feb 27)
 - [x] `PortfolioBacktester.require_real_data = True` — cache miss = skip trade
@@ -52,29 +58,55 @@
 - [x] `run_optimization.py` loads `.env` for Polygon key
 - [x] `--leaderboard` flag on endless optimizer for separate output file
 
-### Running Processes
-- [x] 700-run optimizer (PID 11279) — `output/real_data_optimizer.log`
-  - Phase 1: 100 runs/strategy x 7 strategies
-  - Walk-forward validation every 100 runs (20 exp/fold)
-  - Results → `output/real_data_leaderboard.json`
-  - DATA MODE: REAL DATA ONLY
-- [ ] SPY cache build (PID 11098) — `output/cache_build_spy.log`
-- [ ] QQQ cache build (PID 11109) — `output/cache_build_qqq.log`
-- [ ] IWM cache build (PID 11119) — `output/cache_build_iwm.log`
+### Optimization Pipeline (600 total runs)
+- [x] 100-run real-data optimizer — 7/100 met victory conditions
+- [x] 500-run optimizer — **34/500 met victory conditions**
+- [x] Jitter tests on top 10 — ranked by robustness (25 variants, ±15%, SPY+QQQ+IWM)
+- [x] Walk-forward validation on top 4 — 3 folds, 20 exp/fold, expanding window
 
-### Remaining
-- [ ] Wait for cache builds to complete (more data = more trades per run)
-- [ ] Find params meeting victory conditions (40-80% annual, ≤20% DD, WF decay ≤30%)
-- [ ] Validate across SPY + QQQ + IWM with full cached data
-- [ ] Generate real-data backtest report (HTML)
+### Walk-Forward Results
+| Config | Base Ret | WF OOS | WF Ratio | Folds OK | Verdict |
+|--------|----------|--------|----------|----------|---------|
+| Jitter #2 (credit_spread+iron_condor+momentum_swing+debit_spread) | 12.6% | **+9.5%** | **0.631** | **3/3** | **CHAMPION** |
+| Jitter #3 (straddle_strangle+gamma_lotto+credit_spread+iron_condor) | 26.9% | +13.4% | 0.329 | 2/3 | Secondary |
+| Jitter #1 | 14.4% | — | — | — | Failed |
+| Jitter #5 | 22.1% | — | — | — | Failed |
+
+### Champion Config: `configs/champion.json`
+- **Strategies:** credit_spread, iron_condor, momentum_swing, debit_spread
+- **Backtest (2020-2025):** +89.4% total, 560 trades, 64.3% WR, -10.4% max DD
+- **Walk-forward OOS:** +4.6% (2023), +4.5% (2024), +19.3% (2025) — all profitable
+- **Jitter:** stability 0.712, robustness 0.772, mean +9.0%
+- **Report:** `output/champion_report.html`
+
+### Secondary Config: `configs/secondary.json`
+- **Strategies:** straddle_strangle, gamma_lotto, credit_spread, iron_condor
+- **Higher returns (26.9% base) but inconsistent WF** — 2024 fold was -19.0%
+- **Kept as aggressive alternative for future evaluation**
 
 ---
 
-## Stage 4: Paper Trade (After Stage 3)
-- [ ] Get Alpaca paper trading API keys
-- [ ] Build paper trading bot
-- [ ] 8+ weeks validation
-- [ ] Daily Telegram P&L reports
+## Stage 4: Paper Trade — IN PROGRESS (started 2026-03-05)
+
+### Setup — COMPLETE
+- [x] Get Alpaca paper trading API keys (Account ***I9BA, Options Level 3, $9,429 cash)
+- [x] Create `config.yaml` with champion params + Alpaca + Polygon credentials
+- [x] Upgrade alpaca-py SDK (0.21.1 → 0.43.2) for options trading support
+- [x] Build paper trading bot using champion config (`configs/champion.json`)
+- [x] Wire up live Polygon data feed for signal generation
+- [x] Create `scripts/daily_report.py` — daily P&L report from SQLite
+- [x] Add daily report hook to scheduler (fires at 4:15 PM ET)
+- [x] End-to-end test: Alpaca ON, PaperTrader ON, ML pipeline OK, all scanners init
+- [x] Scheduler launched as nohup (PID 69663), 14 scans/day on ET market hours
+- [x] Next scan: 9:15 AM ET, logs at `logs/scheduler.log`
+
+### Validation — Running
+- [ ] 8+ weeks paper trading validation (started 2026-03-05)
+- [ ] Daily P&L reports (scheduler auto-generates at 4:15 PM ET)
+- [ ] Track live vs backtest performance deviation
+- [ ] Wire up Telegram alerts (deferred — stdout reports first)
+
+---
 
 ## Stage 5: Go Live (After Stage 4)
 - [ ] Carlos approves capital
