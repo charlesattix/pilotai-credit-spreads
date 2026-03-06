@@ -17,6 +17,7 @@ def _make_config(tmp_dir=None):
             'json_file': 'alerts.json',
             'text_file': 'alerts.txt',
             'csv_file': 'alerts.csv',
+            'min_score': 60,
             'telegram': {'enabled': False, 'bot_token': '', 'chat_id': ''},
         },
     }

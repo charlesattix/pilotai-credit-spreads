@@ -87,8 +87,11 @@ class TestDataCache:
 
         assert mock_ticker_cls.call_count == 2
 
-    def test_get_ticker_obj(self):
+    @patch('shared.data_cache.yf.Ticker')
+    def test_get_ticker_obj(self, mock_ticker_cls):
         """get_ticker_obj should return a yf.Ticker object."""
+        mock_ticker_cls.return_value = MagicMock()
         cache = DataCache()
         ticker = cache.get_ticker_obj('SPY')
         assert ticker is not None
+        mock_ticker_cls.assert_called_once_with('SPY')

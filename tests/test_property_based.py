@@ -139,8 +139,8 @@ class TestIVRankBounded:
     )
     def test_iv_rank_bounded(self, n, current_iv):
         """iv_rank should always be in [0, 100] for any valid HV series and IV."""
-        np.random.seed(42)
-        hv_values = pd.Series(np.random.uniform(5.0, 80.0, n))
+        rng = np.random.default_rng(42)
+        hv_values = pd.Series(rng.uniform(5.0, 80.0, n))
         result = calculate_iv_rank(hv_values, current_iv)
         # iv_rank can go slightly outside [0, 100] when current_iv is outside
         # the historical range; that's the formula's behaviour, but we still
@@ -153,8 +153,8 @@ class TestIVRankBounded:
     )
     def test_iv_percentile_bounded(self, n, current_iv):
         """iv_percentile must be in [0, 100]."""
-        np.random.seed(42)
-        hv_values = pd.Series(np.random.uniform(5.0, 80.0, n))
+        rng = np.random.default_rng(42)
+        hv_values = pd.Series(rng.uniform(5.0, 80.0, n))
         result = calculate_iv_rank(hv_values, current_iv)
         assert 0.0 <= result['iv_percentile'] <= 100.0
 
@@ -177,8 +177,8 @@ class TestSanitizeFeatures:
     )
     def test_sanitize_removes_nan_inf(self, rows, cols):
         """Output of sanitize_features should contain no NaN or Inf."""
-        np.random.seed(42)
-        X = np.random.randn(rows, cols)
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((rows, cols))
         # Inject some NaN and Inf
         if rows > 1 and cols > 1:
             X[0, 0] = np.nan
@@ -194,7 +194,8 @@ class TestSanitizeFeatures:
     )
     def test_sanitize_preserves_shape(self, rows, cols):
         """sanitize_features should not change array dimensions."""
-        X = np.random.randn(rows, cols)
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((rows, cols))
         result = sanitize_features(X)
         assert result.shape == (rows, cols)
 

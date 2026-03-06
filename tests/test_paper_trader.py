@@ -108,7 +108,7 @@ class TestPaperTrader:
     @patch('paper_trader.PAPER_LOG')
     @patch('paper_trader.DATA_DIR')
     def test_low_score_filtered_out(self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades, mock_upsert, tmp_path):
-        """Opportunities with score < 60 should not open paper trades (matches alert threshold)."""
+        """Opportunities with score < 28 should not open paper trades (matches alert threshold)."""
         mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
         mock_data_dir.mkdir = MagicMock()
         mock_paper_log.exists.return_value = False
@@ -118,7 +118,7 @@ class TestPaperTrader:
         pt._save_trades = MagicMock()
         pt.alpaca = _mock_alpaca()
 
-        opp = _make_opportunity(score=45)
+        opp = _make_opportunity(score=20)
         new_trades = pt.execute_signals([opp])
         assert len(new_trades) == 0
 

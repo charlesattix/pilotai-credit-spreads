@@ -97,6 +97,10 @@ class IronCondorScanner:
             except Exception as e:
                 logger.error(f"Iron condor scan failed for {ticker}: {e}", exc_info=True)
 
+        # Ensure all results are annotated with alert_source
+        for opp in results:
+            opp.setdefault("alert_source", "iron_condor")
+
         logger.info(f"Iron condor scan complete: {len(results)} opportunities")
         return results
 

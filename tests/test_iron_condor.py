@@ -17,6 +17,8 @@ def _make_config():
             'min_delta': 0.10,
             'max_delta': 0.20,
             'spread_width': 5,
+            'spread_width_high_iv': 5,
+            'spread_width_low_iv': 5,
             'min_iv_rank': 25,
             'min_iv_percentile': 25,
             'iron_condor': {
@@ -142,21 +144,23 @@ class TestFindIronCondorsNeutralMarket:
 
 
 class TestFindIronCondorsTrendingMarket:
-    """test_find_iron_condors_trending_market — bullish/bearish trend → no condors."""
+    """test_find_iron_condors_trending_market — RSI extremes block condors."""
 
-    def test_bullish_no_condors(self):
+    def test_bullish_rsi_extreme_no_condors(self):
+        """Bullish trend with extreme RSI (outside 35-65 range) → no condors."""
         strategy = CreditSpreadStrategy(_make_config())
         chain = _make_option_chain()
         condors = strategy.find_iron_condors(
-            'SPY', chain, 450.0, {'trend': 'bullish', 'rsi': 50}, _elevated_iv()
+            'SPY', chain, 450.0, {'trend': 'bullish', 'rsi': 75}, _elevated_iv()
         )
         assert len(condors) == 0
 
-    def test_bearish_no_condors(self):
+    def test_bearish_rsi_extreme_no_condors(self):
+        """Bearish trend with extreme RSI (outside 35-65 range) → no condors."""
         strategy = CreditSpreadStrategy(_make_config())
         chain = _make_option_chain()
         condors = strategy.find_iron_condors(
-            'SPY', chain, 450.0, {'trend': 'bearish', 'rsi': 50}, _elevated_iv()
+            'SPY', chain, 450.0, {'trend': 'bearish', 'rsi': 25}, _elevated_iv()
         )
         assert len(condors) == 0
 
@@ -229,12 +233,13 @@ class TestCondorScoringNeutralTrend:
 
 
 class TestCondorScoringTrending:
-    """test_condor_scoring_trending — no condors when market is trending."""
+    """test_condor_scoring_trending — no condors when RSI is outside range-bound zone."""
 
-    def test_no_condors_in_trending(self):
+    def test_no_condors_rsi_extreme(self):
+        """RSI outside the condor range (35-65) should block iron condors."""
         strategy = CreditSpreadStrategy(_make_config())
         chain = _make_option_chain()
-        tech = {'trend': 'bullish', 'rsi': 60}
+        tech = {'trend': 'bullish', 'rsi': 75}
         iv = {'iv_rank': 50, 'iv_percentile': 50}
         results = strategy.evaluate_spread_opportunity(
             'SPY', chain, tech, iv, 450.0

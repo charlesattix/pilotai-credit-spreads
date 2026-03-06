@@ -41,6 +41,15 @@ def _base_config():
             "min_iv_rank": 20,
             "min_iv_percentile": 20,
             "iron_condor": {"enabled": True},
+            "technical": {
+                "sma_fast": 20,
+                "sma_slow": 50,
+                "rsi_period": 14,
+                "rsi_overbought": 70,
+                "rsi_oversold": 30,
+                "bb_period": 20,
+                "bb_std_dev": 2.0,
+            },
         },
         "risk": {
             "stop_loss_multiplier": 2.5,
@@ -531,7 +540,7 @@ class TestZeroDTEBacktestValidator:
         mock_backtester = MagicMock()
         mock_backtester.run_backtest.return_value = None
 
-        with patch("alerts.zero_dte_backtest.Backtester", return_value=mock_backtester):
+        with patch("backtest.Backtester", return_value=mock_backtester, create=True):
             results = validator.run(ticker="SPY", lookback_days=30)
 
         assert results["validation"]["passed"] is False
@@ -547,7 +556,7 @@ class TestZeroDTEBacktestValidator:
             "total_pnl": 3000,
         }
 
-        with patch("alerts.zero_dte_backtest.Backtester", return_value=mock_backtester):
+        with patch("backtest.Backtester", return_value=mock_backtester, create=True):
             results = validator.run(ticker="SPY", lookback_days=30)
 
         assert results["validation"]["passed"] is True
