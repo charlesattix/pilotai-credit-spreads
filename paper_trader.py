@@ -16,6 +16,7 @@ from pathlib import Path
 from shared.constants import MAX_CONTRACTS_PER_TRADE, MANAGEMENT_DTE_THRESHOLD, DATA_DIR as _DATA_DIR
 from shared.database import init_db, upsert_trade, get_trades, close_trade as db_close_trade
 from shared.metrics import metrics
+from alerts.formatters.telegram import TelegramAlertFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +44,10 @@ STRIKE_COOLDOWN_HOURS = 2              # Block exact same strikes after stop-out
 class PaperTrader:
     """Simulated trading engine that auto-executes scanner signals."""
 
-    def __init__(self, config: Dict):
+    def __init__(self, config: Dict, telegram_bot=None):
         self.config = config
+        self.telegram_bot = telegram_bot
+        self._tg_formatter = TelegramAlertFormatter()
         self.risk = config.get("risk", {})
         self.account_size = self.risk.get("account_size", 100000)
         self.max_risk_per_trade = self.risk.get("max_risk_per_trade", 2.0) / 100
@@ -558,7 +561,29 @@ class PaperTrader:
                 f"Credit: ${trade['total_credit']:.0f} | Max Loss: ${trade['total_max_loss']:.0f}"
             )
 
+            self._send_entry_alert(trade)
+
             return trade
+
+    def _send_entry_alert(self, trade: Dict) -> None:
+        """Send a Telegram notification for a new trade entry."""
+        if not self.telegram_bot:
+            return
+        try:
+            dte = trade.get("dte_at_entry", "?")
+            spread = trade.get("type", "spread").replace("_", " ").title()
+            lines = [
+                f"\U0001f7e2 <b>NEW TRADE: {trade['ticker']} {spread}</b>",
+                "",
+                f"Strikes: ${trade['short_strike']}/{trade['long_strike']}",
+                f"Contracts: {trade['contracts']}",
+                f"Credit: ${trade['total_credit']:.2f}",
+                f"Max Loss: ${trade['total_max_loss']:.2f}",
+                f"DTE: {dte}",
+            ]
+            self.telegram_bot.send_alert("\n".join(lines))
+        except Exception as e:
+            logger.warning("Telegram entry alert failed: %s", e)
 
     def check_positions(self, current_prices: Dict[str, float]) -> List[Dict]:
         """
@@ -758,6 +783,33 @@ class PaperTrader:
             f"P&L: ${pnl:+.2f} | Reason: {reason} | "
             f"Balance: ${self.trades['current_balance']:,.2f}"
         )
+
+        self._send_exit_alert(trade, pnl, reason)
+
+    def _send_exit_alert(self, trade: Dict, pnl: float, reason: str) -> None:
+        """Send a Telegram notification for a trade exit."""
+        if not self.telegram_bot:
+            return
+        try:
+            total_credit = trade.get("total_credit", 0)
+            pnl_pct = (pnl / total_credit * 100) if total_credit else 0
+            reason_map = {
+                "profit_target": "Profit Target Hit",
+                "stop_loss": "Stop Loss Hit",
+                "expiration": "Expiration",
+                "management_dte": "DTE Management",
+            }
+            msg = self._tg_formatter.format_exit_alert(
+                ticker=trade["ticker"],
+                action="CLOSED",
+                current_pnl=pnl,
+                pnl_pct=pnl_pct,
+                reason=reason_map.get(reason, reason),
+                instructions=f"Balance: ${self.trades['current_balance']:,.2f}",
+            )
+            self.telegram_bot.send_alert(msg)
+        except Exception as e:
+            logger.warning("Telegram exit alert failed: %s", e)
 
     def _startup_reconcile(self) -> str:
         """Resolve pending_open DB rows created by write-ahead before last shutdown.

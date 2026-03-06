@@ -113,7 +113,7 @@ class CreditSpreadSystem:
         self.telegram_bot = telegram_bot or TelegramBot(self.config)
         self.tracker = tracker or TradeTracker(self.config)
         self.dashboard = PnLDashboard(self.config, self.tracker)
-        self.paper_trader = paper_trader or PaperTrader(self.config)
+        self.paper_trader = paper_trader or PaperTrader(self.config, telegram_bot=self.telegram_bot)
 
         # ML pipeline: use injected instance, or try to build one
         if ml_pipeline is not None:
@@ -717,7 +717,8 @@ Examples:
 
         elif args.command == 'scheduler':
             from shared.scheduler import ScanScheduler
-            from scripts.daily_report import generate_daily_report
+            from scripts.daily_report import generate_daily_report, get_daily_summary_metrics
+            from alerts.formatters.telegram import TelegramAlertFormatter as _TGFmt
             import zoneinfo
 
             _scan_count = 0
@@ -742,6 +743,13 @@ Examples:
                     if now_et.hour >= 16 and now_et.minute >= 15 and _daily_report_sent != today_str:
                         report = generate_daily_report(report_date=today_str)
                         logger.info("Daily P&L report:\n%s", report)
+                        # Send daily summary to Telegram
+                        try:
+                            metrics_data = get_daily_summary_metrics(report_date=today_str)
+                            tg_msg = _TGFmt().format_daily_summary(**metrics_data)
+                            system.telegram_bot.send_alert(tg_msg)
+                        except Exception as tg_err:
+                            logger.warning("Telegram daily summary failed: %s", tg_err)
                         _daily_report_sent = today_str
                 except Exception as e:
                     logger.warning(f"Daily report generation failed (non-fatal): {e}")

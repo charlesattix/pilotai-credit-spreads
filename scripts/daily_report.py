@@ -127,6 +127,77 @@ def generate_daily_report(report_date: str = None) -> str:
     return "\n".join(lines)
 
 
+def get_daily_summary_metrics(report_date: str = None, account_size: float = 100_000) -> dict:
+    """Return metrics dict suitable for TelegramAlertFormatter.format_daily_summary().
+
+    Args:
+        report_date: Date string 'YYYY-MM-DD'. Defaults to today (UTC).
+        account_size: Starting account balance for pct-from-start calculation.
+
+    Returns:
+        Dict with keys matching format_daily_summary() parameters.
+    """
+    if report_date is None:
+        report_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    init_db()
+    all_trades = get_trades(source="scanner")
+
+    open_trades = [t for t in all_trades if t.get("status") == "open"]
+    closed_trades = [t for t in all_trades if t.get("status") not in ("open", "pending_open", "failed_open")]
+
+    today_closed = [
+        t for t in closed_trades
+        if (t.get("exit_date") or "")[:10] == report_date
+    ]
+
+    today_pnl = sum(t.get("pnl") or 0 for t in today_closed)
+    total_pnl = sum(t.get("pnl") or 0 for t in closed_trades)
+    balance = account_size + total_pnl
+
+    today_winners = [t for t in today_closed if (t.get("pnl") or 0) > 0]
+    today_losers = [t for t in today_closed if (t.get("pnl") or 0) <= 0]
+
+    # Open position risk
+    open_exposure = 0
+    for t in open_trades:
+        contracts = t.get("contracts", 1)
+        width = abs((t.get("short_strike") or 0) - (t.get("long_strike") or 0))
+        credit = t.get("credit") or 0
+        open_exposure += (width - credit) * contracts * 100
+    total_risk_pct = (open_exposure / balance * 100) if balance > 0 else 0
+
+    # Best / worst today
+    best = "—"
+    worst = "—"
+    if today_closed:
+        best_t = max(today_closed, key=lambda t: t.get("pnl") or 0)
+        worst_t = min(today_closed, key=lambda t: t.get("pnl") or 0)
+        best_pnl = best_t.get("pnl") or 0
+        worst_pnl = worst_t.get("pnl") or 0
+        best = f"{best_t.get('ticker', '?')} ${best_pnl:+.2f}"
+        worst = f"{worst_t.get('ticker', '?')} ${worst_pnl:+.2f}"
+
+    return {
+        "date": report_date,
+        "alerts_fired": len([
+            t for t in all_trades
+            if (t.get("entry_date") or "")[:10] == report_date
+        ]),
+        "closed_today": len(today_closed),
+        "wins": len(today_winners),
+        "losses": len(today_losers),
+        "day_pnl": today_pnl,
+        "day_pnl_pct": (today_pnl / balance * 100) if balance > 0 else 0,
+        "open_positions": len(open_trades),
+        "total_risk_pct": total_risk_pct,
+        "account_balance": balance,
+        "pct_from_start": ((balance - account_size) / account_size * 100),
+        "best": best,
+        "worst": worst,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="Daily P&L Report")
     parser.add_argument(
