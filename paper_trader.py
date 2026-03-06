@@ -438,22 +438,10 @@ class PaperTrader:
                 )
                 return None
 
-            # IV-scaled position sizing (Upgrade 3)
-            # IVR < 20 → 1% risk; IVR 20-50 → 2% risk; IVR > 50 → up to 3% risk.
-            # 40% portfolio heat cap enforced inside calculate_dynamic_risk.
-            from ml.position_sizer import calculate_dynamic_risk, get_contract_size
-            iv_rank = float(opp.get("iv_rank") or opp.get("iv_percentile") or 25.0)
-            spread_width = abs(opp.get("short_strike", 0) - opp.get("long_strike", 0))
-            if spread_width <= 0:
-                spread_width = self.risk.get("spread_width", 5)
-            trade_dollar_risk = calculate_dynamic_risk(current_balance, iv_rank, open_risk)
-            if trade_dollar_risk <= 0:
-                logger.warning(
-                    f"TRADE REFUSED: portfolio heat cap reached "
-                    f"(open_risk=${open_risk:,.0f}, balance=${current_balance:,.0f})"
-                )
+            # Position sizing via strategy.size_position() (same as backtester)
+            contracts = self._size_position_for_trade(opp, current_balance, open_risk, credit)
+            if contracts is None:
                 return None
-            contracts = get_contract_size(trade_dollar_risk, spread_width, credit)
             if contracts < 1:
                 contracts = 1  # always trade at least 1 contract if other checks passed
 
@@ -464,6 +452,10 @@ class PaperTrader:
             # reconciler match DB records back to Alpaca orders unambiguously.
             spread_type_slug = (opp.get("type") or "spread").replace("_", "-")
             client_order_id = f"Pilot-{ticker}-{spread_type_slug}-{trade_id[3:]}"
+
+            # Per-trade exit params from Signal (via adapter), fallback to global config
+            per_trade_pt = opp.get("profit_target_pct", self.profit_target_pct)
+            per_trade_sl = opp.get("stop_loss_pct", self.stop_loss_mult)
 
             trade = {
                 "id": trade_id,
@@ -481,8 +473,11 @@ class PaperTrader:
                 "total_credit": round(credit * contracts * 100, 2),
                 "max_loss_per_spread": max_loss,
                 "total_max_loss": round(max_loss * contracts * 100, 2),
-                "profit_target": round(credit * self.profit_target_pct * contracts * 100, 2),
-                "stop_loss_amount": round(credit * self.stop_loss_mult * contracts * 100, 2),
+                "profit_target": round(credit * per_trade_pt * contracts * 100, 2),
+                "stop_loss_amount": round(credit * per_trade_sl * contracts * 100, 2),
+                "profit_target_pct": per_trade_pt,
+                "stop_loss_pct": per_trade_sl,
+                "strategy_name": opp.get("strategy_name", ""),
                 "entry_price": opp.get("current_price", 0),
                 "entry_date": datetime.now(timezone.utc).isoformat(),
                 "entry_score": opp.get("score", 0),
@@ -639,67 +634,166 @@ class PaperTrader:
         return closed
 
     def _evaluate_position(self, trade: Dict, current_price: float, dte: int):
-        """
-        Evaluate a position and determine if it should be closed.
+        """Evaluate position using BS pricing (same as backtester strategies).
+
         Returns (pnl, close_reason) — close_reason is None if still open.
         """
-        credit = trade.get("total_credit", 0)
+        from strategies.pricing import estimate_spread_value
+        from shared.strategy_adapter import trade_dict_to_position
+        from shared.constants import get_risk_free_rate
+
+        position = trade_dict_to_position(trade)
+
+        # Get IV estimate
+        iv = self._get_current_iv(trade.get("ticker", ""))
+
+        # BS-based spread value (same as iron_condor.manage_position / credit_spread.manage_position)
+        spread_value = estimate_spread_value(
+            position=position,
+            underlying_price=current_price,
+            iv=iv,
+            current_date=datetime.now(timezone.utc),
+            r=get_risk_free_rate(datetime.now()),
+        )
+
         contracts = trade.get("contracts", 1)
-        short_strike = trade.get("short_strike", 0)
-        long_strike = trade.get("long_strike", 0)
-        spread_type = trade.get("type", "")
+        credit = trade.get("credit", 0)
 
-        # Determine if in danger
-        if "condor" in spread_type.lower():
-            # Iron condor: evaluate BOTH wings, take worst case
-            put_intrinsic = max(0, short_strike - current_price)
-            call_short = trade.get("call_short_strike", 0)
-            call_intrinsic = max(0, current_price - call_short) if call_short else 0
-            intrinsic = max(put_intrinsic, call_intrinsic)
-        elif "call" in spread_type.lower():
-            # Bear call spread: bad if price goes above short strike
-            intrinsic = max(0, current_price - short_strike)
-        else:
-            # Bull put spread: bad if price goes below short strike
-            intrinsic = max(0, short_strike - current_price)
+        # For credit spreads: spread_value is negative (we're short).
+        # Cost to close = -spread_value (what we'd pay to buy back)
+        cost_to_close = max(0, -spread_value)
+        total_credit = credit * contracts * 100
+        pnl = round(total_credit - cost_to_close * contracts * 100, 2)
 
-        # Simplified P&L model:
-        # If OTM and time has passed, spread value decays toward 0 (we profit)
-        # If ITM, spread value approaches intrinsic
-        entry_dte = trade.get("dte_at_entry", 35)
-        time_passed_pct = max(0, 1 - (dte / max(entry_dte, 1)))
+        # Use per-trade profit target and stop loss (from Signal, stored in trade dict)
+        profit_target_pct = trade.get("profit_target_pct", self.profit_target_pct)
+        stop_loss_pct = trade.get("stop_loss_pct", self.stop_loss_mult)
 
-        if intrinsic == 0:
-            # OTM — time decay is our friend
-            decay_factor = max(0, 1 - time_passed_pct * EXTRINSIC_DECAY_RATE)  # Accelerating decay
-            current_value = credit * decay_factor
-            pnl = round(credit - current_value, 2)
-        else:
-            # ITM — losing money
-            current_spread_value = min(intrinsic * contracts * 100, trade.get("total_max_loss", 0))
-            remaining_extrinsic = credit * max(0, 1 - time_passed_pct) * BASE_DECAY_FACTOR
-            pnl = round(-(current_spread_value - remaining_extrinsic), 2)
+        profit_target = total_credit * profit_target_pct
+        stop_loss_amount = total_credit * stop_loss_pct
 
         # Check exit conditions
         close_reason = None
 
-        # 1. Profit target hit (50% of credit)
-        if pnl >= trade.get("profit_target", float('inf')):
+        if pnl >= profit_target:
             close_reason = "profit_target"
-
-        # 2. Stop loss hit
-        elif pnl <= -trade.get("stop_loss_amount", float('inf')):
+        elif pnl <= -stop_loss_amount:
             close_reason = "stop_loss"
-
-        # 3. Expiration (or close at 1 DTE)
         elif dte <= 1:
             close_reason = "expiration"
-
-        # 4. Manage at DTE threshold — close if profitable
         elif dte <= MANAGEMENT_DTE_THRESHOLD and pnl > 0:
             close_reason = "management_dte"
 
         return pnl, close_reason
+
+    def _get_current_iv(self, ticker: str) -> float:
+        """Get current implied volatility for a ticker.
+
+        Tries the options analyzer if available, otherwise falls back to
+        VIX / 100 as an IV proxy (same pattern as backtester).
+        """
+        # Try options analyzer if we have a reference to it
+        if hasattr(self, '_options_analyzer') and self._options_analyzer:
+            try:
+                chain = self._options_analyzer.get_options_chain(ticker)
+                if not chain.empty:
+                    return self._options_analyzer.get_current_iv(chain)
+            except Exception:
+                pass
+
+        # Fallback: VIX-based proxy
+        if hasattr(self, '_vix_value') and self._vix_value:
+            return self._vix_value / 100.0
+
+        return 0.20  # default IV
+
+    def _size_position_for_trade(
+        self, opp: Dict, current_balance: float, open_risk: float, credit: float,
+    ) -> Optional[int]:
+        """Size a position using strategy.size_position() when available.
+
+        Falls back to legacy IV-scaled sizing if no strategy is found.
+        Returns None to signal that the trade should be refused (heat cap).
+        """
+        strategy = self._get_strategy_for_type(opp)
+
+        if strategy is not None:
+            from strategies.base import PortfolioState, Signal
+            from shared.strategy_adapter import trade_dict_to_position
+
+            # Build a minimal Signal from the opportunity for size_position
+            # (only max_loss is used by the sizing logic)
+            signal = Signal(
+                strategy_name=opp.get("strategy_name", ""),
+                ticker=opp.get("ticker", ""),
+                direction=strategy.__class__.__name__,  # unused by sizer
+                legs=[],  # unused by sizer
+                net_credit=credit,
+                max_loss=opp.get("max_loss", 0),
+            )
+
+            portfolio_state = PortfolioState(
+                equity=current_balance,
+                starting_capital=self.account_size,
+                cash=current_balance - open_risk,
+                total_risk=open_risk,
+                max_portfolio_risk_pct=0.60,
+            )
+
+            contracts = strategy.size_position(signal, portfolio_state)
+            if contracts <= 0:
+                logger.warning(
+                    "TRADE REFUSED: strategy.size_position() returned 0 "
+                    f"(open_risk=${open_risk:,.0f}, balance=${current_balance:,.0f})"
+                )
+                return None
+            return contracts
+
+        # Legacy fallback: IV-scaled sizing
+        from ml.position_sizer import calculate_dynamic_risk, get_contract_size
+        iv_rank = float(opp.get("iv_rank") or opp.get("iv_percentile") or 25.0)
+        spread_width = abs(opp.get("short_strike", 0) - opp.get("long_strike", 0))
+        if spread_width <= 0:
+            spread_width = self.risk.get("spread_width", 5)
+        trade_dollar_risk = calculate_dynamic_risk(current_balance, iv_rank, open_risk)
+        if trade_dollar_risk <= 0:
+            logger.warning(
+                f"TRADE REFUSED: portfolio heat cap reached "
+                f"(open_risk=${open_risk:,.0f}, balance=${current_balance:,.0f})"
+            )
+            return None
+        return get_contract_size(trade_dollar_risk, spread_width, credit)
+
+    def _get_strategy_for_type(self, opp: Dict):
+        """Find the matching champion strategy instance for this opportunity.
+
+        Returns None if no champion strategies are available.
+        """
+        if not hasattr(self, '_champion_strategies'):
+            return None
+
+        strategies = getattr(self, '_champion_strategies', [])
+        if not strategies:
+            return None
+
+        strategy_name = opp.get("strategy_name", "")
+        spread_type = (opp.get("type") or "").lower()
+
+        # Try exact match on strategy_name first
+        for s in strategies:
+            if s.name == strategy_name:
+                return s
+
+        # Match by spread type
+        for s in strategies:
+            name_lower = s.name.lower()
+            if "condor" in spread_type and "condor" in name_lower:
+                return s
+            if ("put" in spread_type or "call" in spread_type) and "credit" in name_lower:
+                return s
+
+        # Return first strategy as fallback
+        return strategies[0] if strategies else None
 
     def _close_trade(self, trade: Dict, pnl: float, reason: str):
         """Close a paper trade."""

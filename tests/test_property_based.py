@@ -213,6 +213,22 @@ class TestSanitizeFeatures:
 
 class TestEvaluatePositionBounded:
 
+    @staticmethod
+    def _make_eval_trader():
+        """Create a minimal PaperTrader-like object for _evaluate_position tests."""
+        from unittest.mock import MagicMock, patch
+        with patch('paper_trader.init_db'), \
+             patch('paper_trader.get_trades', return_value=[]), \
+             patch('paper_trader.DATA_DIR') as mdir:
+            mdir.__truediv__ = lambda s, n: Path("/tmp") / n
+            mdir.mkdir = MagicMock()
+            pt = PaperTrader({
+                'risk': {'account_size': 100000, 'max_risk_per_trade': 2.0,
+                         'max_positions': 5, 'profit_target': 50, 'stop_loss_multiplier': 2.5},
+                'alpaca': {'enabled': False},
+            })
+        return pt
+
     @given(
         current_price=st.floats(min_value=50.0, max_value=1000.0),
         dte=st.integers(min_value=0, max_value=60),
@@ -229,19 +245,27 @@ class TestEvaluatePositionBounded:
         max_loss = spread_width - credit_per_spread
         assume(max_loss > 0)
 
+        from datetime import timedelta
+        exp = (pd.Timestamp.now(tz='UTC') + timedelta(days=max(dte, 1))).strftime('%Y-%m-%d')
+
         trade = {
             "total_credit": round(credit_per_spread * contracts * 100, 2),
+            "credit": credit_per_spread,
             "contracts": contracts,
             "short_strike": short_strike,
             "long_strike": long_strike,
+            "expiration": exp,
             "type": "bull_put_spread",
             "dte_at_entry": 35,
             "total_max_loss": round(max_loss * contracts * 100, 2),
             "profit_target": round(credit_per_spread * 0.5 * contracts * 100, 2),
             "stop_loss_amount": round(credit_per_spread * 2.5 * contracts * 100, 2),
+            "profit_target_pct": 0.5,
+            "stop_loss_pct": 2.5,
         }
 
-        pnl, _ = PaperTrader._evaluate_position(None, trade, current_price, dte)
+        pt = self._make_eval_trader()
+        pnl, _ = pt._evaluate_position(trade, current_price, dte)
         max_possible_loss = spread_width * contracts * 100
         max_possible_gain = credit_per_spread * contracts * 100
 
@@ -266,19 +290,27 @@ class TestEvaluatePositionBounded:
         max_loss = spread_width - credit_per_spread
         assume(max_loss > 0)
 
+        from datetime import timedelta
+        exp = (pd.Timestamp.now(tz='UTC') + timedelta(days=max(dte, 1))).strftime('%Y-%m-%d')
+
         trade = {
             "total_credit": round(credit_per_spread * contracts * 100, 2),
+            "credit": credit_per_spread,
             "contracts": contracts,
             "short_strike": short_strike,
             "long_strike": long_strike,
+            "expiration": exp,
             "type": "bear_call_spread",
             "dte_at_entry": 35,
             "total_max_loss": round(max_loss * contracts * 100, 2),
             "profit_target": round(credit_per_spread * 0.5 * contracts * 100, 2),
             "stop_loss_amount": round(credit_per_spread * 2.5 * contracts * 100, 2),
+            "profit_target_pct": 0.5,
+            "stop_loss_pct": 2.5,
         }
 
-        pnl, _ = PaperTrader._evaluate_position(None, trade, current_price, dte)
+        pt = self._make_eval_trader()
+        pnl, _ = pt._evaluate_position(trade, current_price, dte)
         max_possible_loss = spread_width * contracts * 100
         max_possible_gain = credit_per_spread * contracts * 100
 

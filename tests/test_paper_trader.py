@@ -259,6 +259,9 @@ def _make_trade(
     total_credit = round(credit_per_spread * contracts * 100, 2)
     max_loss_per_spread = abs(short_strike - long_strike) - credit_per_spread
     total_max_loss = round(max_loss_per_spread * contracts * 100, 2)
+    # Compute expiration from dte_at_entry for BS pricing
+    from datetime import timedelta
+    exp_date = datetime.now(timezone.utc) + timedelta(days=dte_at_entry)
     return {
         'id': 1,
         'status': 'open',
@@ -266,14 +269,19 @@ def _make_trade(
         'type': spread_type,
         'short_strike': short_strike,
         'long_strike': long_strike,
+        'expiration': exp_date.strftime('%Y-%m-%d'),
         'contracts': contracts,
         'credit_per_spread': credit_per_spread,
+        'credit': credit_per_spread,
         'total_credit': total_credit,
         'max_loss_per_spread': max_loss_per_spread,
         'total_max_loss': total_max_loss,
         'profit_target': round(total_credit * profit_target_pct, 2),
         'stop_loss_amount': round(total_credit * stop_loss_mult, 2),
+        'profit_target_pct': profit_target_pct,
+        'stop_loss_pct': stop_loss_mult,
         'entry_price': 460,
+        'entry_date': datetime.now(timezone.utc).isoformat(),
         'dte_at_entry': dte_at_entry,
         'current_pnl': 0,
     }

@@ -100,6 +100,18 @@
 - [x] Scheduler launched as nohup (PID 69663), 14 scans/day on ET market hours
 - [x] Next scan: 9:15 AM ET, logs at `logs/scheduler.log`
 
+### Strategy Unification — COMPLETE (2026-03-06)
+- [x] Paper trader now uses `strategies/*.py` classes (same as portfolio_backtester)
+- [x] Entry signals via `strategy.generate_signals()` from champion.json config
+- [x] Exit logic uses BS pricing (`estimate_spread_value()`) instead of time-decay model
+- [x] Position sizing via `strategy.size_position()` instead of IV-scaled heuristic
+- [x] Per-trade profit_target_pct/stop_loss_pct from Signal (not global config)
+- [x] MANAGEMENT_DTE_THRESHOLD lowered from 21 → 5
+- [x] Adapter layer (`shared/strategy_adapter.py`) converts between types
+- [x] Live snapshot builder (`shared/live_snapshot.py`) mirrors backtester snapshot
+- [x] Legacy strategy path preserved as fallback if champion.json fails to load
+- [x] All 791 tests pass (16 new, 0 regressions)
+
 ### Validation — Running
 - [ ] 8+ weeks paper trading validation (started 2026-03-05)
 - [ ] Daily P&L reports (scheduler auto-generates at 4:15 PM ET)

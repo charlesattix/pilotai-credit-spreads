@@ -56,6 +56,7 @@ from shared.data_cache import DataCache
 from shared.database import insert_alert
 from shared.metrics import metrics
 from shared.provider_protocol import DataProvider  # noqa: F401 – ARCH-PY-06
+from shared.constants import PROJECT_ROOT
 
 
 logger = logging.getLogger(__name__)
@@ -171,6 +172,36 @@ class CreditSpreadSystem:
         self.gamma_exit_monitor = GammaExitMonitor(
             self.paper_trader, self.telegram_bot,
         )
+
+        # --- Champion strategy system (same as portfolio_backtester) ---
+        self._champion_strategies = []
+        try:
+            import json as _json
+            from strategies.iron_condor import IronCondorStrategy
+            from strategies.credit_spread import CreditSpreadStrategy as ChampionCreditSpread
+
+            champion_path = os.path.join(PROJECT_ROOT, "configs", "champion.json")
+            with open(champion_path) as _f:
+                champion_config = _json.load(_f)
+
+            for name in champion_config.get("strategies", []):
+                params = champion_config.get("strategy_params", {}).get(name, {})
+                if name == "iron_condor":
+                    self._champion_strategies.append(IronCondorStrategy(params))
+                elif name == "credit_spread":
+                    self._champion_strategies.append(ChampionCreditSpread(params))
+                # momentum_swing and debit_spread: skip for now (not in paper trading scope)
+
+            if self._champion_strategies:
+                logger.info(
+                    "Champion strategies loaded: %s",
+                    [s.name for s in self._champion_strategies],
+                )
+                # Give paper_trader references for BS pricing and strategy sizing
+                self.paper_trader._options_analyzer = self.options_analyzer
+                self.paper_trader._champion_strategies = self._champion_strategies
+        except Exception as e:
+            logger.warning("Champion config not loaded, using legacy strategy: %s", e)
 
         logger.info("All components initialized successfully")
 
@@ -334,14 +365,10 @@ class CreditSpreadSystem:
         return all_opportunities
 
     def _analyze_ticker(self, ticker: str) -> list:
-        """
-        Analyze a single ticker for opportunities.
+        """Analyze a single ticker for opportunities.
 
-        Args:
-            ticker: Stock ticker symbol
-
-        Returns:
-            List of opportunities
+        Uses champion strategy system (strategies/*.py) when available,
+        falls back to legacy strategy/spread_strategy.py otherwise.
         """
         try:
             # Get price data
@@ -353,87 +380,136 @@ class CreditSpreadSystem:
 
             current_price = float(price_data['Close'].iloc[-1])
 
-            # Get options chain
-            options_chain = self.options_analyzer.get_options_chain(ticker)
+            # --- Champion strategy path ---
+            if self._champion_strategies:
+                return self._analyze_ticker_champion(ticker, current_price)
 
-            if options_chain.empty:
-                logger.warning(f"No options data for {ticker}")
-                return []
-
-            # Technical analysis
-            technical_signals = self.technical_analyzer.analyze(ticker, price_data)
-
-            # IV analysis
-            current_iv = self.options_analyzer.get_current_iv(options_chain)
-            iv_data = self.options_analyzer.calculate_iv_rank(ticker, current_iv)
-
-            logger.info(f"{ticker}: Price=${current_price:.2f}, IV Rank={iv_data.get('iv_rank', 0):.1f}%")
-
-            # Evaluate spread opportunities
-            opportunities = self.strategy.evaluate_spread_opportunity(
-                ticker=ticker,
-                option_chain=options_chain,
-                technical_signals=technical_signals,
-                iv_data=iv_data,
-                current_price=current_price
-            )
-
-            # Enhance with ML scoring if available
-            if self.ml_pipeline and opportunities:
-                try:
-                    # Compute regime ONCE per ticker (not per-opportunity)
-                    regime_data = self.ml_pipeline.regime_detector.detect_regime(ticker=ticker)
-                    market_features = self.ml_pipeline.feature_engine.compute_market_features()
-
-                    # Limit to top 10 opportunities to avoid combinatorial explosion
-                    # (iron condors can generate O(N^2) pairs per expiration)
-                    ml_candidates = opportunities[:10]
-
-                    for opp in ml_candidates:
-                        # Map spread type correctly — iron condors are neutral, not directional
-                        opp_type = opp.get('type', '').lower()
-                        if 'condor' in opp_type:
-                            spread_type = 'iron_condor'
-                        elif 'put' in opp_type:
-                            spread_type = 'bull_put'
-                        else:
-                            spread_type = 'bear_call'
-
-                        ml_result = self.ml_pipeline.analyze_trade(
-                            ticker=ticker,
-                            current_price=current_price,
-                            options_chain=options_chain,
-                            spread_type=spread_type,
-                            technical_signals=technical_signals,
-                            regime=regime_data,
-                            market_features=market_features,
-                            spread_credit=opp.get('credit', 0),
-                            spread_max_loss=opp.get('max_loss', 0),
-                        )
-                        # Blend ML score with rules-based score (60% ML, 40% rules)
-                        rules_score = opp.get('score', 50)
-                        ml_score = ml_result.get('enhanced_score', rules_score)
-                        opp['rules_score'] = rules_score
-                        opp['ml_score'] = ml_score
-                        opp['score'] = self.ml_score_weight * ml_score + self.rules_score_weight * rules_score
-                        opp['regime'] = ml_result.get('regime', {}).get('regime', 'unknown')
-                        opp['regime_confidence'] = ml_result.get('regime', {}).get('confidence', 0)
-                        opp['event_risk'] = ml_result.get('event_risk', {}).get('event_risk_score', 0)
-                        opp['ml_position_size'] = ml_result.get('position_sizing', {})
-
-                        # Skip if high event risk
-                        if opp['event_risk'] > self.event_risk_threshold:
-                            logger.warning(f"Skipping {ticker} {opp['type']} due to high event risk: {opp['event_risk']:.2f}")
-                            opp['score'] = 0  # Zero out to filter
-
-                except Exception as e:
-                    logger.warning(f"ML scoring failed for {ticker}, using rules-based: {e}")
-
-            return opportunities
+            # --- Legacy fallback path ---
+            return self._analyze_ticker_legacy(ticker, price_data, current_price)
 
         except Exception as e:
             logger.error(f"Error analyzing {ticker}: {e}", exc_info=True)
             return []
+
+    def _analyze_ticker_champion(self, ticker: str, current_price: float) -> list:
+        """Generate signals via champion strategies (same as portfolio_backtester)."""
+        from shared.live_snapshot import build_live_snapshot
+        from shared.strategy_adapter import signal_to_opportunity
+
+        try:
+            snapshot = build_live_snapshot(
+                tickers=[ticker, "^VIX"],
+                data_cache=self.data_cache,
+                options_analyzer=self.options_analyzer,
+            )
+
+            # Store VIX value on paper trader for IV fallback
+            self.paper_trader._vix_value = snapshot.vix
+
+            opportunities = []
+            for strategy in self._champion_strategies:
+                try:
+                    signals = strategy.generate_signals(snapshot)
+                    for sig in signals:
+                        opp = signal_to_opportunity(sig, current_price)
+                        opportunities.append(opp)
+                except Exception as e:
+                    logger.warning(
+                        "Strategy %s failed for %s: %s",
+                        strategy.name, ticker, e,
+                    )
+
+            if opportunities:
+                logger.info(
+                    "%s: %d champion signals (price=$%.2f, VIX=%.1f)",
+                    ticker, len(opportunities), current_price, snapshot.vix,
+                )
+
+            return opportunities
+
+        except Exception as e:
+            logger.warning(
+                "Champion analysis failed for %s, falling back to legacy: %s",
+                ticker, e,
+            )
+            price_data = self.data_cache.get_history(ticker, period='1y')
+            return self._analyze_ticker_legacy(ticker, price_data, current_price)
+
+    def _analyze_ticker_legacy(self, ticker: str, price_data, current_price: float) -> list:
+        """Legacy signal path via strategy/spread_strategy.py."""
+        logger.debug("Using legacy strategy path for %s", ticker)
+
+        # Get options chain
+        options_chain = self.options_analyzer.get_options_chain(ticker)
+
+        if options_chain.empty:
+            logger.warning(f"No options data for {ticker}")
+            return []
+
+        # Technical analysis
+        technical_signals = self.technical_analyzer.analyze(ticker, price_data)
+
+        # IV analysis
+        current_iv = self.options_analyzer.get_current_iv(options_chain)
+        iv_data = self.options_analyzer.calculate_iv_rank(ticker, current_iv)
+
+        logger.info(f"{ticker}: Price=${current_price:.2f}, IV Rank={iv_data.get('iv_rank', 0):.1f}%")
+
+        # Evaluate spread opportunities
+        opportunities = self.strategy.evaluate_spread_opportunity(
+            ticker=ticker,
+            option_chain=options_chain,
+            technical_signals=technical_signals,
+            iv_data=iv_data,
+            current_price=current_price
+        )
+
+        # Enhance with ML scoring if available
+        if self.ml_pipeline and opportunities:
+            try:
+                regime_data = self.ml_pipeline.regime_detector.detect_regime(ticker=ticker)
+                market_features = self.ml_pipeline.feature_engine.compute_market_features()
+
+                ml_candidates = opportunities[:10]
+
+                for opp in ml_candidates:
+                    opp_type = opp.get('type', '').lower()
+                    if 'condor' in opp_type:
+                        spread_type = 'iron_condor'
+                    elif 'put' in opp_type:
+                        spread_type = 'bull_put'
+                    else:
+                        spread_type = 'bear_call'
+
+                    ml_result = self.ml_pipeline.analyze_trade(
+                        ticker=ticker,
+                        current_price=current_price,
+                        options_chain=options_chain,
+                        spread_type=spread_type,
+                        technical_signals=technical_signals,
+                        regime=regime_data,
+                        market_features=market_features,
+                        spread_credit=opp.get('credit', 0),
+                        spread_max_loss=opp.get('max_loss', 0),
+                    )
+                    rules_score = opp.get('score', 50)
+                    ml_score = ml_result.get('enhanced_score', rules_score)
+                    opp['rules_score'] = rules_score
+                    opp['ml_score'] = ml_score
+                    opp['score'] = self.ml_score_weight * ml_score + self.rules_score_weight * rules_score
+                    opp['regime'] = ml_result.get('regime', {}).get('regime', 'unknown')
+                    opp['regime_confidence'] = ml_result.get('regime', {}).get('confidence', 0)
+                    opp['event_risk'] = ml_result.get('event_risk', {}).get('event_risk_score', 0)
+                    opp['ml_position_size'] = ml_result.get('position_sizing', {})
+
+                    if opp['event_risk'] > self.event_risk_threshold:
+                        logger.warning(f"Skipping {ticker} {opp['type']} due to high event risk: {opp['event_risk']:.2f}")
+                        opp['score'] = 0
+
+            except Exception as e:
+                logger.warning(f"ML scoring failed for {ticker}, using rules-based: {e}")
+
+        return opportunities
 
     def _generate_alerts(self, opportunities: list):
         """
