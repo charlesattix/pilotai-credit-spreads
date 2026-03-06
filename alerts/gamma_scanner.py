@@ -9,7 +9,7 @@ Key difference from all prior scanners: produces single-leg debit plays
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from alerts.gamma_config import build_gamma_config, SCAN_HOURS
@@ -261,8 +261,9 @@ class GammaScanner:
 
             # Filter by DTE
             if "expiration" in filtered.columns:
-                now = datetime.now()
-                filtered["_dte"] = (pd.to_datetime(filtered["expiration"]) - now).dt.days
+                now = datetime.now(timezone.utc)
+                exp_dt = pd.to_datetime(filtered["expiration"], utc=True)
+                filtered["_dte"] = (exp_dt - now).dt.days
                 filtered = filtered[
                     (filtered["_dte"] >= min_dte) & (filtered["_dte"] <= max_dte)
                 ]

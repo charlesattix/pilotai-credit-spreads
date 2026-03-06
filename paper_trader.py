@@ -312,6 +312,15 @@ class PaperTrader:
             (t["ticker"], t.get("short_strike"), t.get("expiration"))
             for t in self.open_trades
         }
+        # Also block trades that are pending Alpaca confirmation
+        try:
+            pending = get_trades(status="pending_open")
+            open_keys |= {
+                (t["ticker"], t.get("short_strike"), t.get("expiration"))
+                for t in pending
+            }
+        except Exception:
+            pass  # DB read failure shouldn't block trading
         eligible = [
             o for o in sorted_opps
             if (o["ticker"], o.get("short_strike"), o.get("expiration")) not in open_keys
@@ -345,6 +354,22 @@ class PaperTrader:
             if self._is_kill_switch_active():
                 logger.warning("TRADE REFUSED: kill switch is active — trading halted")
                 return None
+
+            # DB-level dedup: reject if same ticker+strike+expiration already open/pending
+            try:
+                existing = get_trades(source="scanner")
+                for t in existing:
+                    if (t.get("status") in ("open", "pending_open") and
+                        t.get("ticker") == opp["ticker"] and
+                        t.get("short_strike") == opp["short_strike"] and
+                        t.get("expiration") == str(opp.get("expiration", ""))):
+                        logger.info(
+                            f"TRADE SKIPPED: duplicate position {opp['ticker']} "
+                            f"{opp['short_strike']}/{opp['long_strike']} already exists"
+                        )
+                        return None
+            except Exception:
+                pass  # DB read failure shouldn't block trading
 
             current_balance = self.trades["current_balance"]
             peak_balance = self.trades["stats"]["peak_balance"]
@@ -497,15 +522,24 @@ class PaperTrader:
 
                     if alpaca_result["status"] == "error":
                         logger.warning(
-                            f"Alpaca order failed: {alpaca_result['message']}. Recording as DB-only trade."
+                            f"Alpaca order failed: {alpaca_result['message']}. "
+                            "Marking as failed_open."
                         )
+                        trade["status"] = "failed_open"
+                        trade["exit_reason"] = "alpaca_order_error"
+                        upsert_trade(trade, source="scanner")
+                        return None
                     else:
                         logger.info(f"Alpaca order submitted: {alpaca_result['order_id']}")
                 except Exception as e:
-                    logger.warning(f"Alpaca submission failed: {e}. Recording as DB-only trade.")
+                    logger.warning(f"Alpaca submission failed: {e}. Marking as failed_open.")
+                    trade["status"] = "failed_open"
+                    trade["exit_reason"] = "alpaca_submission_error"
+                    upsert_trade(trade, source="scanner")
+                    return None
 
-            # Promote to open — all submission paths (Alpaca success, Alpaca error,
-            # no Alpaca) converge here.  The reconciler will back-fill fill prices.
+            # Promote to open — Alpaca success or no-Alpaca paths converge here.
+            # The reconciler will back-fill fill prices.
             trade["status"] = "open"
 
             # Add to in-memory tracking now that we have a confirmed intent
@@ -747,6 +781,54 @@ class PaperTrader:
             logger.warning("Startup reconciliation error: %s", e)
         return ""
 
+    def _cleanup_error_trades(self) -> None:
+        """Mark stale/error trades as failed_open.
+
+        Finds open trades that either have alpaca_status='error' or have no
+        alpaca_order_id and are older than _STALE_ORDER_HOURS. These are
+        phantom trades that never had real broker backing.
+        """
+        try:
+            open_trades = get_trades(status="open")
+        except Exception as e:
+            logger.warning("_cleanup_error_trades: DB read failed: %s", e)
+            return
+
+        now = datetime.now(timezone.utc)
+        cleaned = 0
+        for trade in open_trades:
+            is_error = trade.get("alpaca_status") == "error"
+            # Stale: has Alpaca enabled (client_order_id present) but no order_id
+            entry_date = trade.get("entry_date", "")
+            try:
+                entry_dt = datetime.fromisoformat(entry_date)
+            except (ValueError, TypeError):
+                entry_dt = now  # can't parse — don't treat as stale
+            age_hours = (now - entry_dt).total_seconds() / 3600
+            is_stale = (
+                trade.get("alpaca_client_order_id") is not None
+                and trade.get("alpaca_order_id") is None
+                and age_hours > _STALE_ORDER_HOURS
+            )
+
+            if is_error or is_stale:
+                reason = "alpaca_order_error" if is_error else "stale_no_fill"
+                trade["status"] = "failed_open"
+                trade["exit_reason"] = reason
+                upsert_trade(trade, source="scanner")
+                cleaned += 1
+                logger.info(
+                    "Cleaned up phantom trade %s (%s %s): %s",
+                    trade.get("id"), trade.get("ticker"),
+                    trade.get("short_strike"), reason,
+                )
+
+        if cleaned:
+            logger.info("Cleaned up %d phantom/error trades", cleaned)
+            with self._trades_lock:
+                self.trades = self._load_trades()
+                self._rebuild_cached_lists()
+
     def reconcile_positions(self) -> None:
         """Run a reconciliation pass and reload in-memory state if anything changed.
 
@@ -754,6 +836,9 @@ class PaperTrader:
         to catch positions that were quietly closed in Alpaca (expiration, manual
         close, etc.) without going through our normal exit path.
         """
+        # Clean up error/stale trades regardless of Alpaca availability
+        self._cleanup_error_trades()
+
         if not self.alpaca:
             return
         try:
