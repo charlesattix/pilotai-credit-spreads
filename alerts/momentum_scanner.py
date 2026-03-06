@@ -360,9 +360,9 @@ class MomentumScanner:
 
         # Filter to target DTE range
         if "expiration" in options_chain.columns:
-            now = datetime.now()
+            now = pd.Timestamp.now()
             chain = options_chain.copy()
-            chain["_dte"] = (pd.to_datetime(chain["expiration"]) - now).dt.days
+            chain["_dte"] = (pd.to_datetime(chain["expiration"]).dt.tz_localize(None) - now).dt.days
             chain = chain[(chain["_dte"] >= min_dte) & (chain["_dte"] <= max_dte)]
 
             if chain.empty:
