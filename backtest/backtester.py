@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
-from shared.scheduler import SCAN_TIMES
+from shared.scheduler import MARKET_SCAN_TIMES as SCAN_TIMES
 
 logger = logging.getLogger(__name__)
 

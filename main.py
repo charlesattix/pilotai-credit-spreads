@@ -716,16 +716,50 @@ Examples:
             system.paper_trader.sync_alpaca_orders()
 
         elif args.command == 'scheduler':
-            from shared.scheduler import ScanScheduler
+            from shared.scheduler import ScanScheduler, SLOT_SCAN, SLOT_PRE_MARKET, SLOT_DAILY_REPORT
             from scripts.daily_report import generate_daily_report, get_daily_summary_metrics
             from alerts.formatters.telegram import TelegramAlertFormatter as _TGFmt
-            import zoneinfo
 
             _scan_count = 0
-            _daily_report_sent = None  # tracks which date we already reported
 
-            def scan_and_sync():
-                nonlocal _scan_count, _daily_report_sent
+            def scan_and_sync(slot_type=SLOT_SCAN):
+                nonlocal _scan_count
+
+                if slot_type == SLOT_PRE_MARKET:
+                    # Pre-market: sync orders, reconcile, log open position summary
+                    logger.info("Pre-market status check starting")
+                    system.paper_trader.sync_alpaca_orders()
+                    system.paper_trader.reconcile_positions()
+                    open_trades = [t for t in system.paper_trader.trades if t.get("status") == "open"]
+                    logger.info("Pre-market: %d open positions", len(open_trades))
+                    for t in open_trades:
+                        logger.info("  %s %s — credit $%.2f, %d contracts",
+                                    t.get("ticker", "?"), t.get("strategy_type", "?"),
+                                    t.get("credit", 0) or 0, t.get("contracts", 0) or 0)
+                    return
+
+                if slot_type == SLOT_DAILY_REPORT:
+                    # Post-market: reconcile + generate daily report + Telegram
+                    logger.info("Daily report starting")
+                    system.paper_trader.sync_alpaca_orders()
+                    system.paper_trader.reconcile_positions()
+                    try:
+                        import zoneinfo
+                        et = zoneinfo.ZoneInfo("America/New_York")
+                        today_str = datetime.now(et).strftime("%Y-%m-%d")
+                        report = generate_daily_report(report_date=today_str)
+                        logger.info("Daily P&L report:\n%s", report)
+                        try:
+                            metrics_data = get_daily_summary_metrics(report_date=today_str)
+                            tg_msg = _TGFmt().format_daily_summary(**metrics_data)
+                            system.telegram_bot.send_alert(tg_msg)
+                        except Exception as tg_err:
+                            logger.warning("Telegram daily summary failed: %s", tg_err)
+                    except Exception as e:
+                        logger.warning("Daily report generation failed (non-fatal): %s", e)
+                    return
+
+                # Regular scan slot
                 system.scan_opportunities()
                 system.paper_trader.sync_alpaca_orders()
                 _scan_count += 1
@@ -734,25 +768,6 @@ Examples:
                 # our normal exit path (expiration, manual close, etc.).
                 if _scan_count % 3 == 0:
                     system.paper_trader.reconcile_positions()
-
-                # Daily report at 4:15 PM ET (once per day)
-                try:
-                    et = zoneinfo.ZoneInfo("America/New_York")
-                    now_et = datetime.now(et)
-                    today_str = now_et.strftime("%Y-%m-%d")
-                    if now_et.hour >= 16 and now_et.minute >= 15 and _daily_report_sent != today_str:
-                        report = generate_daily_report(report_date=today_str)
-                        logger.info("Daily P&L report:\n%s", report)
-                        # Send daily summary to Telegram
-                        try:
-                            metrics_data = get_daily_summary_metrics(report_date=today_str)
-                            tg_msg = _TGFmt().format_daily_summary(**metrics_data)
-                            system.telegram_bot.send_alert(tg_msg)
-                        except Exception as tg_err:
-                            logger.warning("Telegram daily summary failed: %s", tg_err)
-                        _daily_report_sent = today_str
-                except Exception as e:
-                    logger.warning(f"Daily report generation failed (non-fatal): {e}")
 
             scheduler = ScanScheduler(scan_fn=scan_and_sync)
 
@@ -765,7 +780,7 @@ Examples:
             signal.signal(signal.SIGTERM, _stop_scheduler)
             signal.signal(signal.SIGINT, _stop_scheduler)
 
-            logger.info("Starting scan scheduler (14 scans/day, ET weekdays)")
+            logger.info("Starting scan scheduler (16 slots/day, ET weekdays)")
             scheduler.run_forever()
 
         elif args.command == 'backtest':

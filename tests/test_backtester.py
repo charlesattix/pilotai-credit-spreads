@@ -867,9 +867,9 @@ class TestIntradayBacktest:
         assert result['entry_scan_time'] == '11:30'
 
     def test_intraday_scan_times_count_is_14(self):
-        """Live schedule must define exactly 14 scan times to match backtester."""
-        from shared.scheduler import SCAN_TIMES
-        assert len(SCAN_TIMES) == 14
+        """Market-hours schedule must define exactly 14 scan times for backtester."""
+        from shared.scheduler import MARKET_SCAN_TIMES
+        assert len(MARKET_SCAN_TIMES) == 14
 
     def test_find_real_spread_skips_intraday_for_pre_open_scan(self):
         """9:15 scan (pre-open) should fall back to daily pricing, not intraday."""
@@ -890,7 +890,7 @@ class TestIntradayBacktest:
 
     def test_backtester_attempts_all_scan_times_on_trading_day(self):
         """In real-data mode, backtester should attempt all 14 scan times per day."""
-        from shared.scheduler import SCAN_TIMES
+        from shared.scheduler import MARKET_SCAN_TIMES as SCAN_TIMES
         import pandas as pd
 
         # Need >= 20 rows so the MA20 check passes on the target date.
