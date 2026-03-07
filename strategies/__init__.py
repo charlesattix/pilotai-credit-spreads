@@ -20,6 +20,7 @@ from strategies.straddle_strangle import StraddleStrangleStrategy
 from strategies.debit_spread import DebitSpreadStrategy
 from strategies.calendar_spread import CalendarSpreadStrategy
 from strategies.momentum_swing import MomentumSwingStrategy
+from strategies.zero_dte_spread import ZeroDTESpreadStrategy
 
 # Registry: name -> class
 STRATEGY_REGISTRY = {
@@ -30,6 +31,7 @@ STRATEGY_REGISTRY = {
     "debit_spread": DebitSpreadStrategy,
     "calendar_spread": CalendarSpreadStrategy,
     "momentum_swing": MomentumSwingStrategy,
+    "zero_dte_spread": ZeroDTESpreadStrategy,
 }
 
 __all__ = [
@@ -43,5 +45,6 @@ __all__ = [
     "DebitSpreadStrategy",
     "CalendarSpreadStrategy",
     "MomentumSwingStrategy",
+    "ZeroDTESpreadStrategy",
     "STRATEGY_REGISTRY",
 ]

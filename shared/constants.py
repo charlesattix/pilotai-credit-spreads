@@ -42,6 +42,10 @@ MAX_CONTRACTS_PER_TRADE = 10
 # ---------------------------------------------------------------------------
 MANAGEMENT_DTE_THRESHOLD = 5
 
+# 0DTE strategy
+ZERO_DTE_TICKERS = ["SPY", "QQQ"]
+ZERO_DTE_STRATEGY_NAME = "ZeroDTESpreadStrategy"
+
 # ---------------------------------------------------------------------------
 # Options pricing
 # ---------------------------------------------------------------------------

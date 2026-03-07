@@ -13,7 +13,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
-from shared.constants import MAX_CONTRACTS_PER_TRADE, MANAGEMENT_DTE_THRESHOLD, DATA_DIR as _DATA_DIR
+from shared.constants import MAX_CONTRACTS_PER_TRADE, MANAGEMENT_DTE_THRESHOLD, ZERO_DTE_STRATEGY_NAME, DATA_DIR as _DATA_DIR
 from shared.database import init_db, upsert_trade, get_trades, close_trade as db_close_trade
 from shared.metrics import metrics
 from alerts.formatters.telegram import TelegramAlertFormatter
@@ -681,7 +681,7 @@ class PaperTrader:
             close_reason = "stop_loss"
         elif dte <= 1:
             close_reason = "expiration"
-        elif dte <= MANAGEMENT_DTE_THRESHOLD and pnl > 0:
+        elif dte <= MANAGEMENT_DTE_THRESHOLD and pnl > 0 and trade.get("strategy_name") != ZERO_DTE_STRATEGY_NAME:
             close_reason = "management_dte"
 
         return pnl, close_reason

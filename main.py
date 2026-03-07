@@ -190,6 +190,9 @@ class CreditSpreadSystem:
                     self._champion_strategies.append(IronCondorStrategy(params))
                 elif name == "credit_spread":
                     self._champion_strategies.append(ChampionCreditSpread(params))
+                elif name == "zero_dte_spread":
+                    from strategies.zero_dte_spread import ZeroDTESpreadStrategy
+                    self._champion_strategies.append(ZeroDTESpreadStrategy(params))
                 # momentum_swing and debit_spread: skip for now (not in paper trading scope)
 
             if self._champion_strategies:
