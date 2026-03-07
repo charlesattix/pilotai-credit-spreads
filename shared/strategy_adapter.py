@@ -36,6 +36,8 @@ def signal_to_opportunity(signal: Signal, current_price: float) -> Dict:
         spread_type = "bull_put_spread"
     elif LegType.SHORT_CALL in leg_types:
         spread_type = "bear_call_spread"
+    elif LegType.LONG_PUT in leg_types and LegType.SHORT_PUT not in leg_types:
+        spread_type = "protective_put"
     else:
         spread_type = signal.metadata.get("spread_type", "credit_spread")
 
@@ -43,7 +45,12 @@ def signal_to_opportunity(signal: Signal, current_price: float) -> Dict:
     short_strike = 0.0
     long_strike = 0.0
 
-    if is_condor:
+    if spread_type == "protective_put":
+        # Single long put — no short leg
+        for leg in signal.legs:
+            if leg.leg_type == LegType.LONG_PUT:
+                long_strike = leg.strike
+    elif is_condor:
         # For iron condors, put side is the "primary" short/long
         for leg in signal.legs:
             if leg.leg_type == LegType.SHORT_PUT:
@@ -135,6 +142,12 @@ def trade_dict_to_position(trade: Dict) -> Position:
             TradeLeg(LegType.LONG_CALL, call_long, expiration),
         ]
         direction = TradeDirection.NEUTRAL
+    elif "protective" in spread_type:
+        # Protective put (tail hedge): single long put
+        legs = [
+            TradeLeg(LegType.LONG_PUT, long_strike, expiration),
+        ]
+        direction = TradeDirection.LONG
     elif "call" in spread_type:
         # Bear call spread
         legs = [

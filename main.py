@@ -836,6 +836,16 @@ Examples:
                             logger.warning("Telegram daily summary failed: %s", tg_err)
                     except Exception as e:
                         logger.warning("Daily report generation failed (non-fatal): %s", e)
+
+                    # Deviation snapshot + alerts (runs after daily report)
+                    try:
+                        from shared.deviation_tracker import record_deviation_snapshot
+                        from shared.telegram_alerts import notify_deviation_alerts
+                        snapshot = record_deviation_snapshot()
+                        if snapshot:
+                            notify_deviation_alerts(snapshot)
+                    except Exception as dev_err:
+                        logger.warning("Deviation snapshot failed (non-fatal): %s", dev_err)
                     return
 
                 # Regular scan slot

@@ -76,6 +76,26 @@ def init_db(path: Optional[str] = None) -> None:
                 details JSON,
                 created_at TEXT DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS deviation_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                snapshot_date TEXT NOT NULL UNIQUE,
+                live_trades INTEGER,
+                bt_trades INTEGER,
+                live_win_rate REAL,
+                bt_win_rate REAL,
+                live_pnl REAL,
+                bt_pnl REAL,
+                live_return_pct REAL,
+                bt_return_pct REAL,
+                live_profit_factor REAL,
+                bt_profit_factor REAL,
+                live_max_dd REAL,
+                bt_max_dd REAL,
+                overall_status TEXT,
+                details JSON,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
         """)
         conn.commit()
 

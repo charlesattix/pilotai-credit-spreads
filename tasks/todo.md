@@ -116,7 +116,9 @@
 - [ ] 8+ weeks paper trading validation (started 2026-03-05)
 - [ ] Daily P&L reports (scheduler auto-generates at 4:15 PM ET)
 - [ ] Track live vs backtest performance deviation
-- [ ] Wire up Telegram alerts (deferred — stdout reports first)
+- [x] Wire up Telegram alerts (`shared/telegram_alerts.py` — .env-based, raw HTTP, paper_trader fallback)
+- [x] Deviation tracker runs daily after market close (scheduler 16:15 ET slot)
+- [x] Deviation alerts auto-fire via Telegram after snapshot is recorded
 
 ---
 

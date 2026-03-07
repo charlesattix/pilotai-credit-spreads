@@ -424,7 +424,10 @@ class PaperTrader:
             credit = opp.get("credit", 0)
             max_loss = opp.get("max_loss", 0)
 
-            if credit <= 0 or max_loss <= 0:
+            is_debit = opp.get("type") == "protective_put"
+            if not is_debit and (credit <= 0 or max_loss <= 0):
+                return None
+            if is_debit and max_loss <= 0:
                 return None
 
             # EH-TRADE-02: Account for existing open risk exposure in position sizing
@@ -457,6 +460,15 @@ class PaperTrader:
             per_trade_pt = opp.get("profit_target_pct", self.profit_target_pct)
             per_trade_sl = opp.get("stop_loss_pct", self.stop_loss_mult)
 
+            # For debit trades, compute profit/stop from the debit paid
+            if is_debit:
+                debit = abs(credit)
+                pt_amount = round(debit * per_trade_pt * contracts * 100, 2)
+                sl_amount = round(debit * per_trade_sl * contracts * 100, 2)
+            else:
+                pt_amount = round(credit * per_trade_pt * contracts * 100, 2)
+                sl_amount = round(credit * per_trade_sl * contracts * 100, 2)
+
             trade = {
                 "id": trade_id,
                 "status": "pending_open",  # write-ahead — promoted to "open" after Alpaca confirms
@@ -473,8 +485,8 @@ class PaperTrader:
                 "total_credit": round(credit * contracts * 100, 2),
                 "max_loss_per_spread": max_loss,
                 "total_max_loss": round(max_loss * contracts * 100, 2),
-                "profit_target": round(credit * per_trade_pt * contracts * 100, 2),
-                "stop_loss_amount": round(credit * per_trade_sl * contracts * 100, 2),
+                "profit_target": pt_amount,
+                "stop_loss_amount": sl_amount,
                 "profit_target_pct": per_trade_pt,
                 "stop_loss_pct": per_trade_sl,
                 "strategy_name": opp.get("strategy_name", ""),
@@ -563,6 +575,8 @@ class PaperTrader:
     def _send_entry_alert(self, trade: Dict) -> None:
         """Send a Telegram notification for a new trade entry."""
         if not self.telegram_bot:
+            from shared.telegram_alerts import notify_trade_open
+            notify_trade_open(trade)
             return
         try:
             dte = trade.get("dte_at_entry", "?")
@@ -659,7 +673,25 @@ class PaperTrader:
         contracts = trade.get("contracts", 1)
         credit = trade.get("credit", 0)
 
-        # For credit spreads: spread_value is negative (we're short).
+        # Debit trade path (protective puts / tail hedges)
+        trade_type = (trade.get("type") or "").lower()
+        if "protective" in trade_type:
+            # We own the put; spread_value is its current worth (positive)
+            entry_debit = abs(credit)
+            total_debit = entry_debit * contracts * 100
+            pnl = round(spread_value * contracts * 100 - total_debit, 2)
+
+            close_reason = None
+            if pnl >= trade.get("profit_target", total_debit):
+                close_reason = "profit_target"
+            elif pnl <= -trade.get("stop_loss_amount", total_debit * 0.80):
+                close_reason = "stop_loss"
+            elif dte <= 1:
+                close_reason = "expiration"
+            return pnl, close_reason
+
+        # Credit spread path (original)
+        # spread_value is negative (we're short).
         # Cost to close = -spread_value (what we'd pay to buy back)
         cost_to_close = max(0, -spread_value)
         total_credit = credit * contracts * 100
@@ -883,6 +915,8 @@ class PaperTrader:
     def _send_exit_alert(self, trade: Dict, pnl: float, reason: str) -> None:
         """Send a Telegram notification for a trade exit."""
         if not self.telegram_bot:
+            from shared.telegram_alerts import notify_trade_close
+            notify_trade_close(trade, pnl, reason, self.trades['current_balance'])
             return
         try:
             total_credit = trade.get("total_credit", 0)
