@@ -148,6 +148,9 @@ class IronCondorStrategy(BaseStrategy):
                 "call_credit": call_credit,
                 "put_short": put_short,
                 "call_short": call_short,
+                "vix": market_data.vix,
+                "realized_vol": iv,
+                "vix_history": market_data.vix_history if hasattr(market_data, 'vix_history') else None,
             },
         )
 
@@ -187,6 +190,16 @@ class IronCondorStrategy(BaseStrategy):
         if portfolio_state.total_risk >= portfolio_state.equity * portfolio_state.max_portfolio_risk_pct:
             return 0
         contracts = max(1, int(risk_budget / risk_per_unit))
+
+        # VIX regime sizing adjustment
+        from shared.vix_regime import vix_sizing_factor
+        vix_result = vix_sizing_factor(
+            signal.metadata.get("vix", 20.0),
+            signal.metadata.get("realized_vol", 0.20),
+            signal.metadata.get("vix_history"),
+        )
+        contracts = max(1, int(contracts * vix_result.factor))
+
         return min(contracts, MAX_CONTRACTS_PER_TRADE)
 
     @classmethod

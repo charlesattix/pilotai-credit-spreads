@@ -66,6 +66,7 @@ class CreditSpreadStrategy(BaseStrategy):
                     sig = self._build_spread(
                         ticker, price, iv, market_data.date, "bull_put",
                         vix=market_data.vix, rfr=market_data.risk_free_rate,
+                        vix_history=market_data.vix_history,
                     )
                     if sig:
                         signals.append(sig)
@@ -74,6 +75,7 @@ class CreditSpreadStrategy(BaseStrategy):
                 sig = self._build_spread(
                     ticker, price, iv, market_data.date, "bear_call",
                     vix=market_data.vix, rfr=market_data.risk_free_rate,
+                    vix_history=market_data.vix_history,
                 )
                 if sig:
                     signals.append(sig)
@@ -84,6 +86,7 @@ class CreditSpreadStrategy(BaseStrategy):
         self, ticker: str, price: float, iv: float,
         date: datetime, spread_type: str, vix: float = 20.0,
         rfr: float = DEFAULT_RISK_FREE_RATE,
+        vix_history=None,
     ) -> Signal | None:
         target_dte = self._p("target_dte", 35)
         min_dte = self._p("min_dte", 25)
@@ -157,6 +160,9 @@ class CreditSpreadStrategy(BaseStrategy):
                 "short_strike": short_strike,
                 "long_strike": long_strike,
                 "iv": iv,
+                "vix": vix,
+                "realized_vol": iv,
+                "vix_history": vix_history,
             },
         )
 
@@ -209,6 +215,16 @@ class CreditSpreadStrategy(BaseStrategy):
             return 0
 
         contracts = max(1, int(risk_budget / risk_per_unit))
+
+        # VIX regime sizing adjustment
+        from shared.vix_regime import vix_sizing_factor
+        vix_result = vix_sizing_factor(
+            signal.metadata.get("vix", 20.0),
+            signal.metadata.get("realized_vol", 0.20),
+            signal.metadata.get("vix_history"),
+        )
+        contracts = max(1, int(contracts * vix_result.factor))
+
         return min(contracts, MAX_CONTRACTS_PER_TRADE)
 
     @classmethod

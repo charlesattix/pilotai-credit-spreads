@@ -63,9 +63,11 @@ class ZeroDTESpreadStrategy(BaseStrategy):
         rsi_min_ic = self._p("rsi_min_ic", 40)
         rsi_max_ic = self._p("rsi_max_ic", 60)
 
-        # VIX size factor stored in metadata for size_position
-        vix_reduce_threshold = self._p("vix_reduce_threshold", 30.0)
-        vix_size_factor = 0.5 if vix > vix_reduce_threshold else 1.0
+        # VIX regime sizing — replaces inline threshold logic
+        from shared.vix_regime import vix_sizing_factor as _vix_sizing
+        _rv = market_data.realized_vol.get("SPY", 0.20)
+        _vix_result = _vix_sizing(vix, _rv, market_data.vix_history)
+        vix_size_factor = _vix_result.factor
 
         for ticker in ZERO_DTE_TICKERS:
             price = market_data.prices.get(ticker)
@@ -387,10 +389,9 @@ class ZeroDTESpreadStrategy(BaseStrategy):
 
         contracts = max(1, int(risk_budget / risk_per_unit))
 
-        # VIX size reduction
+        # VIX regime sizing adjustment
         vix_factor = signal.metadata.get("vix_size_factor", 1.0)
-        if vix_factor < 1.0:
-            contracts = max(1, int(contracts * vix_factor))
+        contracts = max(1, int(contracts * vix_factor))
 
         return min(contracts, MAX_CONTRACTS_PER_TRADE)
 
