@@ -846,6 +846,14 @@ Examples:
                             notify_deviation_alerts(snapshot)
                     except Exception as dev_err:
                         logger.warning("Deviation snapshot failed (non-fatal): %s", dev_err)
+
+                    # Generate performance dashboard
+                    try:
+                        from scripts.performance_dashboard import save_dashboard
+                        dashboard_path = save_dashboard(report_date=today_str)
+                        logger.info("Performance dashboard saved: %s", dashboard_path)
+                    except Exception as dash_err:
+                        logger.warning("Dashboard generation failed (non-fatal): %s", dash_err)
                     return
 
                 # Regular scan slot
