@@ -112,10 +112,25 @@
 - [x] Legacy strategy path preserved as fallback if champion.json fails to load
 - [x] All 791 tests pass (16 new, 0 regressions)
 
+### Resilience Hardening — COMPLETE (2026-03-07)
+- [x] WP1: DataCache retry logic (3 attempts, 2s delay, metrics)
+- [x] WP2: Stale price fallback (exit monitors run even if all fresh fetches fail)
+- [x] WP3: Alpaca close retry (retry failed closes, force-close + Telegram desync alert after 3 attempts)
+- [x] WP4A: Dedup error logging (silent `except: pass` → warning + metric)
+- [x] WP4B: Startup reconcile without Alpaca (promote DB-only pending_open trades)
+- [x] WP4C: Stale order hours aligned (1h → 4h, matches reconciler)
+- [x] WP4D: Max drawdown auto-recovery (24h cooldown, manual kill switch still permanent)
+- [x] WP5: Scheduler heartbeat (`data/heartbeat.json`) + 10min scan timeout
+- [x] WP6: Health check script (`scripts/health_check.py` — exit 0/1/2, --json, --max-age)
+- [x] 20 resilience tests (`tests/test_resilience.py`), full suite 978 tests passing
+
 ### Validation — Running
 - [ ] 8+ weeks paper trading validation (started 2026-03-05)
 - [ ] Daily P&L reports (scheduler auto-generates at 4:15 PM ET)
-- [ ] Track live vs backtest performance deviation
+- [x] Track live vs backtest performance deviation
+  - Performance dashboard (`scripts/performance_dashboard.py`) generates daily HTML reports
+  - Charts: cumulative P&L, rolling win rate, deviation trend (live vs backtest)
+  - Auto-generates via scheduler at 4:15 PM ET → `reports/dashboard_YYYY-MM-DD.html`
 - [x] Wire up Telegram alerts (`shared/telegram_alerts.py` — .env-based, raw HTTP, paper_trader fallback)
 - [x] Deviation tracker runs daily after market close (scheduler 16:15 ET slot)
 - [x] Deviation alerts auto-fire via Telegram after snapshot is recorded

@@ -12,14 +12,26 @@ Schedule (all times ET, Mon-Fri):
 """
 
 import logging
+import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Tuple
 
 import pytz
 
+from shared.io_utils import atomic_json_write
+from shared.metrics import metrics
+
 logger = logging.getLogger(__name__)
+
+# Scan timeout: abort hung scans after this many seconds
+_SCAN_TIMEOUT_SECONDS = 600  # 10 minutes
+
+# Heartbeat file location
+_HEARTBEAT_PATH = Path(os.environ.get("DATA_DIR", "data")) / "heartbeat.json"
 
 ET = pytz.timezone("America/New_York")
 
@@ -88,6 +100,7 @@ class ScanScheduler:
         self._scan_fn = scan_fn
         self._stop_event = threading.Event()
         self._startup_delay = startup_delay
+        self._scan_count = 0
 
     def stop(self):
         """Signal the scheduler to stop after the current sleep."""
@@ -125,10 +138,41 @@ class ScanScheduler:
             if not _is_weekday(now_et):
                 continue
 
-            # Run the scan
+            # Run the scan with timeout protection
+            had_error = False
             try:
                 logger.info("=== Scheduled %s starting (%s ET) ===", slot_type, now_et.strftime("%H:%M"))
-                self._scan_fn(slot_type)
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(self._scan_fn, slot_type)
+                    try:
+                        future.result(timeout=_SCAN_TIMEOUT_SECONDS)
+                    except FuturesTimeoutError:
+                        had_error = True
+                        metrics.inc('scan_timeouts')
+                        logger.error(
+                            "Slot %s TIMED OUT after %ds — skipping to next slot",
+                            slot_type, _SCAN_TIMEOUT_SECONDS,
+                        )
+                self._scan_count += 1
                 logger.info("=== Scheduled %s complete ===", slot_type)
             except Exception:
+                had_error = True
                 logger.exception("Slot %s failed — will retry at next scheduled time", slot_type)
+            finally:
+                self._write_heartbeat(slot_type, error=had_error)
+
+    def _write_heartbeat(self, slot_type: str, error: bool = False) -> None:
+        """Write heartbeat file after each scan for external health monitoring."""
+        now_et = datetime.now(ET)
+        heartbeat = {
+            "last_scan_time": now_et.strftime("%Y-%m-%d %H:%M:%S"),
+            "last_scan_utc": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "last_slot_type": slot_type,
+            "scan_count": self._scan_count,
+            "had_error": error,
+            "pid": os.getpid(),
+        }
+        try:
+            atomic_json_write(_HEARTBEAT_PATH, heartbeat)
+        except Exception as e:
+            logger.warning("Failed to write heartbeat: %s", e)

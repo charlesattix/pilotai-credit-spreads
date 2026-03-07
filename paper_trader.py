@@ -25,11 +25,15 @@ PAPER_LOG = DATA_DIR / "paper_trades.json"  # legacy path, kept for test compati
 KILL_SWITCH_FILE = DATA_DIR / "kill_switch.json"
 
 MAX_DRAWDOWN_PCT = 0.20  # 20% portfolio-level max drawdown kill switch
+_DRAWDOWN_COOLDOWN_HOURS = 24  # Auto-recovery: resume trading after this cooldown
 EXTRINSIC_DECAY_RATE = 1.2  # Accelerating time-decay multiplier for OTM spreads
 BASE_DECAY_FACTOR = 0.3  # Fraction of extrinsic value remaining when ITM
 
 # Stale-order reconciliation: orders unconfirmed for this long are treated as dead
-_STALE_ORDER_HOURS = 1
+_STALE_ORDER_HOURS = 4  # WP4C: match reconciler's _PENDING_MAX_AGE_HOURS
+
+# Alpaca close retry: max attempts before force-closing locally
+_MAX_CLOSE_RETRIES = 3
 _TERMINAL_ALPACA_STATES = frozenset({
     "cancelled", "expired", "rejected", "replaced", "done_for_day",
 })
@@ -57,6 +61,9 @@ class PaperTrader:
 
         # Lock to protect self.trades mutations from concurrent threads
         self._trades_lock = threading.Lock()
+
+        # Max drawdown auto-recovery: timestamp when drawdown was first triggered
+        self._drawdown_triggered_at: Optional[datetime] = None
 
         # Anti-suicide-loop: track recent losses per (ticker, direction)
         # Key: (ticker, direction_str), Value: list of {"exit_time": datetime, "pnl": float, "strikes": (short, long)}
@@ -371,8 +378,9 @@ class PaperTrader:
                             f"{opp['short_strike']}/{opp['long_strike']} already exists"
                         )
                         return None
-            except Exception:
-                pass  # DB read failure shouldn't block trading
+            except Exception as e:
+                logger.warning("DB dedup check failed (trading continues): %s", e)
+                metrics.inc('db_dedup_check_failures')
 
             current_balance = self.trades["current_balance"]
             peak_balance = self.trades["stats"]["peak_balance"]
@@ -386,15 +394,39 @@ class PaperTrader:
                 return None
 
             # EH-TRADE-03: Portfolio-level max drawdown kill switch (peak-based)
+            # Manual kill_switch.json provides permanent halt (checked above).
+            # The automatic drawdown kill switch auto-recovers after a cooldown.
             drawdown_pct = (peak_balance - current_balance) / peak_balance if peak_balance > 0 else 0
             if drawdown_pct >= MAX_DRAWDOWN_PCT:
-                logger.critical(
-                    f"TRADE REFUSED — MAX DRAWDOWN KILL SWITCH ACTIVE: "
-                    f"drawdown {drawdown_pct:.1%} >= {MAX_DRAWDOWN_PCT:.0%} threshold. "
-                    f"Peak: ${peak_balance:,.2f}, Current: ${current_balance:,.2f}. "
-                    f"All new trades are blocked until manual review."
-                )
-                return None
+                now_utc = datetime.now(timezone.utc)
+                if self._drawdown_triggered_at is None:
+                    self._drawdown_triggered_at = now_utc
+
+                cooldown_elapsed = (now_utc - self._drawdown_triggered_at).total_seconds() / 3600
+                if cooldown_elapsed < _DRAWDOWN_COOLDOWN_HOURS:
+                    remaining_h = _DRAWDOWN_COOLDOWN_HOURS - cooldown_elapsed
+                    logger.critical(
+                        "TRADE REFUSED — MAX DRAWDOWN KILL SWITCH ACTIVE: "
+                        "drawdown %.1f%% >= %.0f%% threshold. "
+                        "Peak: $%s, Current: $%s. "
+                        "Auto-recovery in %.1fh.",
+                        drawdown_pct * 100, MAX_DRAWDOWN_PCT * 100,
+                        f"{peak_balance:,.2f}", f"{current_balance:,.2f}",
+                        remaining_h,
+                    )
+                    return None
+                else:
+                    logger.warning(
+                        "Drawdown cooldown expired (%.1fh elapsed) — "
+                        "resuming trading with conservative sizing. "
+                        "Drawdown: %.1f%%",
+                        cooldown_elapsed, drawdown_pct * 100,
+                    )
+                    self._drawdown_triggered_at = None  # reset for next trigger
+            else:
+                # Drawdown recovered below threshold — clear the trigger
+                if self._drawdown_triggered_at is not None:
+                    self._drawdown_triggered_at = None
 
             # Anti-suicide-loop: check circuit breakers
             ticker = opp.get("ticker", "")
@@ -607,6 +639,9 @@ class PaperTrader:
         if self._is_kill_switch_active():
             logger.warning("Kill switch active — skipping position management")
             return []
+
+        # WP3A: Retry previously failed Alpaca close operations
+        self._process_close_retries()
 
         closed = []
         now = datetime.now(timezone.utc)
@@ -843,12 +878,20 @@ class PaperTrader:
                 )
                 logger.info(f"Alpaca close order submitted for {trade['ticker']}")
             except Exception as e:
+                retry_info = trade.get("_close_retry", {})
+                attempt = retry_info.get("attempts", 0) + 1
                 logger.error(
-                    f"Alpaca close failed for {trade['ticker']}: {e}. "
-                    "Local trade state will NOT be updated to closed.",
+                    "Alpaca close failed for %s (attempt %d/%d): %s",
+                    trade['ticker'], attempt, _MAX_CLOSE_RETRIES, e,
                     exc_info=True,
                 )
                 trade["alpaca_sync_error"] = str(e)
+                trade["_close_retry"] = {
+                    "pnl": pnl,
+                    "reason": reason,
+                    "attempts": attempt,
+                }
+                metrics.inc('alpaca_close_retries')
                 return  # Do NOT proceed with local state transition
 
         with self._trades_lock:
@@ -939,6 +982,57 @@ class PaperTrader:
         except Exception as e:
             logger.warning("Telegram exit alert failed: %s", e)
 
+    def _process_close_retries(self) -> None:
+        """Retry Alpaca close for trades tagged with _close_retry.
+
+        If retries are exhausted, force-close locally and send a desync alert.
+        """
+        for trade in list(self.open_trades):
+            retry_info = trade.get("_close_retry")
+            if not retry_info:
+                continue
+
+            attempts = retry_info["attempts"]
+            pnl = retry_info["pnl"]
+            reason = retry_info["reason"]
+
+            if attempts >= _MAX_CLOSE_RETRIES:
+                # Exhausted — force-close locally and alert about broker desync
+                logger.critical(
+                    "Alpaca close exhausted %d retries for %s — force-closing locally",
+                    _MAX_CLOSE_RETRIES, trade.get("ticker"),
+                )
+                del trade["_close_retry"]
+                trade.pop("alpaca_order_id", None)  # prevent re-triggering Alpaca close
+                self._close_trade(trade, pnl, reason)
+                self._send_alpaca_desync_alert(trade)
+                metrics.inc('alpaca_close_exhausted')
+            else:
+                # Retry: _close_trade will increment attempt count on failure
+                logger.info(
+                    "Retrying Alpaca close for %s (attempt %d/%d)",
+                    trade.get("ticker"), attempts + 1, _MAX_CLOSE_RETRIES,
+                )
+                self._close_trade(trade, pnl, reason)
+
+    def _send_alpaca_desync_alert(self, trade: Dict) -> None:
+        """Send critical Telegram alert when Alpaca close retry is exhausted."""
+        msg = (
+            "\U0001f6a8 <b>BROKER DESYNC ALERT</b>\n\n"
+            f"Trade {trade.get('ticker')} {trade.get('type', '')} could not be "
+            f"closed in Alpaca after {_MAX_CLOSE_RETRIES} attempts.\n"
+            f"Local state forced closed. Manual broker reconciliation required.\n"
+            f"Trade ID: {trade.get('id')}"
+        )
+        try:
+            if self.telegram_bot:
+                self.telegram_bot.send_alert(msg)
+            else:
+                from shared.telegram_alerts import send_message
+                send_message(msg)
+        except Exception as e:
+            logger.error("Failed to send Alpaca desync alert: %s", e)
+
     def _startup_reconcile(self) -> str:
         """Resolve pending_open DB rows created by write-ahead before last shutdown.
 
@@ -947,19 +1041,42 @@ class PaperTrader:
 
         Returns a human-readable summary string (empty string if nothing changed).
         """
+        # Phase 1: Promote DB-only pending_open trades that were never
+        # submitted to Alpaca (no alpaca_client_order_id). These are leftover
+        # from the write-ahead protocol when the process crashed before the
+        # Alpaca submission step.
+        promoted = 0
+        try:
+            pending = get_trades(status="pending_open")
+            for trade in pending:
+                if not trade.get("alpaca_client_order_id"):
+                    trade["status"] = "open"
+                    upsert_trade(trade, source="scanner")
+                    promoted += 1
+                    logger.info(
+                        "Promoted DB-only pending_open trade to open: %s %s",
+                        trade.get("ticker"), trade.get("id"),
+                    )
+        except Exception as e:
+            logger.warning("DB-only pending_open promotion error: %s", e)
+
+        # Phase 2: Alpaca-backed reconciliation
         if not self.alpaca:
-            return ""
+            return f"promoted_db_only={promoted}" if promoted else ""
         try:
             from shared.reconciler import PositionReconciler
             result = PositionReconciler(self.alpaca).reconcile()
-            if result:
-                return (
-                    f"resolved={result.pending_resolved}, "
-                    f"failed={result.pending_failed}"
-                )
+            if result or promoted:
+                parts = []
+                if promoted:
+                    parts.append(f"promoted_db_only={promoted}")
+                if result:
+                    parts.append(f"resolved={result.pending_resolved}")
+                    parts.append(f"failed={result.pending_failed}")
+                return ", ".join(parts)
         except Exception as e:
             logger.warning("Startup reconciliation error: %s", e)
-        return ""
+        return f"promoted_db_only={promoted}" if promoted else ""
 
     def _cleanup_error_trades(self) -> None:
         """Mark stale/error trades as failed_open.
@@ -1136,6 +1253,9 @@ class PaperTrader:
         if not self.alpaca:
             return
 
+        sync_errors = 0
+        synced = 0
+
         for trade in self.open_trades:
             order_id = trade.get("alpaca_order_id")
             if not order_id or trade.get("alpaca_status") == "filled":
@@ -1152,13 +1272,19 @@ class PaperTrader:
                     trade["alpaca_filled_at"] = status.get("filled_at")
                     upsert_trade(trade, source="scanner")
                     logger.info(f"Alpaca sync: {trade['ticker']} order {order_id} → {new_status}")
+                    synced += 1
 
                     # If order was rejected/cancelled, mark trade for review
                     if new_status in ("cancelled", "expired", "rejected"):
                         trade["alpaca_sync_error"] = f"Order {new_status}"
 
             except Exception as e:
+                sync_errors += 1
+                metrics.inc('alpaca_sync_errors')
                 logger.warning(f"Alpaca sync failed for {trade['ticker']}: {e}")
+
+        if sync_errors:
+            logger.warning("Alpaca sync completed with %d error(s), %d updated", sync_errors, synced)
 
     def _log_trade_outcome(self, trade: Dict):
         """Log closed trade outcome to ml/training_data/ for future model retraining."""

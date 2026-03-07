@@ -206,6 +206,10 @@ class CreditSpreadSystem:
         except Exception as e:
             logger.warning("Champion config not loaded, using legacy strategy: %s", e)
 
+        # Stale-price fallback: if all fresh fetches fail but we have open
+        # positions, reuse the last known prices so exit monitors still run.
+        self._last_known_prices: Dict[str, float] = {}
+
         logger.info("All components initialized successfully")
 
     def scan_opportunities(self):
@@ -262,6 +266,20 @@ class CreditSpreadSystem:
                     current_prices[ticker] = float(hist['Close'].iloc[-1])
             except Exception as e:
                 logger.warning(f"Failed to fetch price for {ticker}: {e}")
+
+        if current_prices:
+            # Update stale-price cache on success
+            self._last_known_prices.update(current_prices)
+        elif self._last_known_prices and self.paper_trader.open_trades:
+            # All fresh fetches failed but we have open positions — use stale
+            # prices so check_positions() and exit monitors can still run.
+            logger.warning(
+                "All price fetches failed — falling back to %d stale prices "
+                "to keep exit monitors running",
+                len(self._last_known_prices),
+            )
+            current_prices = dict(self._last_known_prices)
+            metrics.inc('stale_price_fallbacks')
 
         if current_prices:
             closed = self.paper_trader.check_positions(current_prices)
