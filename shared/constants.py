@@ -30,6 +30,7 @@ WEEKLY_LOSS_LIMIT = 0.15         # 15% weekly loss → 50% size reduction
 MIN_RISK_REWARD = 1.0            # minimum risk/reward ratio
 MAX_CORRELATED_POSITIONS = 3     # max positions with same direction
 COOLDOWN_AFTER_STOP = 30 * 60   # 30 minutes cooldown after stop-out (seconds)
+GAMMA_LOTTO_MAX_RISK_PCT = 0.005 # 0.5% max risk per lotto play
 
 # ---------------------------------------------------------------------------
 # Position sizing
@@ -56,8 +57,59 @@ BACKTEST_CREDIT_FRACTION = 0.35
 # Economic calendar
 # ---------------------------------------------------------------------------
 
-# Known FOMC meeting dates 2025-2026
+# Known FOMC meeting/decision dates 2020-2026
+# Sources: federalreserve.gov/monetarypolicy/fomccalendars.htm
+# Dates are the announcement day (last day of 2-day meetings).
+# 2020 includes 3 emergency COVID meetings (Mar 3, Mar 15, Mar 23).
 FOMC_DATES = [
+    # --- 2020 (7 scheduled + 3 emergency) ---
+    datetime(2020, 1, 29, tzinfo=timezone.utc),
+    datetime(2020, 3, 3, tzinfo=timezone.utc),   # emergency rate cut
+    datetime(2020, 3, 15, tzinfo=timezone.utc),  # emergency rate cut to 0%
+    datetime(2020, 3, 23, tzinfo=timezone.utc),  # emergency credit expansion
+    datetime(2020, 4, 29, tzinfo=timezone.utc),
+    datetime(2020, 6, 10, tzinfo=timezone.utc),
+    datetime(2020, 7, 29, tzinfo=timezone.utc),
+    datetime(2020, 9, 16, tzinfo=timezone.utc),
+    datetime(2020, 11, 5, tzinfo=timezone.utc),
+    datetime(2020, 12, 16, tzinfo=timezone.utc),
+    # --- 2021 (8 scheduled) ---
+    datetime(2021, 1, 27, tzinfo=timezone.utc),
+    datetime(2021, 3, 17, tzinfo=timezone.utc),
+    datetime(2021, 4, 28, tzinfo=timezone.utc),
+    datetime(2021, 6, 16, tzinfo=timezone.utc),
+    datetime(2021, 7, 28, tzinfo=timezone.utc),
+    datetime(2021, 9, 22, tzinfo=timezone.utc),
+    datetime(2021, 11, 3, tzinfo=timezone.utc),
+    datetime(2021, 12, 15, tzinfo=timezone.utc),
+    # --- 2022 (8 scheduled) ---
+    datetime(2022, 1, 26, tzinfo=timezone.utc),
+    datetime(2022, 3, 16, tzinfo=timezone.utc),
+    datetime(2022, 5, 4, tzinfo=timezone.utc),
+    datetime(2022, 6, 15, tzinfo=timezone.utc),
+    datetime(2022, 7, 27, tzinfo=timezone.utc),
+    datetime(2022, 9, 21, tzinfo=timezone.utc),
+    datetime(2022, 11, 2, tzinfo=timezone.utc),
+    datetime(2022, 12, 14, tzinfo=timezone.utc),
+    # --- 2023 (8 scheduled) ---
+    datetime(2023, 2, 1, tzinfo=timezone.utc),
+    datetime(2023, 3, 22, tzinfo=timezone.utc),
+    datetime(2023, 5, 3, tzinfo=timezone.utc),
+    datetime(2023, 6, 14, tzinfo=timezone.utc),
+    datetime(2023, 7, 26, tzinfo=timezone.utc),
+    datetime(2023, 9, 20, tzinfo=timezone.utc),
+    datetime(2023, 11, 1, tzinfo=timezone.utc),
+    datetime(2023, 12, 13, tzinfo=timezone.utc),
+    # --- 2024 (8 scheduled) ---
+    datetime(2024, 1, 31, tzinfo=timezone.utc),
+    datetime(2024, 3, 20, tzinfo=timezone.utc),
+    datetime(2024, 5, 1, tzinfo=timezone.utc),
+    datetime(2024, 6, 12, tzinfo=timezone.utc),
+    datetime(2024, 7, 31, tzinfo=timezone.utc),
+    datetime(2024, 9, 18, tzinfo=timezone.utc),
+    datetime(2024, 11, 7, tzinfo=timezone.utc),
+    datetime(2024, 12, 18, tzinfo=timezone.utc),
+    # --- 2025 (8 scheduled) ---
     datetime(2025, 1, 29, tzinfo=timezone.utc),
     datetime(2025, 3, 19, tzinfo=timezone.utc),
     datetime(2025, 5, 7, tzinfo=timezone.utc),
@@ -66,6 +118,7 @@ FOMC_DATES = [
     datetime(2025, 9, 17, tzinfo=timezone.utc),
     datetime(2025, 11, 5, tzinfo=timezone.utc),
     datetime(2025, 12, 17, tzinfo=timezone.utc),
+    # --- 2026 (9 scheduled) ---
     datetime(2026, 1, 28, tzinfo=timezone.utc),
     datetime(2026, 2, 4, tzinfo=timezone.utc),
     datetime(2026, 3, 18, tzinfo=timezone.utc),

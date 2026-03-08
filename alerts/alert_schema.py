@@ -137,10 +137,30 @@ class Alert:
         defaults.
         """
         opp_type = opp.get("type", "bull_put_spread")
+        alert_source = opp.get("alert_source", "")
         expiration = str(opp.get("expiration", ""))
 
+        # Detect gamma/lotto (must check before is_debit)
+        is_gamma = (
+            alert_source == "gamma_lotto"
+            or "gamma" in opp_type
+            or "lotto" in opp_type
+        )
+
+        # Detect debit spread / momentum swing
+        is_debit = (
+            "debit" in opp_type
+            or alert_source == "momentum_swing"
+        )
+
         # Map legacy type → AlertType
-        if "condor" in opp_type:
+        if is_gamma:
+            alert_type = AlertType.gamma_lotto
+        elif is_debit:
+            alert_type = AlertType.momentum_swing
+        elif alert_source == "earnings_play" or "earnings" in opp_type:
+            alert_type = AlertType.earnings_play
+        elif "condor" in opp_type:
             alert_type = AlertType.iron_condor
         elif "put" in opp_type:
             alert_type = AlertType.credit_spread
@@ -148,8 +168,15 @@ class Alert:
             alert_type = AlertType.credit_spread
 
         # Infer direction
-        if "condor" in opp_type:
+        if is_gamma:
+            gamma_opt_type = opp.get("option_type", "call")
+            direction = Direction.bullish if gamma_opt_type == "call" else Direction.bearish
+        elif alert_source == "earnings_play" or "earnings" in opp_type:
             direction = Direction.neutral
+        elif "condor" in opp_type:
+            direction = Direction.neutral
+        elif is_debit:
+            direction = Direction.bullish if "bull" in opp_type or "call" in opp_type else Direction.bearish
         elif "put" in opp_type:
             direction = Direction.bullish
         else:
@@ -157,13 +184,24 @@ class Alert:
 
         # Build legs
         legs: List[Leg] = []
-        if "condor" in opp_type:
+        if is_gamma:
+            gamma_opt_type = opp.get("option_type", "call")
+            legs.append(Leg(opp["strike"], gamma_opt_type, "buy", expiration))
+        elif "condor" in opp_type:
             # Put side
             legs.append(Leg(opp["short_strike"], "put", "sell", expiration))
             legs.append(Leg(opp["long_strike"], "put", "buy", expiration))
             # Call side
             legs.append(Leg(opp["call_short_strike"], "call", "sell", expiration))
             legs.append(Leg(opp["call_long_strike"], "call", "buy", expiration))
+        elif is_debit and ("call" in opp_type or direction == Direction.bullish):
+            # Bull call debit: buy long_strike call, sell short_strike call
+            legs.append(Leg(opp["long_strike"], "call", "buy", expiration))
+            legs.append(Leg(opp["short_strike"], "call", "sell", expiration))
+        elif is_debit:
+            # Bear put debit: buy long_strike put, sell short_strike put
+            legs.append(Leg(opp["long_strike"], "put", "buy", expiration))
+            legs.append(Leg(opp["short_strike"], "put", "sell", expiration))
         elif "put" in opp_type:
             legs.append(Leg(opp["short_strike"], "put", "sell", expiration))
             legs.append(Leg(opp["long_strike"], "put", "buy", expiration))
@@ -181,32 +219,69 @@ class Alert:
         score = opp.get("score", 0)
 
         # Confidence mapping based on score
-        if score >= 80:
+        if is_gamma:
+            confidence = Confidence.SPECULATIVE
+        elif score >= 80:
             confidence = Confidence.HIGH
         elif score >= 60:
             confidence = Confidence.MEDIUM
         else:
             confidence = Confidence.SPECULATIVE
 
-        # Expiry: default 4 hours from now
-        expires_at = datetime.now(timezone.utc) + timedelta(hours=4)
+        # Time sensitivity and expiry
+        dte = opp.get("dte", 999)
+        if is_gamma:
+            time_sensitivity = TimeSensitivity.IMMEDIATE
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+        elif is_debit:
+            # Momentum swings are slower — TODAY, not IMMEDIATE
+            time_sensitivity = TimeSensitivity.TODAY
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=4)
+        elif dte <= 1:
+            time_sensitivity = TimeSensitivity.IMMEDIATE
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+        else:
+            time_sensitivity = TimeSensitivity.TODAY
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=4)
+
+        # Build thesis — enrich for cash-settled instruments
+        thesis = opp.get("thesis", f"{opp['ticker']} {opp_type} at score {score:.0f}")
+        if opp.get("settlement") == "cash":
+            thesis += " (cash-settled, Section 1256)"
+
+        # Management instructions — use opportunity-provided if available
+        if alert_type == AlertType.gamma_lotto:
+            default_instructions = (
+                "LOTTO \u2014 0.5% max risk. Trailing stop: activates at 3x entry, "
+                "trails at 2x entry. Let expire worthless if no move."
+            )
+        elif alert_type == AlertType.earnings_play:
+            default_instructions = (
+                "Earnings iron condor. Close morning after earnings to capture IV crush, "
+                "or at 50% profit / 2x credit stop loss."
+            )
+        else:
+            default_instructions = (
+                "Close at 50% profit or stop loss. Roll if challenged before expiration."
+            )
+        if opp.get("alert_source") == "zero_dte" and opp.get("management_instructions"):
+            management_instructions = opp["management_instructions"]
+        else:
+            management_instructions = opp.get("management_instructions", default_instructions)
 
         return cls(
             type=alert_type,
             ticker=opp["ticker"],
             direction=direction,
             legs=legs,
-            entry_price=opp.get("credit", 0.01),
+            entry_price=opp.get("debit", opp.get("credit", 0.01)) if (is_debit or is_gamma) else opp.get("credit", 0.01),
             stop_loss=opp.get("stop_loss", 0.0),
             profit_target=opp.get("profit_target", 0.0),
             risk_pct=risk_pct,
             confidence=confidence,
-            thesis=opp.get("thesis", f"{opp['ticker']} {opp_type} at score {score:.0f}"),
-            time_sensitivity=TimeSensitivity.TODAY,
-            management_instructions=opp.get(
-                "management_instructions",
-                "Close at 50% profit or stop loss. Roll if challenged before expiration.",
-            ),
+            thesis=thesis,
+            time_sensitivity=time_sensitivity,
+            management_instructions=management_instructions,
             expires_at=expires_at,
             score=score,
         )

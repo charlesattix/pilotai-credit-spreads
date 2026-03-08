@@ -88,7 +88,7 @@ class OptionsAnalyzer:
             DataFrame with options chain data.
         """
         try:
-            min_dte = self.config['strategy'].get('min_dte', 30) - 5
+            min_dte = max(self.config['strategy'].get('min_dte', 30) - 5, 0)
             max_dte = self.config['strategy'].get('max_dte', 45) + 5
             chain = provider.get_full_chain(ticker, min_dte=min_dte, max_dte=max_dte)
             
@@ -122,7 +122,7 @@ class OptionsAnalyzer:
 
             all_options = []
 
-            min_dte = self.config.get('strategy', {}).get('min_dte', 30) - 5  # buffer
+            min_dte = max(self.config.get('strategy', {}).get('min_dte', 30) - 5, 0)  # buffer
             max_dte = self.config.get('strategy', {}).get('max_dte', 45) + 5
             now = datetime.now(timezone.utc)
 
