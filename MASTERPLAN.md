@@ -160,12 +160,34 @@ If credit spreads alone can't hit 200%:
 - Portfolio-level optimization across strategy mix
 - Correlation analysis between strategies
 
-### Phase 5: Validation & Stress Testing ✅
-- Walk-forward: Train on 2020-2023, validate on 2024-2025
-- Monte Carlo: 10,000 random path simulations
-- Sensitivity analysis: How fragile are the params?
-- Slippage modeling: Add realistic fill assumptions
-- If results hold → DECLARE VICTORY 🏆
+### Phase 5: Validation & Stress Testing ✅ (COMPLETE)
+- MA sweep exhausted (MA50/100/150/200) — non-monotonic, no single MA fixes 2023+2024
+- exp_090 (MA200) confirmed champion: avg 34.1%, 5/6 years profitable, worst DD -26.9%
+- 87 experiments completed
+
+### Phase 6: Combo Regime Detector 🧠 (ACTIVE)
+**Goal**: Replace naive MA200 filter with robust multi-signal regime detector
+
+**Architecture (v2 — critique-revised)**:
+- 3 uncorrelated signals: Price vs MA200, RSI(14) momentum, VIX term structure (VIX/VIX3M)
+- Asymmetric voting: BULL needs 2/3, BEAR needs 3/3 unanimous
+- 10-day hysteresis cooldown prevents whipsaw
+- VIX > 40 circuit breaker for extreme events
+- All signals use prior day data (no lookahead)
+
+**Regime → Strategy**:
+- BULL → bull puts only | BEAR → bear calls only | NEUTRAL → bull puts only
+
+**Validation gates**: 2023+2024 pilot → full 6yr → parameter sensitivity sweep
+
+### 🚨 MANDATORY: Regime Detector in ALL Experiments (Phase 6+)
+**Once the combo regime detector v2 passes full 6yr validation:**
+- ALL future backtesting experiments with `direction: both` MUST use `regime_mode: combo`
+- The paper trading scanner MUST use the regime detector for trade direction decisions
+- Bull-put-only experiments are exempt (regime filter is a no-op for those)
+- "Validated" = full 6yr backtest passes Carlos criteria (avg > 30%, worst DD < 40%)
+- NO MORE standalone MA200 filtering for directional decisions
+- This is NON-NEGOTIABLE — Carlos mandate, March 5 2026
 
 ---
 

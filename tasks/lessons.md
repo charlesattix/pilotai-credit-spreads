@@ -189,3 +189,30 @@
 - Process & management: 3
 - Backtester data integrity: 2 (+1: _record_close)
 - Last review: 2026-02-27
+
+## COMPASS Integration Insights (2026-03-07)
+
+### Critical Findings from 323-Week Analysis
+
+1. **Complacency multiplier was backwards**: score >70 → 0.8× would cut sizes during 2021's trending bull year, costing -25.68pp. Credit spreads thrive in calm trending markets — don't reduce there.
+
+2. **RRG breadth filter was a coin flip**: 50% threshold with 7 sectors → blocks ~49% of weeks by construction. Not a signal. Fix: use XLI + XLF both in Lagging/Weakening (~15-20% block rate).
+
+3. **Only risk_appetite dimension has predictive power**: Overall composite r=-0.106 (weak). Risk appetite alone r=-0.250 vs forward 4w SPY returns (strong contrarian signal).
+
+4. **Fear = opportunity for credit spreads**: score <45 weeks → avg +3.66% forward 4w SPY return. Sell premium when IV is richest and bounce probability highest.
+
+5. **Event gate is highest-conviction signal** but macro_events table lacks 2020-2024 FOMC/CPI/NFP data. Requires one-time backfill before backtesting.
+
+### Recalibrated Thresholds (exp_102)
+- Risk appetite < 30 → 1.2× (extreme fear, sell more premium)
+- Risk appetite < 45 → 1.1× (elevated fear)
+- Risk appetite 45-65 → 1.0× (neutral)
+- Risk appetite > 65 → 0.95× (mild complacency)
+- Risk appetite > 75 → 0.85× (high complacency, contrarian caution)
+- RRG: Block bull puts ONLY when XLI AND XLF both Lagging/Weakening
+
+### Expected exp_102 Outcome
+- +27 to +32% avg return (vs 26.85% baseline exp_090)
+- Major improvement in 2020 (fear sizing up) and 2022 (RRG blocking bad entries)
+- 2021 no longer penalized (risk_appetite ~60, not >70)
