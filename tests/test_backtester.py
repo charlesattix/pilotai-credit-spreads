@@ -11,7 +11,10 @@ from backtest.backtester import Backtester
 # ---------------------------------------------------------------------------
 
 def _make_config():
-    """Minimal config for Backtester."""
+    """Minimal config for Backtester.
+    Uses regime_mode='ma' for test isolation — unit tests exercise specific backtester
+    mechanics and must not be affected by combo regime signal warmup requirements.
+    """
     return {
         'backtest': {
             'starting_capital': 100000,
@@ -20,6 +23,7 @@ def _make_config():
         },
         'strategy': {
             'spread_width': 5,
+            'regime_mode': 'ma',  # test isolation: avoid combo mode VIX/warmup deps
         },
         'risk': {
             'max_positions': 5,
@@ -2253,7 +2257,8 @@ class TestVolumeSizeCap:
         bt.starting_capital = 100_000
         bt._use_real_data = True
         bt._vol_size_cap = 0.02
-        bt._volume_gate = False
+        bt._volume_gate = True   # vol_size_cap only applies when volume_gate is enabled
+        bt._min_vol_ratio = 0    # disable hard-reject; only test the cap logic
 
         mock_hd.get_available_strikes.return_value = [440, 445, 450, 455, 460]
         mock_hd.get_spread_prices.return_value = {

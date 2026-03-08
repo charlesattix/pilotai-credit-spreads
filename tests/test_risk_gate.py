@@ -273,9 +273,12 @@ class TestNoBypass:
     """Verify there are no configurable overrides or bypass flags."""
 
     def test_no_constructor_args(self):
-        """RiskGate takes no config — rules are hard-coded."""
+        """RiskGate works with no args — config is optional for drawdown CB.
+        Core rules (daily/weekly limits, exposure caps) remain hard-coded constants."""
         gate = RiskGate()
-        assert not hasattr(gate, "config")
+        # config attribute exists but is an empty dict when not supplied
+        assert hasattr(gate, "config")
+        assert gate.config == {}
 
     def test_constants_match_masterplan(self):
         assert MAX_RISK_PER_TRADE == 0.05

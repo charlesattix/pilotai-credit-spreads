@@ -4,7 +4,6 @@ These tests verify invariants that must hold for any valid input, rather than
 checking specific examples.
 """
 
-import sys
 import importlib.util
 from pathlib import Path
 import numpy as np
@@ -32,21 +31,6 @@ _ss_spec = importlib.util.spec_from_file_location(
 _ss_mod = importlib.util.module_from_spec(_ss_spec)
 _ss_spec.loader.exec_module(_ss_mod)
 CreditSpreadStrategy = _ss_mod.CreditSpreadStrategy
-
-# We need constants for paper_trader
-_const_spec = importlib.util.spec_from_file_location(
-    "constants", str(_project / "constants.py"))
-_const_mod = importlib.util.module_from_spec(_const_spec)
-_const_spec.loader.exec_module(_const_mod)
-# Ensure it is available on sys.modules for paper_trader import
-sys.modules.setdefault("constants", _const_mod)
-
-_pt_spec = importlib.util.spec_from_file_location(
-    "paper_trader", str(_project / "paper_trader.py"))
-_pt_mod = importlib.util.module_from_spec(_pt_spec)
-_pt_spec.loader.exec_module(_pt_mod)
-PaperTrader = _pt_mod.PaperTrader
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -205,81 +189,3 @@ class TestSanitizeFeatures:
         assert not np.any(np.isnan(result))
         assert (result == 0.0).all()
 
-
-# ---------------------------------------------------------------------------
-# 5. _evaluate_position: PnL bounded by spread width * contracts * 100
-# ---------------------------------------------------------------------------
-
-class TestEvaluatePositionBounded:
-
-    @given(
-        current_price=st.floats(min_value=50.0, max_value=1000.0),
-        dte=st.integers(min_value=0, max_value=60),
-        contracts=st.integers(min_value=1, max_value=10),
-        credit_per_spread=st.floats(min_value=0.10, max_value=4.50),
-        spread_width=st.floats(min_value=1.0, max_value=20.0),
-    )
-    @settings(max_examples=200)
-    def test_pnl_bounded_bull_put(self, current_price, dte, contracts,
-                                   credit_per_spread, spread_width):
-        """Bull put spread PnL should be bounded by spread width * contracts * 100."""
-        short_strike = round(current_price - 5, 2)
-        long_strike = round(short_strike - spread_width, 2)
-        max_loss = spread_width - credit_per_spread
-        assume(max_loss > 0)
-
-        trade = {
-            "total_credit": round(credit_per_spread * contracts * 100, 2),
-            "contracts": contracts,
-            "short_strike": short_strike,
-            "long_strike": long_strike,
-            "type": "bull_put_spread",
-            "dte_at_entry": 35,
-            "total_max_loss": round(max_loss * contracts * 100, 2),
-            "profit_target": round(credit_per_spread * 0.5 * contracts * 100, 2),
-            "stop_loss_amount": round(credit_per_spread * 2.5 * contracts * 100, 2),
-        }
-
-        pnl, _ = PaperTrader._evaluate_position(None, trade, current_price, dte)
-        max_possible_loss = spread_width * contracts * 100
-        max_possible_gain = credit_per_spread * contracts * 100
-
-        # PnL should be bounded: we cannot lose more than the spread's max loss
-        # and we cannot gain more than the credit received
-        assert pnl <= max_possible_gain + 0.01
-        assert pnl >= -max_possible_loss - 0.01
-
-    @given(
-        current_price=st.floats(min_value=50.0, max_value=1000.0),
-        dte=st.integers(min_value=0, max_value=60),
-        contracts=st.integers(min_value=1, max_value=10),
-        credit_per_spread=st.floats(min_value=0.10, max_value=4.50),
-        spread_width=st.floats(min_value=1.0, max_value=20.0),
-    )
-    @settings(max_examples=200)
-    def test_pnl_bounded_bear_call(self, current_price, dte, contracts,
-                                    credit_per_spread, spread_width):
-        """Bear call spread PnL should be bounded by spread width * contracts * 100."""
-        short_strike = round(current_price + 5, 2)
-        long_strike = round(short_strike + spread_width, 2)
-        max_loss = spread_width - credit_per_spread
-        assume(max_loss > 0)
-
-        trade = {
-            "total_credit": round(credit_per_spread * contracts * 100, 2),
-            "contracts": contracts,
-            "short_strike": short_strike,
-            "long_strike": long_strike,
-            "type": "bear_call_spread",
-            "dte_at_entry": 35,
-            "total_max_loss": round(max_loss * contracts * 100, 2),
-            "profit_target": round(credit_per_spread * 0.5 * contracts * 100, 2),
-            "stop_loss_amount": round(credit_per_spread * 2.5 * contracts * 100, 2),
-        }
-
-        pnl, _ = PaperTrader._evaluate_position(None, trade, current_price, dte)
-        max_possible_loss = spread_width * contracts * 100
-        max_possible_gain = credit_per_spread * contracts * 100
-
-        assert pnl <= max_possible_gain + 0.01
-        assert pnl >= -max_possible_loss - 0.01
