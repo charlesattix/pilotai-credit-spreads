@@ -1,8 +1,7 @@
-# Credit Spread Trading System Configuration — EXP-036 (CONTROL GROUP)
-# Control: 5% flat risk, directional-only (no ICs), simple MA200 regime
-# Experiment question: does combo regime + IC gating add measurable live alpha?
-# Comparing directly vs EXP-154 (combo + IC) with identical sizing/SL/PT/DTE
-# Account: PA3D6UPXF5F2 (.env.exp036)
+# Credit Spread Trading System Configuration — EXP-158
+# A/B vs EXP-154: compound sizing (5% directional / 9% IC) vs flat sizing
+# MC P50 return: +31.4% | Backtest: configs/exp_158_risk5_icr9_compound.json
+# Account: PA3LP867WNGU (.env.exp059)
 
 # Tickers to monitor
 tickers:
@@ -12,7 +11,7 @@ tickers:
 
 # Strategy Parameters
 strategy:
-  # Days to expiration range (matches EXP-154 / EXP-158)
+  # Days to expiration range for new positions (matches EXP-154)
   min_dte: 25
   max_dte: 45
   target_dte: 35
@@ -33,23 +32,43 @@ strategy:
   spread_width_high_iv: 10
   spread_width_low_iv: 5
 
-  # Direction: both (MA200 trend filter decides bull/bear entries)
+  # Direction: both (sell bull-puts in bull/neutral, bear-calls in bear/neutral)
   direction: both
 
   # IV Rank filters
   min_iv_rank: 12
   min_iv_percentile: 12
 
-  # Iron condors: DISABLED — control group tests directional-only performance
-  # EXP-154/158 have ICs enabled; this isolates IC contribution
+  # Iron condor parameters — EXP-158: IC-in-NEUTRAL-only, 9% risk per IC
+  # Lower IC risk vs EXP-154 (12%) because compound sizing grows the base faster
   iron_condor:
-    enabled: false
+    enabled: true
+    ic_neutral_regime_only: true      # Only deploy ICs when regime=NEUTRAL
+    ic_risk_per_trade: 9.0            # 9% IC risk (compound: base grows as equity grows)
+    prefer_in_low_iv: false
+    low_iv_threshold: 30
+    min_combined_credit_pct: 8
+    max_wing_width: 10
+    rsi_min: 30
+    rsi_max: 70
 
-  # Regime detection: simple MA200 only (NOT combo detector)
-  # This is the primary control variable vs EXP-154/158 (regime_mode: combo)
-  regime_mode: simple
+  # Regime detection: combo v2 (same as EXP-154 — isolates sizing mode only)
+  regime_mode: combo
   regime_config:
+    signals:
+      - price_vs_ma200
+      - rsi_momentum
+      - vix_structure
     ma_slow_period: 200
+    ma200_neutral_band_pct: 0.5
+    rsi_period: 14
+    rsi_bull_threshold: 55.0
+    rsi_bear_threshold: 45.0
+    vix_structure_bull: 0.95
+    vix_structure_bear: 1.05
+    bear_requires_unanimous: true
+    cooldown_days: 3
+    vix_extreme: 40.0
 
   # Technical filters
   technical:
@@ -58,7 +77,7 @@ strategy:
     use_support_resistance: true
 
     fast_ma: 20
-    slow_ma: 200
+    slow_ma: 200  # MA200 trend filter
 
     rsi_period: 14
     rsi_oversold: 30
@@ -69,12 +88,13 @@ risk:
   # Starting account size (USD)
   account_size: 100000
 
-  # 5% flat risk per directional spread — matches EXP-154 exactly
-  # (isolates regime detector + IC as the only variable)
+  # 5% base risk per directional spread (same as EXP-154)
+  # IC trades use ic_risk_per_trade=9% (see strategy.iron_condor above)
   max_risk_per_trade: 5.0
 
-  # Flat sizing (same as EXP-154)
-  sizing_mode: flat
+  # Compound sizing: uses current equity as base (grows as account compounds)
+  # EXP-154 uses 'flat' (starting_capital). This is the A/B variable.
+  sizing_mode: compound
 
   # Contract limits
   min_contracts: 1
@@ -128,7 +148,7 @@ alerts:
     bot_token: "${TELEGRAM_BOT_TOKEN}"
     chat_id: "${TELEGRAM_CHAT_ID}"
 
-# Alpaca Paper Trading — EXP-036 account PA3D6UPXF5F2 (.env.exp036)
+# Alpaca Paper Trading — EXP-158 account PA3LP867WNGU (.env.exp059)
 alpaca:
   enabled: true
   api_key: "${ALPACA_API_KEY}"
@@ -153,7 +173,7 @@ data:
 # Logging
 logging:
   level: "INFO"
-  file: "logs/trading_exp036.log"
+  file: "logs/trading_exp158.log"
   console: true
 
 # Backtesting

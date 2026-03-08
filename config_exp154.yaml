@@ -1,8 +1,7 @@
-# Credit Spread Trading System Configuration — EXP-036 (CONTROL GROUP)
-# Control: 5% flat risk, directional-only (no ICs), simple MA200 regime
-# Experiment question: does combo regime + IC gating add measurable live alpha?
-# Comparing directly vs EXP-154 (combo + IC) with identical sizing/SL/PT/DTE
-# Account: PA3D6UPXF5F2 (.env.exp036)
+# Credit Spread Trading System Configuration — EXP-154
+# MC-validated champion: 5% directional risk + 12% IC risk (IC-in-NEUTRAL only)
+# MC P50 return: +31.1% | P50 max DD: -28.1% | 200/200 seeds positive
+# Backtest config: configs/exp_154_risk5_icr12_sl35.json
 
 # Tickers to monitor
 tickers:
@@ -12,7 +11,8 @@ tickers:
 
 # Strategy Parameters
 strategy:
-  # Days to expiration range (matches EXP-154 / EXP-158)
+  # Days to expiration range for new positions
+  # exp_154 backtest: target_dte=35, min_dte=25
   min_dte: 25
   max_dte: 45
   target_dte: 35
@@ -20,36 +20,56 @@ strategy:
   # Manage positions at this DTE or earlier
   manage_dte: 21
 
-  # Strike selection: OTM% mode
+  # Strike selection: OTM% mode (use_delta_selection=false, otm_pct=3%)
   use_delta_selection: false
-  target_delta: 0.12
+  target_delta: 0.12  # 12-delta ≈ 3% OTM for SPY
 
-  # Legacy range filter — kept for backward compat
+  # Legacy range filter — kept for backward compat; ignored when use_delta_selection: true
   min_delta: 0.20
   max_delta: 0.30
 
-  # Spread width: $5 wide
+  # Spread width: $5 wide (validated in backtests)
   spread_width: 5
   spread_width_high_iv: 10
   spread_width_low_iv: 5
 
-  # Direction: both (MA200 trend filter decides bull/bear entries)
+  # Direction: both (sell bull-puts in bull/neutral, bear-calls in bear/neutral)
   direction: both
 
   # IV Rank filters
   min_iv_rank: 12
   min_iv_percentile: 12
 
-  # Iron condors: DISABLED — control group tests directional-only performance
-  # EXP-154/158 have ICs enabled; this isolates IC contribution
+  # Iron condor parameters — exp_154: IC-in-NEUTRAL-only, 12% risk per IC
   iron_condor:
-    enabled: false
+    enabled: true
+    ic_neutral_regime_only: true      # Only deploy ICs when regime=NEUTRAL
+    ic_risk_per_trade: 12.0           # 12% risk for ICs (both legs must simultaneously hit max loss)
+    prefer_in_low_iv: false
+    low_iv_threshold: 30
+    min_combined_credit_pct: 8        # exp_154: ic_min_combined_credit_pct=8
+    max_wing_width: 10
+    rsi_min: 30
+    rsi_max: 70
 
-  # Regime detection: simple MA200 only (NOT combo detector)
-  # This is the primary control variable vs EXP-154/158 (regime_mode: combo)
-  regime_mode: simple
+  # Regime detection: combo v2 (price_vs_ma200 + rsi_momentum + vix_structure)
+  # Note: full combo regime wiring is pending live code update; MA200 filter active now
+  regime_mode: combo
   regime_config:
+    signals:
+      - price_vs_ma200
+      - rsi_momentum
+      - vix_structure
     ma_slow_period: 200
+    ma200_neutral_band_pct: 0.5
+    rsi_period: 14
+    rsi_bull_threshold: 55.0
+    rsi_bear_threshold: 45.0
+    vix_structure_bull: 0.95
+    vix_structure_bear: 1.05
+    bear_requires_unanimous: true
+    cooldown_days: 3
+    vix_extreme: 40.0
 
   # Technical filters
   technical:
@@ -58,7 +78,7 @@ strategy:
     use_support_resistance: true
 
     fast_ma: 20
-    slow_ma: 200
+    slow_ma: 200  # MA200 trend filter
 
     rsi_period: 14
     rsi_oversold: 30
@@ -66,14 +86,14 @@ strategy:
 
 # Risk Management
 risk:
-  # Starting account size (USD)
+  # Account size (USD)
   account_size: 100000
 
-  # 5% flat risk per directional spread — matches EXP-154 exactly
-  # (isolates regime detector + IC as the only variable)
+  # exp_154: 5% flat risk per directional spread
+  # IC trades use ic_risk_per_trade=12% (see strategy.iron_condor above)
   max_risk_per_trade: 5.0
 
-  # Flat sizing (same as EXP-154)
+  # Flat sizing (compound: false in backtest)
   sizing_mode: flat
 
   # Contract limits
@@ -85,14 +105,14 @@ risk:
 
   scan_days: [0, 1, 2, 3, 4]
 
-  # Matches EXP-154: PT=50%, SL=3.5x credit
+  # exp_154: profit_target=50%, stop_loss_multiplier=3.5x
   profit_target: 50
   stop_loss_pct_of_width: 75
   stop_loss_multiplier: 3.5
 
   delta_threshold: 0.30
 
-  # min_credit_pct=8% (matches EXP-154)
+  # exp_154: min_credit_pct=8%
   min_credit_pct: 8
 
   # Portfolio-level risk limits
@@ -106,7 +126,7 @@ risk:
       tickers: [SPY, QQQ, IWM]
       max_correlated_positions: 5
 
-  # Drawdown circuit breaker: 35% (matches EXP-154)
+  # exp_154 backtest: drawdown_cb_pct=35 (MC-validated)
   drawdown_cb_pct: 35
 
   enable_rolling: false
@@ -128,7 +148,7 @@ alerts:
     bot_token: "${TELEGRAM_BOT_TOKEN}"
     chat_id: "${TELEGRAM_CHAT_ID}"
 
-# Alpaca Paper Trading — EXP-036 account PA3D6UPXF5F2 (.env.exp036)
+# Alpaca Paper Trading — EXP-154 account PA3UNOV58WGK
 alpaca:
   enabled: true
   api_key: "${ALPACA_API_KEY}"
@@ -153,7 +173,7 @@ data:
 # Logging
 logging:
   level: "INFO"
-  file: "logs/trading_exp036.log"
+  file: "logs/trading_exp154.log"
   console: true
 
 # Backtesting
