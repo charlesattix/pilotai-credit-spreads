@@ -6,6 +6,7 @@ Supports both daily OHLCV bars and intraday 5-min bars for realistic backtesting
 
 import logging
 import os
+import signal
 import sqlite3
 import time
 import random
@@ -23,6 +24,11 @@ ET = pytz.timezone("America/New_York")
 
 logger = logging.getLogger(__name__)
 
+
+class _PolygonAPITimeout(Exception):
+    """Raised by SIGALRM handler when a Polygon API call exceeds the hard timeout."""
+
+
 BASE_URL = "https://api.polygon.io"
 
 # How far back to fetch when caching a new contract (covers most backtests)
@@ -32,11 +38,14 @@ _DEFAULT_LOOKBACK_YEARS = 2
 class HistoricalOptionsData:
     """Fetch and cache historical daily OHLCV for individual option contracts."""
 
-    def __init__(self, api_key: str, cache_dir: str = DATA_DIR):
-        if not api_key:
+    def __init__(self, api_key: str, cache_dir: str = DATA_DIR, offline_mode: bool = False):
+        if not api_key and not offline_mode:
             raise ValueError("api_key must be a non-empty string")
         self.api_key = api_key
         self.cache_dir = cache_dir
+        # offline_mode=True: never call Polygon; return None/empty on cache miss.
+        # Backtests run against cached data only — fast, no rate-limit delays.
+        self.offline_mode = offline_mode
 
         # HTTP session with automatic retries for transient failures
         self.session = requests.Session()
@@ -194,6 +203,9 @@ class HistoricalOptionsData:
         Calls /v2/aggs/ticker/{symbol}/range/1/day/{start}/{end}
         One API call per contract; results cached for all future lookups.
         """
+        if self.offline_mode:
+            return  # cache-only: skip Polygon fetch for daily data
+
         end = datetime.now()
         start = end - timedelta(days=_DEFAULT_LOOKBACK_YEARS * 365)
         from_str = start.strftime("%Y-%m-%d")
@@ -203,6 +215,10 @@ class HistoricalOptionsData:
             f"/v2/aggs/ticker/{symbol}/range/1/day/{from_str}/{to_str}",
             params={"adjusted": "true", "sort": "asc", "limit": 5000},
         )
+
+        if data is None:
+            # API timed out — do NOT store a sentinel (data may exist; retry next run)
+            return
 
         results = data.get("results", [])
         if not results:
@@ -301,6 +317,9 @@ class HistoricalOptionsData:
         self, ticker: str, expiration: str, as_of_date: str, option_type: str
     ) -> List[Dict]:
         """Fetch option contracts from Polygon reference endpoint."""
+        if self.offline_mode:
+            return []  # cache-only: no Polygon lookup for missing expirations
+
         ct = "put" if option_type == "P" else "call"
         params = {
             "underlying_ticker": ticker,
@@ -310,7 +329,7 @@ class HistoricalOptionsData:
             "limit": 1000,
         }
         data = self._api_get("/v3/reference/options/contracts", params=params)
-        return data.get("results", [])
+        return data.get("results", []) if data is not None else []
 
     def get_strikes_with_approx_delta(
         self,
@@ -514,10 +533,17 @@ class HistoricalOptionsData:
         Inserts a sentinel row ("FETCHED") when Polygon returns no data so we
         do not re-fetch the same empty date on subsequent lookups.
         """
+        if self.offline_mode:
+            return  # cache-only: skip Polygon fetch; caller receives None
+
         data = self._api_get(
             f"/v2/aggs/ticker/{symbol}/range/5/minute/{date_str}/{date_str}",
             params={"adjusted": "true", "sort": "asc", "limit": 1000},
         )
+
+        if data is None:
+            # API timed out — do NOT store a sentinel (data may exist; retry next run)
+            return
 
         cur = self._conn.cursor()
         results = data.get("results", [])
@@ -628,8 +654,23 @@ class HistoricalOptionsData:
     # Polygon API helpers
     # ------------------------------------------------------------------
 
-    def _api_get(self, path: str, params: Optional[Dict] = None) -> Dict:
-        """Make an authenticated GET request to Polygon with rate limiting."""
+    _API_HARD_TIMEOUT = 30  # seconds — SIGALRM hard limit; interrupts C-level SSL calls
+
+    def _api_get(self, path: str, params: Optional[Dict] = None) -> Optional[Dict]:
+        """Make an authenticated GET request to Polygon with rate limiting and hard timeout.
+
+        Timeout is enforced via SIGALRM (Unix/macOS only; no-op on Windows).
+        SIGALRM reliably interrupts C-level socket calls that defeat Python socket
+        timeouts under macOS LibreSSL.
+
+        Returns:
+            Response JSON dict on success.
+            None on SIGALRM timeout (caller must NOT store a sentinel — the API may
+            have data; the call just timed out transiently).
+            {} on HTTP/network error (API was reachable but returned no useful data).
+
+        Must be called from the main thread (SIGALRM restriction on Unix).
+        """
         # Enforce minimum 1s between API calls
         now = time.time()
         elapsed = now - self._last_api_call
@@ -640,23 +681,51 @@ class HistoricalOptionsData:
         p["apiKey"] = self.api_key
         url = f"{BASE_URL}{path}"
 
+        # Install SIGALRM hard-timeout handler (save existing handler to restore after)
+        def _timeout_handler(signum, frame):
+            raise _PolygonAPITimeout()
+
+        old_handler = None
+        alarm_set = False
+        if hasattr(signal, 'SIGALRM'):
+            old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+            signal.alarm(self._API_HARD_TIMEOUT)
+            alarm_set = True
+
         try:
             resp = self.session.get(url, params=p, timeout=15)
             resp.raise_for_status()
+        except _PolygonAPITimeout:
+            logger.warning(
+                "Polygon API timed out after %ds (%s) — skipping (no sentinel stored)",
+                self._API_HARD_TIMEOUT, path,
+            )
+            return None  # None signals timeout; callers must NOT store a "no data" sentinel
         except requests.exceptions.HTTPError as e:
             if resp.status_code == 429:
-                # Rate limited — back off and retry once
+                # Rate limited — back off once and retry
                 delay = 5.0 + random.uniform(0, 3)
                 logger.warning("Rate limited by Polygon, waiting %.1fs", delay)
                 time.sleep(delay)
-                resp = self.session.get(url, params=p, timeout=15)
-                resp.raise_for_status()
+                try:
+                    resp = self.session.get(url, params=p, timeout=15)
+                    resp.raise_for_status()
+                except _PolygonAPITimeout:
+                    logger.warning("Polygon API timed out on 429 retry (%s) — skipping", path)
+                    return None  # timeout on retry — no sentinel
+                except requests.exceptions.RequestException as e2:
+                    logger.error("Polygon API retry failed (%s): %s", path, e2)
+                    return {}
             else:
                 logger.error("Polygon API error (%s): %s", path, e)
                 return {}
         except requests.exceptions.RequestException as e:
             logger.error("Polygon API request failed (%s): %s", path, e)
             return {}
+        finally:
+            if alarm_set:
+                signal.alarm(0)                    # cancel any remaining alarm
+                signal.signal(signal.SIGALRM, old_handler)  # restore previous handler
 
         self._last_api_call = time.time()
         self._api_calls += 1

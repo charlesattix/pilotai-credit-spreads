@@ -3,9 +3,12 @@ Backtesting Engine
 Tests credit spread strategies against historical data using real option prices.
 """
 
+import json
 import logging
 import math
+import os
 import random
+import subprocess
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -16,6 +19,138 @@ import yfinance as yf
 from shared.scheduler import SCAN_TIMES
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Price data helpers using system curl (bypasses Python's LibreSSL TLS 1.3 issue)
+# ---------------------------------------------------------------------------
+# Yahoo Finance requires TLS 1.3.  Python 3.9 on macOS ships with LibreSSL 2.8.3
+# which cannot negotiate TLS 1.3, causing SSL handshakes to hang indefinitely.
+# Python socket timeouts and SIGALRM cannot interrupt C-level LibreSSL SSL_read().
+#
+# Fix: use subprocess.run(['curl', ...]) with subprocess timeout.  curl on macOS
+# uses the native SecureTransport stack and handles TLS 1.3 correctly.
+# Cookie file is shared across calls so the rate-limit cookie is reused.
+
+_YF_COOKIE_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "yf_cookies.txt"
+)
+
+
+def _curl_yf_chart(ticker_encoded: str, period1: int, period2: int, *, timeout_secs: int = 30) -> dict:
+    """Fetch Yahoo Finance v8/finance/chart JSON via system curl.
+
+    Uses a persistent cookie file so the initial rate-limit cookie is reused on
+    subsequent calls.  Returns empty dict on any failure (caller handles gracefully).
+    """
+    os.makedirs(os.path.dirname(_YF_COOKIE_FILE), exist_ok=True)
+    url = (
+        f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker_encoded}"
+        f"?period1={period1}&period2={period2}&interval=1d&includeAdjustedClose=true"
+    )
+    cmd = [
+        "curl", "-s", "--max-time", str(timeout_secs),
+        "-c", _YF_COOKIE_FILE, "-b", _YF_COOKIE_FILE,
+        "-H", "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "-H", "Accept: application/json",
+        url,
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_secs + 5)
+        if proc.returncode != 0 or not proc.stdout.strip():
+            return {}
+        return json.loads(proc.stdout)
+    except subprocess.TimeoutExpired:
+        logger.warning("curl timed out fetching %s", ticker_encoded)
+        return {}
+    except (json.JSONDecodeError, Exception) as e:
+        logger.warning("curl yf fetch failed for %s: %s", ticker_encoded, e)
+        return {}
+
+
+def _yf_chart_to_df(chart_data: dict) -> pd.DataFrame:
+    """Convert Yahoo Finance v8 chart JSON to a pandas DataFrame (yfinance-compatible)."""
+    try:
+        results = chart_data.get("chart", {}).get("result", [])
+        if not results:
+            return pd.DataFrame()
+        r = results[0]
+        timestamps = r.get("timestamp", [])
+        if not timestamps:
+            return pd.DataFrame()
+
+        quote = r.get("indicators", {}).get("quote", [{}])[0]
+        adjclose_list = r.get("indicators", {}).get("adjclose", [{}])
+        closes = (adjclose_list[0].get("adjclose") or []) if adjclose_list else []
+        if not closes or all(v is None for v in closes):
+            closes = quote.get("close", [])
+
+        # Unix seconds → tz-naive DatetimeIndex at midnight (trading date)
+        idx = pd.to_datetime(timestamps, unit="s").normalize()
+
+        df = pd.DataFrame({
+            "Open":   quote.get("open",   [None] * len(timestamps)),
+            "High":   quote.get("high",   [None] * len(timestamps)),
+            "Low":    quote.get("low",    [None] * len(timestamps)),
+            "Close":  closes,
+            "Volume": quote.get("volume", [0]    * len(timestamps)),
+        }, index=idx)
+        return df.dropna(subset=["Close"])
+    except Exception as e:
+        logger.warning("Failed to parse yf chart data: %s", e)
+        return pd.DataFrame()
+
+
+def _yf_download_safe(
+    ticker: str,
+    start: str,
+    end: str,
+    *,
+    timeout_secs: int = 30,
+    **_kwargs,   # absorb progress=, auto_adjust=, etc. from old call sites
+) -> pd.DataFrame:
+    """Download Yahoo Finance data via system curl (TLS 1.3 compatible).
+
+    Retries once on empty response — the first call establishes the Yahoo Finance
+    session cookie; the second call uses it and typically succeeds.
+    """
+    try:
+        p1 = int(datetime.strptime(start, "%Y-%m-%d").timestamp())
+        p2 = int(datetime.strptime(end,   "%Y-%m-%d").timestamp())
+    except ValueError as e:
+        logger.warning("_yf_download_safe: invalid date: %s", e)
+        return pd.DataFrame()
+
+    ticker_enc = ticker.replace("^", "%5E")
+    chart = _curl_yf_chart(ticker_enc, p1, p2, timeout_secs=timeout_secs)
+
+    # First call may be rate-limited (sets cookie); retry once
+    if not chart.get("chart", {}).get("result"):
+        logger.debug("yf first call empty for %s — retrying once (cookie set)", ticker)
+        chart = _curl_yf_chart(ticker_enc, p1, p2, timeout_secs=timeout_secs)
+
+    df = _yf_chart_to_df(chart)
+    if df.empty:
+        logger.warning("yf download returned no data for %s (%s–%s)", ticker, start, end)
+    else:
+        logger.debug("yf download: %s  %d bars", ticker, len(df))
+    return df
+
+
+def _yf_history_safe(
+    ticker: str,
+    *,
+    start: datetime,
+    end: datetime,
+    timeout_secs: int = 30,
+) -> pd.DataFrame:
+    """yf.Ticker.history() replacement using system curl."""
+    return _yf_download_safe(
+        ticker,
+        start.strftime("%Y-%m-%d"),
+        end.strftime("%Y-%m-%d"),
+        timeout_secs=timeout_secs,
+    )
+
 
 # Scan times that have actual option bars (9:15 is pre-open; bars start at 9:30)
 _FIRST_BAR_HOUR = 9
@@ -242,11 +377,36 @@ class Backtester:
 
         # Raw VIX level — populated alongside IV rank, used for regime filter
         self._vix_by_date: dict = {}
+        self._vix3m_by_date: dict = {}            # VIX3M for term structure ratio (combo regime v2)
         self._current_vix: float = 20.0           # default = low-vol regime
+
+        # Seasonal sizing overlay: {month_str: multiplier} e.g. {"5": 1.2, "12": 0.8}
+        # Applied to trade_dollar_risk in both flat and iv_scaled sizing modes.
+        self._seasonal_sizing: dict = self.strategy_params.get('seasonal_sizing', {})
+        self._current_seasonal_mult: float = 1.0
+
+        # COMPASS: Composite Macro Position & Sector Signal
+        # compass_enabled: apply risk_appetite sizing multiplier (r=-0.250 vs forward returns)
+        #   <30→1.2x, <45→1.1x, >75→0.85x, >65→0.95x, else 1.0x
+        # compass_rrg_filter: block bull puts when XLI AND XLF both Lagging/Weakening
+        self._compass_enabled: bool = bool(self.strategy_params.get('compass_enabled', False))
+        self._compass_rrg_filter: bool = bool(self.strategy_params.get('compass_rrg_filter', False))
+        self._compass_risk_appetite_by_date: dict = {}  # Timestamp → risk_appetite score (0-100)
+        self._compass_rrg_xli_by_date: dict = {}        # Timestamp → XLI rrg_quadrant str
+        self._compass_rrg_xlf_by_date: dict = {}        # Timestamp → XLF rrg_quadrant str
+        self._current_compass_mult: float = 1.0         # updated daily from forward-filled weekly data
+        self._current_compass_rrg_block: bool = False   # True when XLI+XLF both Lagging/Weakening
 
         # Realized-vol state (fixes constant σ=25% bias in delta selection)
         self._realized_vol_by_date: dict = {}
         self._current_realized_vol: float = 0.25  # fallback = 25%
+
+        # Combo regime detector — multi-signal direction filter (Phase 6)
+        # regime_mode='combo' → ComboRegimeDetector (MANDATORY default for all experiments)
+        # regime_mode='ma'    → legacy single-MA behavior (backward compat only)
+        self._regime_mode: str = self.strategy_params.get('regime_mode', 'combo')
+        self._regime_config: dict = self.strategy_params.get('regime_config', {})
+        self._regime_by_date: dict = {}  # populated by _build_combo_regime_series
 
         # DTE targeting — configurable for optimization sweep
         self._target_dte: int = int(self.strategy_params.get('target_dte', 35))
@@ -368,6 +528,14 @@ class Backtester:
         # Build per-date realized vol for delta strike selection (fixes σ=25% constant)
         self._realized_vol_by_date = self._build_realized_vol_series(price_data)
 
+        # Phase 6: Combo regime — build direction-label series after VIX data is available
+        if self._regime_mode == 'combo':
+            self._build_combo_regime_series(price_data)
+
+        # COMPASS: load macro score + sector RRG series from macro_state.db if enabled
+        if self._compass_enabled or self._compass_rrg_filter:
+            self._build_compass_series(start_date, end_date)
+
         # Store price data for expiration fallback (underlying-based settlement when
         # option price data is missing — avoids false max-loss recording)
         self._price_data = price_data
@@ -422,6 +590,36 @@ class Backtester:
             self._current_iv_rank = _prev_trading_val(self._iv_rank_by_date, lookup_date, 25.0)
             self._current_vix = _prev_trading_val(self._vix_by_date, lookup_date, 20.0)
             self._current_realized_vol = _prev_trading_val(self._realized_vol_by_date, lookup_date, 0.25)
+            if self._seasonal_sizing:
+                self._current_seasonal_mult = float(
+                    self._seasonal_sizing.get(str(current_date.month),
+                    self._seasonal_sizing.get(current_date.month, 1.0))
+                )
+
+            # COMPASS: forward-fill weekly risk_appetite + RRG quadrants to daily granularity.
+            # max(k <= today) gives the most recent weekly snapshot not after today.
+            if self._compass_enabled or self._compass_rrg_filter:
+                _compass_keys = [k for k in self._compass_risk_appetite_by_date if k <= lookup_date]
+                if _compass_keys:
+                    _ck = max(_compass_keys)
+                    # Signal A: risk_appetite sizing (r=-0.250 vs forward returns — dominant signal)
+                    ra = self._compass_risk_appetite_by_date[_ck]
+                    if ra < 30:                              # extreme fear: IV richest, sell more
+                        self._current_compass_mult = 1.2
+                    elif ra < 45:                            # elevated fear
+                        self._current_compass_mult = 1.1
+                    elif ra > 75:                            # complacency: r=-0.250 predicts lower returns
+                        self._current_compass_mult = 0.85
+                    elif ra > 65:                            # mild complacency
+                        self._current_compass_mult = 0.95
+                    else:                                    # neutral zone
+                        self._current_compass_mult = 1.0
+                    # Signal B: XLI+XLF dual-Lagging block (genuine economic deterioration)
+                    xli = self._compass_rrg_xli_by_date.get(_ck, "Unknown")
+                    xlf = self._compass_rrg_xlf_by_date.get(_ck, "Unknown")
+                    self._current_compass_rrg_block = (
+                        xli in ("Lagging", "Weakening") and xlf in ("Lagging", "Weakening")
+                    )
 
             logger.debug(
                 "%s  price=%.2f  open_positions=%d  ivr=%.0f  vix=%.1f",
@@ -512,6 +710,36 @@ class Backtester:
 
             _want_puts  = self._direction in ('both', 'bull_put')
             _want_calls = self._direction in ('both', 'bear_call')
+
+            # Phase 6: Combo regime override — replaces single-MA gate in opportunity finders
+            if self._regime_mode == 'combo':
+                _regime_today = self._regime_by_date.get(pd.Timestamp(current_date.date()), 'NEUTRAL')
+                _ic_neutral_only = self.strategy_params.get('iron_condor', {}).get('neutral_regime_only', False)
+                if _ic_neutral_only:
+                    # IC-in-NEUTRAL mode: BULL→puts only, NEUTRAL→IC only, BEAR→calls only
+                    # ic_vix_min: if VIX < threshold on a NEUTRAL day, fall back to bull puts
+                    _ic_vix_min = self.strategy_params.get('iron_condor', {}).get('vix_min', 0)
+                    _ic_vix_ok = (self._current_vix >= _ic_vix_min) if _ic_vix_min > 0 else True
+                    _want_puts  = (_regime_today == 'BULL') or (_regime_today == 'NEUTRAL' and not _ic_vix_ok)
+                    _want_calls = _regime_today == 'BEAR'
+                    _ic_enabled = _regime_today == 'NEUTRAL' and _ic_vix_ok
+                else:
+                    _want_puts  = _regime_today in ('BULL', 'NEUTRAL')
+                    _want_calls = _regime_today == 'BEAR'
+
+            # COMPASS RRG filter: block bull puts when economic backbone deteriorates AND
+            # the combo regime detector independently confirms a BEAR regime.
+            # Regime confirmation prevents false blocks during bull-market sector rotations
+            # (e.g. 2021 Nov-Dec when XLF lagged XLK but SPY was at all-time highs).
+            # Without confirmation: 2020=42% block, 2021=38% block → return drag.
+            # With confirmation: only fires ~15-20% of weeks during genuine bear regimes.
+            if self._compass_rrg_filter and self._current_compass_rrg_block:
+                _rrg_block = True
+                if self._regime_mode == 'combo':
+                    # _regime_today is guaranteed to exist here: set in the combo block above
+                    _rrg_block = (_regime_today == 'BEAR')
+                if _rrg_block:
+                    _want_puts = False
 
             if self._use_real_data:
                 # Track (expiration, short_strike, option_type) already entered today.
@@ -683,13 +911,10 @@ class Backtester:
         end_date: datetime,
     ) -> pd.DataFrame:
         """Retrieve historical price data."""
-        try:
-            stock = yf.Ticker(ticker)
-            data = stock.history(start=start_date, end=end_date)
-            return data
-        except Exception as e:
-            logger.error(f"Error getting historical data: {e}", exc_info=True)
-            return pd.DataFrame()
+        data = _yf_history_safe(ticker, start=start_date, end=end_date)
+        if data.empty:
+            logger.error("No historical price data for %s (%s–%s)", ticker, start_date.date(), end_date.date())
+        return data
 
     def _build_iv_rank_series(
         self, start_date: datetime, end_date: datetime
@@ -706,12 +931,10 @@ class Backtester:
         from shared.indicators import calculate_iv_rank as _calc_ivr
         try:
             fetch_start = start_date - timedelta(days=300)
-            raw = yf.download(
+            raw = _yf_download_safe(
                 "^VIX",
-                start=fetch_start.strftime("%Y-%m-%d"),
-                end=(end_date + timedelta(days=1)).strftime("%Y-%m-%d"),
-                progress=False,
-                auto_adjust=True,
+                fetch_start.strftime("%Y-%m-%d"),
+                (end_date + timedelta(days=1)).strftime("%Y-%m-%d"),
             )
             if raw.empty:
                 logger.warning("VIX data unavailable — using default iv_rank=25")
@@ -737,6 +960,26 @@ class Backtester:
 
             # Store raw VIX closes for regime filter (vix_max_entry / vix_close_all)
             self._vix_by_date = {ts: float(vix.loc[ts]) for ts in vix.index}
+
+            # Fetch VIX3M for term structure ratio (combo regime v2 — vix_structure signal)
+            try:
+                raw3m = _yf_download_safe(
+                    "^VIX3M",
+                    fetch_start.strftime("%Y-%m-%d"),
+                    (end_date + timedelta(days=1)).strftime("%Y-%m-%d"),
+                )
+                if not raw3m.empty:
+                    if isinstance(raw3m.columns, pd.MultiIndex):
+                        raw3m.columns = raw3m.columns.get_level_values(0)
+                    vix3m = raw3m["Close"].dropna()
+                    if vix3m.index.tz is not None:
+                        vix3m.index = vix3m.index.tz_localize(None)
+                    self._vix3m_by_date = {ts: float(vix3m.loc[ts]) for ts in vix3m.index}
+                    logger.debug("VIX3M series fetched: %d dates", len(self._vix3m_by_date))
+                else:
+                    logger.warning("VIX3M data unavailable — vix_structure signal will abstain")
+            except Exception as e3m:
+                logger.warning("Failed to fetch VIX3M: %s — vix_structure signal will abstain", e3m)
 
             logger.debug(
                 "IV rank series built: %d dates, range %.0f–%.0f  VIX range %.1f–%.1f",
@@ -792,6 +1035,90 @@ class Backtester:
             logger.warning("Failed to build realized vol series: %s — using 0.25", e)
             return {}
 
+    def _build_combo_regime_series(self, price_data: pd.DataFrame) -> None:
+        """Build self._regime_by_date using ComboRegimeDetector (Phase 6).
+
+        Called after _build_iv_rank_series so self._vix_by_date is populated.
+        Logs a breakdown of BULL/BEAR/NEUTRAL day counts for diagnostics.
+        """
+        from ml.combo_regime_detector import ComboRegimeDetector
+        detector = ComboRegimeDetector(self._regime_config)
+        self._regime_by_date = detector.compute_regime_series(
+            price_data, self._vix_by_date, self._vix3m_by_date
+        )
+        logger.info(
+            "Combo regime series built: %d dates, BULL=%d BEAR=%d NEUTRAL=%d",
+            len(self._regime_by_date),
+            sum(1 for v in self._regime_by_date.values() if v == 'BULL'),
+            sum(1 for v in self._regime_by_date.values() if v == 'BEAR'),
+            sum(1 for v in self._regime_by_date.values() if v == 'NEUTRAL'),
+        )
+
+    def _build_compass_series(self, start_date: datetime, end_date: datetime) -> None:
+        """Load COMPASS risk_appetite + XLI/XLF RRG quadrants from macro_state.db.
+
+        Populates:
+          self._compass_risk_appetite_by_date : Timestamp → risk_appetite score (0-100)
+          self._compass_rrg_xli_by_date       : Timestamp → XLI rrg_quadrant string
+          self._compass_rrg_xlf_by_date       : Timestamp → XLF rrg_quadrant string
+
+        Signal design (v2 — empirically validated on 323 weeks):
+          - risk_appetite: r=-0.250 vs 4w forward SPY returns (vs r=-0.106 for overall)
+          - XLI+XLF dual-Lagging: genuine economic deterioration (~15-20% block rate)
+            vs the old 50%-breadth filter which was structurally random (48-54% block rate)
+
+        The run_backtest loop forward-fills these weekly values to daily granularity
+        using max(k <= today) lookup, identical to the seasonal sizing pattern.
+        """
+        try:
+            from shared.macro_state_db import get_db
+            conn = get_db()
+            # Fetch all macro scores in backtest window (+ 90-day buffer for warmup)
+            fetch_start = (start_date - timedelta(days=90)).strftime("%Y-%m-%d")
+            fetch_end = end_date.strftime("%Y-%m-%d")
+
+            # Signal A: risk_appetite score (dominant signal, r=-0.250)
+            rows = conn.execute(
+                "SELECT date, risk_appetite FROM macro_score WHERE date >= ? AND date <= ? ORDER BY date",
+                (fetch_start, fetch_end),
+            ).fetchall()
+            for r in rows:
+                ts = pd.Timestamp(r["date"])
+                if r["risk_appetite"] is not None:
+                    val = float(r["risk_appetite"])
+                    # Clamp to valid range (guard against NaN propagation in score engine)
+                    if 0.0 <= val <= 100.0:
+                        self._compass_risk_appetite_by_date[ts] = val
+
+            # Signal B: XLI and XLF RRG quadrants (economic backbone deterioration filter)
+            xli_rows = conn.execute(
+                "SELECT date, rrg_quadrant FROM sector_rs WHERE ticker='XLI' AND date >= ? AND date <= ? ORDER BY date",
+                (fetch_start, fetch_end),
+            ).fetchall()
+            for r in xli_rows:
+                if r["rrg_quadrant"]:
+                    self._compass_rrg_xli_by_date[pd.Timestamp(r["date"])] = r["rrg_quadrant"]
+
+            xlf_rows = conn.execute(
+                "SELECT date, rrg_quadrant FROM sector_rs WHERE ticker='XLF' AND date >= ? AND date <= ? ORDER BY date",
+                (fetch_start, fetch_end),
+            ).fetchall()
+            for r in xlf_rows:
+                if r["rrg_quadrant"]:
+                    self._compass_rrg_xlf_by_date[pd.Timestamp(r["date"])] = r["rrg_quadrant"]
+
+            conn.close()
+            logger.info(
+                "COMPASS v2 series built: %d risk_appetite weeks, %d XLI weeks, %d XLF weeks",
+                len(self._compass_risk_appetite_by_date),
+                len(self._compass_rrg_xli_by_date),
+                len(self._compass_rrg_xlf_by_date),
+            )
+        except Exception as exc:
+            logger.warning("COMPASS series build failed: %s — COMPASS disabled for this run", exc)
+            self._compass_enabled = False
+            self._compass_rrg_filter = False
+
     # ------------------------------------------------------------------
     # Opportunity finding
     # ------------------------------------------------------------------
@@ -817,7 +1144,8 @@ class Backtester:
 
         trend_ma = recent_data['Close'].rolling(_mp, min_periods=max(10, _mp // 2)).mean().iloc[-1]
 
-        if price < trend_ma:
+        # Combo mode: direction already decided by regime at the outer gate — skip MA filter
+        if self._regime_mode != 'combo' and price < trend_ma:
             return None
 
         # Optional short-term momentum filter: skip if price fell > X% in the past 10 days.
@@ -890,7 +1218,8 @@ class Backtester:
 
         trend_ma = recent_data['Close'].rolling(_mp, min_periods=max(10, _mp // 2)).mean().iloc[-1]
 
-        if price > trend_ma:
+        # Combo mode: direction already decided by regime at the outer gate — skip MA filter
+        if self._regime_mode != 'combo' and price > trend_ma:
             # Price above MA — bullish, skip bear calls
             return None
 
@@ -1032,7 +1361,10 @@ class Backtester:
         account_base = self.capital if self._compound else self.starting_capital
         max_contracts_cap = self.risk_params.get('max_contracts', 999)
         if self._sizing_mode == 'flat':
-            flat_risk_pct = self.risk_params.get('max_risk_per_trade', 2.0) / 100.0
+            # ic_risk_per_trade overrides max_risk_per_trade for iron condor entries
+            _ic_risk_override = self.strategy_params.get('iron_condor', {}).get('risk_per_trade', None)
+            flat_risk_pct = (_ic_risk_override if _ic_risk_override is not None
+                             else self.risk_params.get('max_risk_per_trade', 2.0)) / 100.0
             # Mirror single-spread vix_dynamic_sizing: scale position when VIX is elevated.
             _vds = self.strategy_params.get('vix_dynamic_sizing', {})
             if _vds:
@@ -1058,6 +1390,7 @@ class Backtester:
                 account_base, iv_rank, current_portfolio_risk,
                 max_risk_pct=_max_risk,
             )
+        trade_dollar_risk *= self._current_seasonal_mult
         # NEW-1 fix: IC worst-case is both wings ITM simultaneously (= 2×spread_width).
         # get_contract_size recomputes max_loss_per_contract from its width argument,
         # so we must pass the effective IC width (2× single wing) to get correct sizing.
@@ -1305,10 +1638,18 @@ class Backtester:
                 account_base, iv_rank, current_portfolio_risk,
                 max_risk_pct=_max_risk,
             )
+        trade_dollar_risk *= self._current_seasonal_mult
+        # COMPASS macro score multiplier: buy fear (score<45→1.1x), reduce complacency (score>70→0.8x)
+        if self._compass_enabled:
+            trade_dollar_risk *= self._current_compass_mult
         contracts = max(1, get_contract_size(trade_dollar_risk, spread_width, credit, max_contracts=max_contracts_cap))
 
         # ── Volume gate + adaptive sizing (real-data mode only) ──────────────
-        if self._use_real_data and (self._volume_gate or self._vol_size_cap > 0):
+        # Only runs when volume_gate=True is explicitly configured.
+        # vol_size_cap is a sub-feature of the gate, not a standalone trigger.
+        # Skipping this block by default avoids spurious Polygon cache-miss lookups
+        # during normal backtesting where liquidity filtering is not needed.
+        if self._use_real_data and self._volume_gate:
             short_sym = self.historical_data.build_occ_symbol(ticker, expiration, short_strike, ot)
             long_sym  = self.historical_data.build_occ_symbol(ticker, expiration, long_strike, ot)
             sv = self.historical_data.get_prev_daily_volume(short_sym, date_str)
