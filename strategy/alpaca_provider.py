@@ -35,11 +35,51 @@ logger = logging.getLogger(__name__)
 
 _NO_RETRY = (ValueError, TypeError, CircuitOpenError)
 
+# HTTP 4xx status codes that indicate a client error that will NEVER succeed on retry.
+# These include: invalid symbol (422), insufficient buying power (403/422),
+# account not approved for options (403), duplicate client_order_id (409).
+# NOTE: 429 (Too Many Requests) is intentionally absent — it IS retryable with backoff.
+_NON_RETRYABLE_HTTP_PREFIXES = ("400", "401", "403", "404", "409", "422")
+
+# How long to wait when we get a 429 with no Retry-After header
+_DEFAULT_RATE_LIMIT_SLEEP = 30.0
+
+
+def _is_non_retryable(exc: Exception) -> bool:
+    """Return True if this exception represents a client error that won't succeed on retry."""
+    # Try to detect HTTP status from alpaca-py APIError or similar SDK exceptions.
+    # alpaca-py raises exceptions whose string representation includes the HTTP status code.
+    exc_str = str(exc)
+    for prefix in _NON_RETRYABLE_HTTP_PREFIXES:
+        if prefix in exc_str:
+            return True
+    # Check exception class name for known non-retryable patterns
+    cls_name = type(exc).__name__
+    return "Forbidden" in cls_name or "Unauthorized" in cls_name or "NotFound" in cls_name
+
+
+def _is_rate_limited(exc: Exception) -> bool:
+    """Return True if this is an HTTP 429 Too Many Requests error."""
+    exc_str = str(exc)
+    return "429" in exc_str or "too many requests" in exc_str.lower()
+
+
+def _get_retry_after_seconds(exc: Exception, default: float = _DEFAULT_RATE_LIMIT_SLEEP) -> float:
+    """Extract Retry-After seconds from a 429 exception message, or return the default."""
+    import re
+    m = re.search(r'retry.after[:\s]+(\d+\.?\d*)', str(exc), re.IGNORECASE)
+    if m:
+        return float(m.group(1))
+    return default
+
 
 def _retry_with_backoff(max_retries: int = 2, base_delay: float = 1.0):
     """Decorator that retries a method with exponential backoff + jitter.
 
-    Exceptions in ``_NO_RETRY`` are re-raised immediately without retry.
+    - Non-retryable 4xx errors (400, 401, 403, 404, 409, 422): re-raised immediately.
+    - 429 Too Many Requests: sleeps for Retry-After (or default 30s) then retries.
+    - 5xx / network errors: exponential backoff with jitter.
+    - Exceptions in ``_NO_RETRY``: re-raised immediately without retry.
     """
     def decorator(func):
         @functools.wraps(func)
@@ -51,13 +91,28 @@ def _retry_with_backoff(max_retries: int = 2, base_delay: float = 1.0):
                 except _NO_RETRY:
                     raise
                 except Exception as exc:
+                    if _is_non_retryable(exc):
+                        logger.error(
+                            "%s: non-retryable error (client error, will not retry): %s",
+                            func.__name__, exc,
+                        )
+                        raise
                     last_exc = exc
                     if attempt < max_retries:
-                        delay = base_delay * (2 ** attempt) + random.uniform(0, base_delay)
-                        logger.warning(
-                            f"{func.__name__} attempt {attempt + 1} failed: {exc}. "
-                            f"Retrying in {delay:.2f}s..."
-                        )
+                        if _is_rate_limited(exc):
+                            # Respect Retry-After header; don't use exponential backoff
+                            delay = _get_retry_after_seconds(exc)
+                            logger.warning(
+                                "%s: rate limited (429) — sleeping %.0fs before retry "
+                                "(attempt %d/%d)",
+                                func.__name__, delay, attempt + 1, max_retries,
+                            )
+                        else:
+                            delay = base_delay * (2 ** attempt) + random.uniform(0, base_delay)
+                            logger.warning(
+                                "%s attempt %d failed: %s. Retrying in %.2fs...",
+                                func.__name__, attempt + 1, exc, delay,
+                            )
                         time.sleep(delay)
             raise last_exc
         return wrapper
@@ -364,6 +419,71 @@ class AlpacaProvider:
             return {"status": "error", "message": str(e)}
 
     # ------------------------------------------------------------------
+    # Close iron condor (4-leg)
+    # ------------------------------------------------------------------
+
+    @_retry_with_backoff(max_retries=2, base_delay=1.0)
+    def close_iron_condor(
+        self,
+        ticker: str,
+        put_short_strike: float,
+        put_long_strike: float,
+        call_short_strike: float,
+        call_long_strike: float,
+        expiration: str,
+        contracts: int = 1,
+        limit_price: Optional[float] = None,
+    ) -> Dict:
+        """Close a 4-leg iron condor (buy back both short legs, sell both long legs).
+
+        Submits a single MLEG order with all 4 legs for atomicity.
+        """
+        put_short_sym = self.find_option_symbol(ticker, expiration, put_short_strike, "put")
+        put_long_sym = self.find_option_symbol(ticker, expiration, put_long_strike, "put")
+        call_short_sym = self.find_option_symbol(ticker, expiration, call_short_strike, "call")
+        call_long_sym = self.find_option_symbol(ticker, expiration, call_long_strike, "call")
+
+        if not all([put_short_sym, put_long_sym, call_short_sym, call_long_sym]):
+            return {"status": "error", "message": "Could not resolve IC option symbols for close"}
+
+        logger.info(
+            "Closing IC: BTC %s / STC %s / BTC %s / STC %s x%d",
+            put_short_sym, put_long_sym, call_short_sym, call_long_sym, contracts,
+        )
+
+        legs = [
+            OptionLegRequest(
+                symbol=put_short_sym, ratio_qty=1,
+                side=OrderSide.BUY, position_intent=PositionIntent.BUY_TO_CLOSE,
+            ),
+            OptionLegRequest(
+                symbol=put_long_sym, ratio_qty=1,
+                side=OrderSide.SELL, position_intent=PositionIntent.SELL_TO_CLOSE,
+            ),
+            OptionLegRequest(
+                symbol=call_short_sym, ratio_qty=1,
+                side=OrderSide.BUY, position_intent=PositionIntent.BUY_TO_CLOSE,
+            ),
+            OptionLegRequest(
+                symbol=call_long_sym, ratio_qty=1,
+                side=OrderSide.SELL, position_intent=PositionIntent.SELL_TO_CLOSE,
+            ),
+        ]
+
+        client_id = f"close-ic-{ticker}-{uuid.uuid4().hex[:8]}"
+        try:
+            order = self._submit_mleg_order(legs, contracts, limit_price, client_id)
+            logger.info(f"IC close order submitted: {order.id} status={order.status}")
+            return {
+                "status": "submitted",
+                "order_id": str(order.id),
+                "order_status": str(order.status),
+            }
+        except Exception as e:
+            logger.error(f"IC close order failed: {e}", exc_info=True)
+            return {"status": "error", "message": str(e)}
+
+    # ------------------------------------------------------------------
     # Query orders & positions
     # ------------------------------------------------------------------
 
@@ -414,7 +534,27 @@ class AlpacaProvider:
             "status": str(order.status),
             "filled_avg_price": str(order.filled_avg_price) if order.filled_avg_price else None,
             "filled_at": str(order.filled_at) if order.filled_at else None,
+            "filled_qty": str(order.filled_qty) if order.filled_qty else None,
+            "qty": str(order.qty) if order.qty else None,
         }
+
+    def get_market_clock(self) -> Dict:
+        """Get the current Alpaca market clock.
+
+        Returns a dict with is_open, next_open, next_close, and timestamp.
+        This is the authoritative source for whether the market is currently open.
+        """
+        try:
+            clock = self._circuit_breaker.call(self.client.get_clock)
+            return {
+                "is_open": bool(clock.is_open),
+                "next_open": str(clock.next_open) if clock.next_open else None,
+                "next_close": str(clock.next_close) if clock.next_close else None,
+                "timestamp": str(clock.timestamp) if clock.timestamp else None,
+            }
+        except Exception as e:
+            logger.warning("get_market_clock failed: %s", e)
+            return {"is_open": None}  # None = unknown (don't block)
 
     def get_positions(self) -> List[Dict]:
         """Get all open positions."""

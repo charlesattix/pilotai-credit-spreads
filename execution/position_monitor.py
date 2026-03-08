@@ -1,0 +1,885 @@
+"""
+PositionMonitor — background daemon for automated position management.
+
+Runs every 5 minutes during market hours (Mon–Fri 9:30–16:00 ET) and:
+  1. Reconciles pending_close positions (polls Alpaca for fill status, records P&L)
+  2. Detects externally-closed positions (disappeared from Alpaca) → marks closed_external
+  3. Checks open positions for exit conditions:
+       a. DTE management: close when DTE <= manage_dte (default 21)
+       b. Profit target:  close when P&L >= profit_target_pct% of credit (default 50%)
+       c. Stop loss:      close when spread value >= stop_loss_mult * credit (default 3.5x)
+
+Supports both 2-leg credit spreads (bull_put / bear_call) and 4-leg iron condors.
+
+P&L reconciliation (Bug 2 fix):
+  After submitting a close order, the order_id is stored in the trade record.
+  On each subsequent cycle, Alpaca is polled for fill status. On fill:
+    pnl = (credit_received - fill_debit) * contracts * 100
+  DB is updated with final status, pnl, exit_date.
+
+Thread safety: threading.Event for clean stop signal. All DB writes via
+upsert_trade / close_trade (per-call connections, SQLite WAL mode).
+"""
+
+import logging
+import threading
+from datetime import datetime, timezone
+from typing import Dict, List, Optional
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:                        # pragma: no cover — Python < 3.9
+    from backports.zoneinfo import ZoneInfo  # type: ignore
+
+from shared.database import close_trade, get_trades, upsert_trade, init_db
+
+logger = logging.getLogger(__name__)
+
+# How often to check positions (seconds)
+_CHECK_INTERVAL_SECONDS = 300  # 5 minutes
+
+# Eastern time zone for market hours gate
+_ET = ZoneInfo("America/New_York")
+_MARKET_OPEN_HOUR, _MARKET_OPEN_MIN = 9, 30
+_MARKET_CLOSE_HOUR, _MARKET_CLOSE_MIN = 16, 0
+_MARKET_DAYS = frozenset({0, 1, 2, 3, 4})  # Mon–Fri (weekday() values)
+
+# Alpaca order statuses where the close order is terminal but did NOT fill
+_TERMINAL_NO_FILL = frozenset({"cancelled", "canceled", "expired", "replaced"})
+
+# 2026 US market full holidays — system skips these entirely
+_MARKET_HOLIDAYS_2026 = frozenset({
+    "2026-01-01",  # New Year's Day
+    "2026-01-19",  # Martin Luther King Jr. Day
+    "2026-02-16",  # Presidents Day
+    "2026-04-03",  # Good Friday
+    "2026-05-25",  # Memorial Day
+    "2026-06-19",  # Juneteenth
+    "2026-07-03",  # Independence Day (observed; Jul 4 is Saturday)
+    "2026-09-07",  # Labor Day
+    "2026-11-26",  # Thanksgiving Day
+    "2026-12-25",  # Christmas Day (Friday)
+})
+
+# 2026 early close days — market closes at 1:00 PM ET instead of 4:00 PM ET
+# Format: "YYYY-MM-DD" → close hour (24h, ET)
+_EARLY_CLOSE_DATES_2026: Dict[str, int] = {
+    "2026-11-25": 13,  # Day before Thanksgiving (Wednesday)
+    "2026-12-24": 13,  # Christmas Eve (Thursday)
+}
+
+# Warn when a pending_close order has been unfilled for this many minutes
+_STALE_CLOSE_MINUTES = 10
+
+
+class PositionMonitor:
+    """Background daemon that manages open credit spread and iron condor positions.
+
+    Usage::
+
+        monitor = PositionMonitor(alpaca_provider=provider, config=config)
+        thread = threading.Thread(target=monitor.start, daemon=True)
+        thread.start()
+        # ...
+        monitor.stop()
+    """
+
+    def __init__(self, alpaca_provider, config: Dict, db_path: Optional[str] = None):
+        """
+        Args:
+            alpaca_provider: AlpacaProvider instance.
+            config: Full application config dict. Reads risk.profit_target,
+                    risk.stop_loss_multiplier, strategy.manage_dte.
+            db_path: Optional SQLite path override.
+        """
+        self.alpaca = alpaca_provider
+        self.config = config
+        self.db_path = db_path
+        self._stop_event = threading.Event()
+
+        risk = config.get("risk", {})
+        strategy = config.get("strategy", {})
+        self.profit_target_pct = float(risk.get("profit_target", 50))
+        self.stop_loss_mult = float(risk.get("stop_loss_multiplier", 3.5))
+        self.manage_dte = int(strategy.get("manage_dte", 21))
+        # Tracks consecutive Alpaca API failures for escalation alerting
+        self._consecutive_api_failures = 0
+
+        init_db(db_path)
+
+    def start(self):
+        """Start the monitoring loop. Blocks until stop() is called."""
+        logger.info(
+            "PositionMonitor started | profit_target=%.0f%% | SL=%.1fx | manage_dte=%d",
+            self.profit_target_pct, self.stop_loss_mult, self.manage_dte,
+        )
+        while not self._stop_event.is_set():
+            try:
+                self._check_positions()
+            except Exception as e:
+                logger.error("PositionMonitor: unhandled error in check cycle: %s", e, exc_info=True)
+            self._stop_event.wait(timeout=_CHECK_INTERVAL_SECONDS)
+
+        logger.info("PositionMonitor stopped")
+
+    def stop(self):
+        """Signal the monitor to stop after the current check completes."""
+        self._stop_event.set()
+
+    # ------------------------------------------------------------------
+    # Market hours gate
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _get_market_close_time(date_str: str):
+        """Return (close_hour, close_min) for a given YYYY-MM-DD date string.
+
+        Accounts for early-close days (half sessions) where the market closes
+        at 1:00 PM ET instead of 4:00 PM ET.
+        """
+        if date_str in _EARLY_CLOSE_DATES_2026:
+            return (_EARLY_CLOSE_DATES_2026[date_str], 0)
+        return (_MARKET_CLOSE_HOUR, _MARKET_CLOSE_MIN)
+
+    @staticmethod
+    def _is_market_hours() -> bool:
+        """Return True if current time is within US market hours (Mon–Fri 9:30–close ET).
+
+        Respects:
+        - Weekend (Sat/Sun): always False
+        - Full market holidays (_MARKET_HOLIDAYS_2026): always False
+        - Early close days (_EARLY_CLOSE_DATES_2026): closes at 1:00 PM ET
+        """
+        now_et = datetime.now(_ET)
+        if now_et.weekday() not in _MARKET_DAYS:
+            return False
+        date_str = now_et.strftime("%Y-%m-%d")
+        if date_str in _MARKET_HOLIDAYS_2026:
+            return False
+        close_hour, close_min = PositionMonitor._get_market_close_time(date_str)
+        open_mins = _MARKET_OPEN_HOUR * 60 + _MARKET_OPEN_MIN
+        close_mins = close_hour * 60 + close_min
+        current_mins = now_et.hour * 60 + now_et.minute
+        return open_mins <= current_mins < close_mins
+
+    # ------------------------------------------------------------------
+    # Core check loop
+    # ------------------------------------------------------------------
+
+    def _check_positions(self):
+        """Main check cycle. Runs entirely inside market hours gate."""
+        if not self._is_market_hours():
+            logger.debug("PositionMonitor: market closed, skipping check")
+            return
+
+        # Step 0: Promote pending_open → open for intra-day orders (fill tracking)
+        # Critical: without this, orders placed during the session are never monitored
+        # for stop-loss or profit-target until the next process restart.
+        if self.alpaca:
+            self._reconcile_pending_opens()
+
+        # Step 1: Reconcile pending_close positions (check for fills since last cycle)
+        if self.alpaca:
+            self._reconcile_pending_closes()
+
+        # Step 2: Load open positions
+        open_positions = get_trades(status="open", source="execution", path=self.db_path)
+        if open_positions:
+            logger.info("PositionMonitor: checking %d open position(s)", len(open_positions))
+
+        # Step 3: Fetch all Alpaca positions once per cycle (reduces API calls).
+        # Do this even when open_positions is empty so orphan detection always runs.
+        try:
+            all_alpaca_positions = self.alpaca.get_positions()
+            alpaca_positions = {p["symbol"]: p for p in all_alpaca_positions}
+            # Reset failure counter on success
+            if self._consecutive_api_failures > 0:
+                logger.info(
+                    "PositionMonitor: Alpaca API recovered after %d failed cycle(s)",
+                    self._consecutive_api_failures,
+                )
+            self._consecutive_api_failures = 0
+        except Exception as e:
+            self._consecutive_api_failures += 1
+            logger.error(
+                "PositionMonitor: failed to fetch Alpaca positions (consecutive_failures=%d): %s",
+                self._consecutive_api_failures, e,
+            )
+            if self._consecutive_api_failures >= 3:
+                logger.critical(
+                    "PositionMonitor: Alpaca API unreachable for %d consecutive cycles. "
+                    "Positions are unmonitored. Manual intervention may be required.",
+                    self._consecutive_api_failures,
+                )
+            return
+
+        # Step 3b: Detect unexpected equity positions (possible early assignment)
+        if open_positions:
+            self._detect_assignment(open_positions, alpaca_positions)
+
+        # Step 3c: Detect option positions in Alpaca with no DB record (orphans).
+        # Runs unconditionally — orphans can appear even when we have no open trades.
+        self._detect_orphans(open_positions, alpaca_positions)
+
+        if not open_positions:
+            logger.debug("PositionMonitor: no open positions to check")
+            return
+
+        # Step 4: Detect positions that disappeared from Alpaca (external closes)
+        self._reconcile_external_closes(open_positions, alpaca_positions)
+
+        # Step 5: Check exit conditions for remaining open positions
+        for pos in open_positions:
+            if pos.get("status") != "open":
+                continue  # already handled by _reconcile_external_closes
+            try:
+                exit_reason = self._check_exit_conditions(pos, alpaca_positions)
+                if exit_reason:
+                    self._close_position(pos, exit_reason)
+            except Exception as e:
+                logger.error(
+                    "PositionMonitor: error checking position %s: %s", pos.get("id"), e
+                )
+
+    # ------------------------------------------------------------------
+    # Exit condition checks
+    # ------------------------------------------------------------------
+
+    def _check_exit_conditions(self, pos: Dict, alpaca_positions: Dict) -> Optional[str]:
+        """Return an exit reason if the position should be closed, else None."""
+
+        # 1. DTE-based exit — check first, no pricing needed
+        expiration_str = str(pos.get("expiration", ""))
+        if expiration_str:
+            try:
+                exp_date = datetime.fromisoformat(expiration_str.split(" ")[0])
+                if exp_date.tzinfo is None:
+                    exp_date = exp_date.replace(tzinfo=timezone.utc)
+                dte = (exp_date - datetime.now(timezone.utc)).days
+                if dte <= 0:
+                    # Expiring today — close immediately to avoid pin risk and assignment
+                    logger.warning(
+                        "PositionMonitor: %s expires TODAY (DTE=%d) — urgent close "
+                        "(pin risk / assignment avoidance)",
+                        pos.get("id"), dte,
+                    )
+                    return "expiration_today"
+                if dte <= self.manage_dte:
+                    logger.info(
+                        "PositionMonitor: %s DTE=%d <= %d → closing (dte_management)",
+                        pos.get("id"), dte, self.manage_dte,
+                    )
+                    return "dte_management"
+            except (ValueError, TypeError) as e:
+                logger.warning(
+                    "PositionMonitor: cannot parse expiration '%s': %s", expiration_str, e
+                )
+
+        # 2. Current spread value from Alpaca market data
+        current_value = self._get_spread_value(pos, alpaca_positions)
+        if current_value is None:
+            return None  # Cannot price — skip this cycle
+
+        credit = float(pos.get("credit") or 0)
+        if credit <= 0:
+            logger.warning(
+                "PositionMonitor: %s has zero credit — skipping PT/SL checks", pos.get("id")
+            )
+            return None
+
+        # P&L = credit received at open – cost to close now
+        pnl = credit - current_value
+        pnl_pct = (pnl / credit) * 100
+
+        # 3. Profit target
+        if pnl_pct >= self.profit_target_pct:
+            logger.info(
+                "PositionMonitor: %s profit target hit: %.1f%% >= %.0f%% → closing",
+                pos.get("id"), pnl_pct, self.profit_target_pct,
+            )
+            return "profit_target"
+
+        # 4. Stop loss — two complementary checks:
+        #
+        #   (a) Loss-based (matches backtester semantics):
+        #       Fires when LOSS (current_value - credit) >= stop_loss_mult × credit
+        #       i.e., current_value >= (1 + mult) × credit
+        #       For credit=$1.50, mult=3.5: fires at current_value=$6.75
+        #       On a $5 spread this is unreachable by design — the SL acts as an
+        #       emergency backstop for unusual scenarios (wide spreads, pricing errors).
+        #
+        #   (b) Spread-width cap (safety backstop):
+        #       Fires at 90% of the spread width regardless of credit amount.
+        #       Ensures the SL always fires before absolute max loss, even for narrow
+        #       spreads where the formula-based threshold would never be reached.
+        #       For a $5 spread: fires when current_value >= $4.50.
+        #
+        #   The effective SL threshold is the LOWER of (a) and (b).
+        loss_based_threshold = (1.0 + self.stop_loss_mult) * credit
+
+        spread_width = 0.0
+        try:
+            spread_type = str(pos.get("strategy_type", pos.get("type", ""))).lower()
+            if "condor" in spread_type:
+                # For ICs, use the wider wing
+                put_w = abs(
+                    float(pos.get("put_short_strike") or pos.get("short_strike") or 0)
+                    - float(pos.get("put_long_strike") or pos.get("long_strike") or 0)
+                )
+                call_w = abs(
+                    float(pos.get("call_short_strike") or pos.get("short_strike") or 0)
+                    - float(pos.get("call_long_strike") or pos.get("long_strike") or 0)
+                )
+                spread_width = max(put_w, call_w)
+            else:
+                spread_width = abs(
+                    float(pos.get("short_strike") or 0) - float(pos.get("long_strike") or 0)
+                )
+        except (TypeError, ValueError):
+            pass
+
+        sl_threshold = loss_based_threshold
+        if spread_width > 0:
+            sl_threshold = min(loss_based_threshold, spread_width * 0.90)
+
+        if current_value >= sl_threshold:
+            logger.warning(
+                "PositionMonitor: %s stop loss hit: current=%.4f >= threshold=%.4f "
+                "(loss_formula=%.4f spread_width_cap=%.4f) → closing",
+                pos.get("id"), current_value, sl_threshold,
+                loss_based_threshold, spread_width * 0.90 if spread_width > 0 else float("inf"),
+            )
+            return "stop_loss"
+
+        logger.debug(
+            "PositionMonitor: %s OK | val=%.4f credit=%.4f pnl=%.1f%%",
+            pos.get("id"), current_value, credit, pnl_pct,
+        )
+        return None
+
+    # ------------------------------------------------------------------
+    # Spread valuation — Bug 1 fix: IC support
+    # ------------------------------------------------------------------
+
+    def _get_spread_value(self, pos: Dict, alpaca_positions: Dict) -> Optional[float]:
+        """Current cost-to-close per share. Routes to IC or 2-leg path."""
+        spread_type = str(pos.get("strategy_type", pos.get("type", ""))).lower()
+        if "condor" in spread_type:
+            return self._get_ic_value(pos, alpaca_positions)
+        opt_type = "call" if "call" in spread_type else "put"
+        return self._get_2leg_value(
+            pos, alpaca_positions,
+            short_strike=pos.get("short_strike"),
+            long_strike=pos.get("long_strike"),
+            opt_type=opt_type,
+        )
+
+    def _get_2leg_value(
+        self,
+        pos: Dict,
+        alpaca_positions: Dict,
+        short_strike,
+        long_strike,
+        opt_type: str,
+    ) -> Optional[float]:
+        """Cost-to-close per share for a single 2-leg wing.
+
+        Returns None if either leg is missing (position may be externally closed,
+        or this is just a pricing gap — caller decides).
+        """
+        ticker = pos.get("ticker", "")
+        expiration_str = str(pos.get("expiration", "")).split(" ")[0]
+        contracts = int(pos.get("contracts", 1))
+
+        if not all([ticker, expiration_str, short_strike, long_strike]):
+            logger.warning("PositionMonitor: %s missing fields for pricing", pos.get("id"))
+            return None
+
+        try:
+            short_sym = self.alpaca._build_occ_symbol(ticker, expiration_str, short_strike, opt_type)
+            long_sym = self.alpaca._build_occ_symbol(ticker, expiration_str, long_strike, opt_type)
+        except Exception as e:
+            logger.warning("PositionMonitor: OCC symbol error for %s: %s", pos.get("id"), e)
+            return None
+
+        short_pos = alpaca_positions.get(short_sym)
+        long_pos = alpaca_positions.get(long_sym)
+
+        if not short_pos or not long_pos:
+            return None  # caller distinguishes pricing gap from external close
+
+        try:
+            short_mv = float(short_pos["market_value"])  # negative (liability we owe)
+            long_mv = float(long_pos["market_value"])    # positive (asset we hold)
+            # cost to close = buy back short (pay |short_mv|) – sell long (receive long_mv)
+            cost_total = abs(short_mv) - long_mv
+            cost_per_share = cost_total / (contracts * 100) if contracts > 0 else 0.0
+            return max(0.0, cost_per_share)
+        except (ValueError, TypeError, ZeroDivisionError) as e:
+            logger.warning(
+                "PositionMonitor: market value error for %s: %s", pos.get("id"), e
+            )
+            return None
+
+    def _get_ic_value(self, pos: Dict, alpaca_positions: Dict) -> Optional[float]:
+        """Cost-to-close per share for a 4-leg iron condor (sum of both wings)."""
+        put_short = pos.get("put_short_strike") or pos.get("short_strike")
+        put_long = pos.get("put_long_strike") or pos.get("long_strike")
+        call_short = pos.get("call_short_strike")
+        call_long = pos.get("call_long_strike")
+
+        if not all([put_short, put_long, call_short, call_long]):
+            logger.warning(
+                "PositionMonitor: IC %s missing wing strikes — cannot price", pos.get("id")
+            )
+            return None
+
+        put_val = self._get_2leg_value(pos, alpaca_positions, put_short, put_long, "put")
+        call_val = self._get_2leg_value(pos, alpaca_positions, call_short, call_long, "call")
+
+        if put_val is None or call_val is None:
+            return None
+
+        return put_val + call_val
+
+    # ------------------------------------------------------------------
+    # External close detection — Bug 3 fix
+    # ------------------------------------------------------------------
+
+    def _all_legs_missing(self, pos: Dict, alpaca_positions: Dict) -> bool:
+        """Return True when every leg of this position is absent from Alpaca.
+
+        Only returns True when we can fully determine all legs — returns False
+        on any data gap to avoid false positives.
+        """
+        ticker = pos.get("ticker", "")
+        expiration_str = str(pos.get("expiration", "")).split(" ")[0]
+        spread_type = str(pos.get("strategy_type", pos.get("type", ""))).lower()
+
+        if not ticker or not expiration_str:
+            return False
+
+        try:
+            if "condor" in spread_type:
+                put_short = pos.get("put_short_strike") or pos.get("short_strike")
+                put_long = pos.get("put_long_strike") or pos.get("long_strike")
+                call_short = pos.get("call_short_strike")
+                call_long = pos.get("call_long_strike")
+                if not all([put_short, put_long, call_short, call_long]):
+                    return False
+                syms = [
+                    self.alpaca._build_occ_symbol(ticker, expiration_str, put_short, "put"),
+                    self.alpaca._build_occ_symbol(ticker, expiration_str, put_long, "put"),
+                    self.alpaca._build_occ_symbol(ticker, expiration_str, call_short, "call"),
+                    self.alpaca._build_occ_symbol(ticker, expiration_str, call_long, "call"),
+                ]
+            else:
+                short_strike = pos.get("short_strike")
+                long_strike = pos.get("long_strike")
+                if not all([short_strike, long_strike]):
+                    return False
+                opt_type = "call" if "call" in spread_type else "put"
+                syms = [
+                    self.alpaca._build_occ_symbol(ticker, expiration_str, short_strike, opt_type),
+                    self.alpaca._build_occ_symbol(ticker, expiration_str, long_strike, opt_type),
+                ]
+        except Exception:
+            return False
+
+        return all(sym not in alpaca_positions for sym in syms)
+
+    def _reconcile_external_closes(
+        self, open_positions: List[Dict], alpaca_positions: Dict
+    ) -> None:
+        """Mark positions whose legs are all gone from Alpaca as closed_external."""
+        for pos in open_positions:
+            if not self._all_legs_missing(pos, alpaca_positions):
+                continue
+            pos_id = pos.get("id", "?")
+            logger.warning(
+                "PositionMonitor: %s legs not found in Alpaca — marking closed_external",
+                pos_id,
+            )
+            # Mutate in place so the subsequent exit-check loop skips this position
+            pos["status"] = "closed_external"
+            pos["exit_date"] = datetime.now(timezone.utc).isoformat()
+            pos["exit_reason"] = "closed_external"
+            try:
+                upsert_trade(pos, source="execution", path=self.db_path)
+            except Exception as e:
+                logger.error(
+                    "PositionMonitor: DB write failed for external close %s: %s", pos_id, e
+                )
+
+    # ------------------------------------------------------------------
+    # Closing
+    # ------------------------------------------------------------------
+
+    def _close_position(self, pos: Dict, reason: str) -> None:
+        """Mark pending_close in DB, submit close order, store order_id for fill tracking."""
+        ticker = pos.get("ticker", "")
+        spread_type = str(pos.get("strategy_type", pos.get("type", ""))).lower()
+        contracts = int(pos.get("contracts", 1))
+        expiration_str = str(pos.get("expiration", "")).split(" ")[0]
+
+        logger.info(
+            "PositionMonitor: closing %s (%s) reason=%s", pos.get("id"), ticker, reason
+        )
+
+        # Mark pending_close BEFORE touching Alpaca (prevents orphans on crash)
+        pos["status"] = "pending_close"
+        pos["exit_reason"] = reason
+        try:
+            upsert_trade(pos, source="execution", path=self.db_path)
+        except Exception as e:
+            logger.error(
+                "PositionMonitor: DB pending_close write failed for %s: %s", pos.get("id"), e
+            )
+
+        if not self.alpaca:
+            logger.info("PositionMonitor [DRY RUN]: would close %s", pos.get("id"))
+            return
+
+        try:
+            if "condor" in spread_type:
+                result = self._submit_ic_close(pos, contracts, expiration_str)
+            else:
+                result = self.alpaca.close_spread(
+                    ticker=ticker,
+                    short_strike=pos.get("short_strike"),
+                    long_strike=pos.get("long_strike"),
+                    expiration=expiration_str,
+                    spread_type=str(pos.get("strategy_type", pos.get("type", ""))),
+                    contracts=contracts,
+                    limit_price=None,   # market order on exits
+                )
+
+            if result.get("status") == "submitted":
+                # Store order_id + submission timestamp so _reconcile_pending_closes
+                # can poll for fills and detect stale (unfilled) close orders.
+                pos["close_order_id"] = result.get("order_id")
+                pos["close_order_submitted_at"] = datetime.now(timezone.utc).isoformat()
+                try:
+                    upsert_trade(pos, source="execution", path=self.db_path)
+                except Exception as e:
+                    logger.error(
+                        "PositionMonitor: failed to store close_order_id for %s: %s",
+                        pos.get("id"), e,
+                    )
+                logger.info(
+                    "PositionMonitor: close submitted for %s order_id=%s",
+                    pos.get("id"), pos["close_order_id"],
+                )
+            else:
+                # Close order was rejected by Alpaca (non-submitted result).
+                # Reset status back to "open" so the exit-condition check retries on
+                # the next cycle rather than leaving the position stuck in pending_close.
+                logger.error(
+                    "PositionMonitor: close order FAILED for %s: %s — "
+                    "resetting to open for retry on next cycle",
+                    pos.get("id"), result.get("message"),
+                )
+                pos["status"] = "open"
+                pos.pop("close_order_id", None)
+                pos.pop("exit_reason", None)
+                pos.pop("close_order_submitted_at", None)
+                try:
+                    upsert_trade(pos, source="execution", path=self.db_path)
+                except Exception as reset_err:
+                    logger.error(
+                        "PositionMonitor: failed to reset %s to open after close failure: %s",
+                        pos.get("id"), reset_err,
+                    )
+
+        except Exception as e:
+            logger.error(
+                "PositionMonitor: exception submitting close for %s: %s",
+                pos.get("id"), e, exc_info=True,
+            )
+
+    def _submit_ic_close(self, pos: Dict, contracts: int, expiration_str: str) -> Dict:
+        """Delegate 4-leg iron condor close to AlpacaProvider."""
+        ticker = pos.get("ticker", "")
+        put_short = pos.get("put_short_strike") or pos.get("short_strike")
+        put_long = pos.get("put_long_strike") or pos.get("long_strike")
+        call_short = pos.get("call_short_strike")
+        call_long = pos.get("call_long_strike")
+
+        if not all([put_short, put_long, call_short, call_long]):
+            return {"status": "error", "message": "IC missing wing strikes — cannot close"}
+
+        return self.alpaca.close_iron_condor(
+            ticker=ticker,
+            put_short_strike=put_short,
+            put_long_strike=put_long,
+            call_short_strike=call_short,
+            call_long_strike=call_long,
+            expiration=expiration_str,
+            contracts=contracts,
+            limit_price=None,
+        )
+
+    # ------------------------------------------------------------------
+    # Pending-open reconciliation (intra-day fill tracking)
+    # ------------------------------------------------------------------
+
+    def _reconcile_pending_opens(self) -> None:
+        """Promote pending_open trades to open when Alpaca confirms fill.
+
+        Called every check cycle so orders placed during the session become
+        monitored for stop-loss and profit-target as soon as they fill.
+        Delegates to PositionReconciler for the actual Alpaca order polling.
+        """
+        try:
+            from shared.reconciler import PositionReconciler
+            reconciler = PositionReconciler(alpaca=self.alpaca, db_path=self.db_path)
+            result = reconciler.reconcile_pending_only()
+            if result.pending_resolved or result.pending_failed:
+                logger.info(
+                    "PositionMonitor: pending_open reconcile — resolved=%d failed=%d",
+                    result.pending_resolved, result.pending_failed,
+                )
+        except Exception as e:
+            logger.warning("PositionMonitor: pending_open reconciliation error: %s", e)
+
+    # ------------------------------------------------------------------
+    # Assignment detection
+    # ------------------------------------------------------------------
+
+    def _detect_assignment(
+        self, open_positions: list, alpaca_positions: dict
+    ) -> None:
+        """Check for unexpected equity positions that may indicate early assignment.
+
+        When a short put is assigned, the option position disappears and a short
+        stock position appears. This method alerts on any equity position whose
+        underlying ticker matches one of our open spreads.
+        """
+        # Collect tickers we're managing
+        managed_tickers = {pos.get("ticker", "") for pos in open_positions}
+        if not managed_tickers:
+            return
+
+        for symbol, pos_data in alpaca_positions.items():
+            asset_class = str(pos_data.get("asset_class", "")).lower()
+            if "option" in asset_class:
+                continue  # normal option position
+
+            # This is an equity position — check if it matches a managed ticker
+            for ticker in managed_tickers:
+                if ticker and symbol.upper() == ticker.upper():
+                    qty = pos_data.get("qty", "?")
+                    logger.warning(
+                        "PositionMonitor: POSSIBLE ASSIGNMENT DETECTED — "
+                        "equity position %s qty=%s found while managing %s spreads. "
+                        "Manual review required.",
+                        symbol, qty, ticker,
+                    )
+
+    # ------------------------------------------------------------------
+    # Orphan position detection
+    # ------------------------------------------------------------------
+
+    def _detect_orphans(
+        self, open_positions: List[Dict], alpaca_positions: Dict
+    ) -> None:
+        """Warn about option positions in Alpaca that have no corresponding DB record.
+
+        An orphan could be a manually-opened position, a position from a bug in DB
+        writes, or a position from another strategy sharing the same account.
+        The system does NOT try to manage orphans — it logs and alerts only.
+        """
+        # Build the complete set of OCC symbols that all managed positions expect
+        managed_symbols: set = set()
+        for pos in open_positions:
+            ticker = pos.get("ticker", "")
+            exp = str(pos.get("expiration", "")).split(" ")[0]
+            spread_type = str(pos.get("strategy_type", pos.get("type", ""))).lower()
+            if not ticker or not exp:
+                continue
+            try:
+                if "condor" in spread_type:
+                    for strike, opt_type in [
+                        (pos.get("put_short_strike") or pos.get("short_strike"), "put"),
+                        (pos.get("put_long_strike") or pos.get("long_strike"), "put"),
+                        (pos.get("call_short_strike"), "call"),
+                        (pos.get("call_long_strike"), "call"),
+                    ]:
+                        if strike:
+                            managed_symbols.add(
+                                self.alpaca._build_occ_symbol(ticker, exp, strike, opt_type)
+                            )
+                else:
+                    opt_type = "call" if "call" in spread_type else "put"
+                    for strike in [pos.get("short_strike"), pos.get("long_strike")]:
+                        if strike:
+                            managed_symbols.add(
+                                self.alpaca._build_occ_symbol(ticker, exp, strike, opt_type)
+                            )
+            except Exception:
+                pass
+
+        for symbol, pos_data in alpaca_positions.items():
+            asset_class = str(pos_data.get("asset_class", "")).lower()
+            if "option" not in asset_class:
+                continue  # only check option positions
+            if symbol not in managed_symbols:
+                qty = pos_data.get("qty", "?")
+                logger.warning(
+                    "PositionMonitor: ORPHAN OPTION POSITION — %s qty=%s has no DB record. "
+                    "Manual review required.",
+                    symbol, qty,
+                )
+
+    # ------------------------------------------------------------------
+    # P&L reconciliation — Bug 2 fix
+    # ------------------------------------------------------------------
+
+    def _reconcile_pending_closes(self) -> None:
+        """Poll Alpaca for fill status of pending_close orders; record P&L when filled."""
+        pending = get_trades(status="pending_close", source="execution", path=self.db_path)
+        if not pending:
+            return
+
+        logger.debug("PositionMonitor: reconciling %d pending_close position(s)", len(pending))
+
+        for pos in pending:
+            order_id = pos.get("close_order_id")
+            if not order_id:
+                # No order_id stored — close was submitted before this fix; leave for manual
+                continue
+
+            try:
+                order = self.alpaca.get_order_status(order_id)
+            except Exception as e:
+                logger.warning(
+                    "PositionMonitor: order status fetch failed for %s: %s", order_id, e
+                )
+                continue
+
+            if not order:
+                continue
+
+            order_status = str(order.get("status", "")).lower()
+
+            if "filled" in order_status:
+                # Partial fill detection: compare filled_qty to expected contracts
+                filled_qty_str = order.get("filled_qty")
+                expected_contracts = int(pos.get("contracts", 1))
+                if filled_qty_str:
+                    try:
+                        filled_qty = int(float(filled_qty_str))
+                        if filled_qty != expected_contracts:
+                            logger.warning(
+                                "PositionMonitor: PARTIAL FILL detected for %s — "
+                                "filled=%d expected=%d. Adjusting contracts to filled qty.",
+                                pos.get("id"), filled_qty, expected_contracts,
+                            )
+                            pos["contracts"] = filled_qty
+                    except (ValueError, TypeError):
+                        pass
+                self._record_close_pnl(pos, order)
+
+            elif order_status in _TERMINAL_NO_FILL:
+                # Close order was rejected/cancelled — reset position to open for retry
+                logger.warning(
+                    "PositionMonitor: close order %s terminal status '%s' for %s — resetting to open",
+                    order_id, order_status, pos.get("id"),
+                )
+                pos["status"] = "open"
+                pos.pop("close_order_id", None)
+                pos.pop("exit_reason", None)
+                pos.pop("close_order_submitted_at", None)
+                try:
+                    upsert_trade(pos, source="execution", path=self.db_path)
+                except Exception as e:
+                    logger.error(
+                        "PositionMonitor: failed to reset %s to open: %s", pos.get("id"), e
+                    )
+            else:
+                # Still pending (new, accepted, partially_filled) — leave as pending_close
+                # Warn if the close order has been sitting unfilled too long (stale)
+                submitted_at_str = pos.get("close_order_submitted_at")
+                if submitted_at_str:
+                    try:
+                        submitted_at = datetime.fromisoformat(submitted_at_str)
+                        if submitted_at.tzinfo is None:
+                            submitted_at = submitted_at.replace(tzinfo=timezone.utc)
+                        age_minutes = (
+                            datetime.now(timezone.utc) - submitted_at
+                        ).total_seconds() / 60
+                        if age_minutes >= _STALE_CLOSE_MINUTES:
+                            logger.warning(
+                                "PositionMonitor: STALE CLOSE ORDER — %s has been pending "
+                                "%.0f min (order_id=%s status=%s). "
+                                "Consider manual intervention or price ladder escalation.",
+                                pos.get("id"), age_minutes, order_id, order_status,
+                            )
+                    except (ValueError, TypeError):
+                        pass
+
+    def _record_close_pnl(self, pos: Dict, order: Dict) -> None:
+        """Calculate realized P&L from fill data and update DB with final closed status."""
+        pos_id = pos.get("id", "?")
+        credit = float(pos.get("credit") or 0)
+        contracts = int(pos.get("contracts", 1))
+        exit_reason = pos.get("exit_reason", "monitor")
+
+        fill_price_str = order.get("filled_avg_price")
+        try:
+            fill_price = float(fill_price_str) if fill_price_str else 0.0
+        except (ValueError, TypeError):
+            fill_price = 0.0
+
+        # P&L = (credit collected at open) - (debit paid to close)
+        # Multiplied by contracts × 100 (options multiplier) for total dollar P&L
+        pnl = (credit - fill_price) * contracts * 100
+
+        # Commission deduction (default 0 = paper trading; set execution.commission_per_contract
+        # in config for live trading, e.g. 0.65 for standard broker rate)
+        commission_per_contract = float(
+            self.config.get("execution", {}).get("commission_per_contract", 0.0)
+        )
+        if commission_per_contract > 0:
+            spread_type = str(pos.get("strategy_type", pos.get("type", ""))).lower()
+            num_legs = 4 if "condor" in spread_type else 2
+            # round trip: open (num_legs) + close (num_legs)
+            commission = commission_per_contract * contracts * num_legs * 2
+            pnl -= commission
+            logger.info(
+                "PositionMonitor: %s commission=%.2f (%d legs × %d contracts × $%.2f × 2 sides)",
+                pos_id, commission, num_legs, contracts, commission_per_contract,
+            )
+
+        logger.info(
+            "PositionMonitor: recording close for %s | fill=%.4f credit=%.4f pnl=$%.2f",
+            pos_id, fill_price, credit, pnl,
+        )
+
+        try:
+            close_trade(pos_id, pnl, exit_reason, path=self.db_path)
+        except Exception as e:
+            logger.error(
+                "PositionMonitor: close_trade DB write failed for %s: %s — "
+                "writing to WAL for recovery on next startup",
+                pos_id, e,
+            )
+            # WAL write ensures this fill is not silently lost even if the DB is unavailable.
+            # On next startup, replay_wal() will re-apply these entries before trading resumes.
+            try:
+                from shared.wal import write_wal_entry
+                write_wal_entry({
+                    "type": "close_trade",
+                    "trade_id": pos_id,
+                    "pnl": pnl,
+                    "exit_reason": exit_reason,
+                    "fill_price": fill_price,
+                    "credit": credit,
+                    "contracts": contracts,
+                }, wal_path=self.config.get("execution", {}).get("wal_path"))
+            except Exception as wal_err:
+                logger.critical(
+                    "PositionMonitor: WAL write ALSO failed for %s: %s. "
+                    "Manual reconciliation required.",
+                    pos_id, wal_err,
+                )
