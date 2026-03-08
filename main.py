@@ -709,11 +709,11 @@ Examples:
             system.scan_opportunities()
 
         elif args.command == 'scheduler':
-            from shared.scheduler import ScanScheduler
+            from shared.scheduler import ScanScheduler, SLOT_SCAN
             from execution.position_monitor import PositionMonitor
             import threading
 
-            def scan_and_sync():
+            def scan_and_sync(slot_type=SLOT_SCAN):
                 system.scan_opportunities()
 
             scheduler = ScanScheduler(scan_fn=scan_and_sync)

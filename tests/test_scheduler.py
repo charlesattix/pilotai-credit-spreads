@@ -10,6 +10,10 @@ import pytest
 from shared.scheduler import (
     ET,
     SCAN_TIMES,
+    MARKET_SCAN_TIMES,
+    SLOT_SCAN,
+    SLOT_PRE_MARKET,
+    SLOT_DAILY_REPORT,
     ScanScheduler,
     _is_weekday,
     _next_scan_time,
@@ -37,52 +41,74 @@ class TestIsWeekday:
 
 class TestNextScanTime:
     def test_before_first_scan(self):
-        """Before 9:15 AM on a weekday → next scan is 9:15 today."""
+        """Before 9:00 AM on a weekday → next slot is 9:00 (pre-market)."""
         now = ET.localize(datetime(2026, 2, 16, 8, 0))  # Monday 8:00
-        nxt = _next_scan_time(now)
+        nxt, slot_type = _next_scan_time(now)
         assert nxt.hour == 9
-        assert nxt.minute == 15
+        assert nxt.minute == 0
+        assert slot_type == SLOT_PRE_MARKET
         assert nxt.date() == now.date()
 
     def test_between_scans(self):
         """Between 9:15 and 9:45 → next scan is 9:45."""
         now = ET.localize(datetime(2026, 2, 16, 9, 20))  # Monday 9:20
-        nxt = _next_scan_time(now)
+        nxt, slot_type = _next_scan_time(now)
         assert nxt.hour == 9
         assert nxt.minute == 45
+        assert slot_type == SLOT_SCAN
 
-    def test_after_last_scan(self):
-        """After 3:30 PM on weekday → next scan is 9:15 AM next weekday."""
-        now = ET.localize(datetime(2026, 2, 16, 16, 0))  # Monday 4:00 PM
-        nxt = _next_scan_time(now)
-        assert nxt.hour == 9
+    def test_after_last_scan_before_daily_report(self):
+        """After 3:30 PM but before 4:15 PM → next is daily report."""
+        now = ET.localize(datetime(2026, 2, 16, 15, 35))
+        nxt, slot_type = _next_scan_time(now)
+        assert nxt.hour == 16
         assert nxt.minute == 15
+        assert slot_type == SLOT_DAILY_REPORT
+
+    def test_after_daily_report_goes_to_next_day(self):
+        """After 4:15 PM on weekday → next slot is 9:00 AM next weekday."""
+        now = ET.localize(datetime(2026, 2, 16, 16, 30))  # Monday 4:30 PM
+        nxt, slot_type = _next_scan_time(now)
+        assert nxt.hour == 9
+        assert nxt.minute == 0
+        assert slot_type == SLOT_PRE_MARKET
         assert nxt.date() == datetime(2026, 2, 17).date()  # Tuesday
 
     def test_friday_after_close_skips_weekend(self):
-        """Friday after close → next scan is Monday 9:15 AM."""
-        now = ET.localize(datetime(2026, 2, 20, 16, 0))  # Friday 4:00 PM
-        nxt = _next_scan_time(now)
+        """Friday after close → next slot is Monday 9:00 AM."""
+        now = ET.localize(datetime(2026, 2, 20, 16, 30))  # Friday 4:30 PM
+        nxt, slot_type = _next_scan_time(now)
         assert nxt.hour == 9
-        assert nxt.minute == 15
+        assert nxt.minute == 0
         assert nxt.weekday() == 0  # Monday
 
     def test_saturday_skips_to_monday(self):
-        """Saturday → next scan is Monday 9:15 AM."""
+        """Saturday → next slot is Monday 9:00 AM."""
         now = ET.localize(datetime(2026, 2, 21, 12, 0))  # Saturday noon
-        nxt = _next_scan_time(now)
+        nxt, slot_type = _next_scan_time(now)
         assert nxt.weekday() == 0  # Monday
         assert nxt.hour == 9
-        assert nxt.minute == 15
+        assert nxt.minute == 0
 
-    def test_all_14_scan_times_defined(self):
-        assert len(SCAN_TIMES) == 14
+    def test_all_16_scan_times_defined(self):
+        assert len(SCAN_TIMES) == 16
+
+    def test_market_scan_times_has_14_entries(self):
+        """MARKET_SCAN_TIMES (backtester compat) should have 14 scan-only slots."""
+        assert len(MARKET_SCAN_TIMES) == 14
 
     def test_scan_times_are_sorted(self):
         for i in range(len(SCAN_TIMES) - 1):
             a = SCAN_TIMES[i][0] * 60 + SCAN_TIMES[i][1]
             b = SCAN_TIMES[i + 1][0] * 60 + SCAN_TIMES[i + 1][1]
             assert a < b, f"SCAN_TIMES not sorted: {SCAN_TIMES[i]} >= {SCAN_TIMES[i+1]}"
+
+    def test_slot_types_correct(self):
+        """First slot is pre-market, last is daily report, rest are scans."""
+        assert SCAN_TIMES[0][2] == SLOT_PRE_MARKET
+        assert SCAN_TIMES[-1][2] == SLOT_DAILY_REPORT
+        for h, m, s in SCAN_TIMES[1:-1]:
+            assert s == SLOT_SCAN
 
 
 class TestScanScheduler:
@@ -108,26 +134,9 @@ class TestScanScheduler:
         scan_fn = MagicMock()
         scheduler = ScanScheduler(scan_fn, startup_delay=0)
 
-        call_count = 0
-
-        # Patch _next_scan_time to return "right now" on first call, then stop
-        original_next = _next_scan_time
-
-        def mock_next(now_et):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                # Return a time in the immediate past so wait_seconds ≈ 0
-                return now_et
-            else:
-                # Stop after one scan
-                scheduler.stop()
-                return now_et + pytz.timezone("America/New_York").localize(
-                    datetime(2099, 1, 1)
-                ).astimezone(pytz.UTC).replace(tzinfo=None).__class__(2099, 1, 1)
-
         with patch("shared.scheduler._next_scan_time") as mock:
-            mock.side_effect = lambda now: now  # return "now" so wait is 0
+            # Return (now, SLOT_SCAN) so wait is 0
+            mock.side_effect = lambda now: (now, SLOT_SCAN)
 
             # Stop after brief delay
             def stop_soon():
@@ -142,3 +151,5 @@ class TestScanScheduler:
                 scheduler.run_forever()
 
         assert scan_fn.call_count >= 1
+        # Verify slot_type was passed to scan_fn
+        scan_fn.assert_called_with(SLOT_SCAN)
