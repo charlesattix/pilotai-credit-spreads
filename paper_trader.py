@@ -13,7 +13,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
-from shared.constants import MAX_CONTRACTS_PER_TRADE, MANAGEMENT_DTE_THRESHOLD, ZERO_DTE_STRATEGY_NAME, DATA_DIR as _DATA_DIR
+from shared.constants import MAX_CONTRACTS_PER_TRADE, MAX_TOTAL_EXPOSURE, MANAGEMENT_DTE_THRESHOLD, ZERO_DTE_STRATEGY_NAME, DATA_DIR as _DATA_DIR
 from shared.database import init_db, upsert_trade, get_trades, close_trade as db_close_trade
 from shared.metrics import metrics
 from alerts.formatters.telegram import TelegramAlertFormatter
@@ -336,20 +336,48 @@ class PaperTrader:
             if (o["ticker"], o.get("short_strike"), o.get("expiration")) not in open_keys
         ]
 
-        # Also limit max 3 positions per ticker to avoid concentration
+        # Intra-batch exposure tracking: accumulate ticker counts and total
+        # risk as trades are opened to prevent over-allocation within a
+        # single scan batch.
         ticker_counts = {}
         for t in self.open_trades:
             ticker_counts[t["ticker"]] = ticker_counts.get(t["ticker"], 0) + 1
-        eligible = [
-            o for o in eligible
-            if ticker_counts.get(o["ticker"], 0) < 3
-        ]
+
+        current_balance = self.trades["current_balance"]
+        batch_open_risk = sum(
+            t.get("total_max_loss", 0) for t in self.open_trades
+        )
 
         new_trades = []
         for opp in eligible:
+            # Per-ticker concentration cap (max 3 per ticker)
+            if ticker_counts.get(opp["ticker"], 0) >= 3:
+                logger.info(
+                    "BATCH SKIP: %s already has %d positions (max 3)",
+                    opp["ticker"], ticker_counts.get(opp["ticker"], 0),
+                )
+                continue
+
+            # Pre-check total exposure before attempting to open
+            opp_max_loss = opp.get("max_loss", 0) * 100  # per-contract estimate
+            if current_balance > 0:
+                projected_exposure = (batch_open_risk + opp_max_loss) / current_balance
+                if projected_exposure > MAX_TOTAL_EXPOSURE:
+                    logger.warning(
+                        "BATCH SKIP: %s would push exposure to %.1f%% "
+                        "(limit %.0f%%). Open risk: $%.0f, this trade: ~$%.0f",
+                        opp["ticker"], projected_exposure * 100,
+                        MAX_TOTAL_EXPOSURE * 100, batch_open_risk, opp_max_loss,
+                    )
+                    continue
+
             trade = self._open_trade(opp)
             if trade:
                 new_trades.append(trade)
+                # Update intra-batch accumulators so subsequent iterations
+                # see the cumulative effect of trades opened in this batch
+                ticker_counts[trade["ticker"]] = ticker_counts.get(trade["ticker"], 0) + 1
+                batch_open_risk += trade.get("total_max_loss", 0)
 
         if new_trades:
             self._save_trades()
@@ -470,6 +498,17 @@ class PaperTrader:
                     f"TRADE REFUSED: insufficient available capital. "
                     f"Balance: ${current_balance:,.2f}, Open risk: ${open_risk:,.2f}, "
                     f"Available: ${available_capital:,.2f}"
+                )
+                return None
+
+            # MASTERPLAN hard limit: total exposure must not exceed MAX_TOTAL_EXPOSURE
+            exposure_pct = open_risk / current_balance if current_balance > 0 else 1.0
+            if exposure_pct >= MAX_TOTAL_EXPOSURE:
+                logger.warning(
+                    "TRADE REFUSED: total exposure %.1f%% >= %.0f%% MASTERPLAN limit. "
+                    "Open risk: $%s, Balance: $%s",
+                    exposure_pct * 100, MAX_TOTAL_EXPOSURE * 100,
+                    f"{open_risk:,.2f}", f"{current_balance:,.2f}",
                 )
                 return None
 

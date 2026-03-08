@@ -8,6 +8,7 @@ from paper_trader import (
     CONSECUTIVE_LOSS_BLOCK_THRESHOLD, TICKER_DIRECTION_COOLDOWN_HOURS,
     STRIKE_COOLDOWN_HOURS,
 )
+from shared.constants import MAX_TOTAL_EXPOSURE
 from shared.io_utils import atomic_json_write
 
 
@@ -583,6 +584,251 @@ class TestOpenRiskExposure:
         opp = _make_opportunity(ticker='SPY')
         new_trades = pt.execute_signals([opp])
         assert len(new_trades) == 1
+
+
+# ---------------------------------------------------------------------------
+# Tests for batch-sizing and intra-batch exposure tracking
+# ---------------------------------------------------------------------------
+
+class TestBatchExposureTracking:
+    """Verify that execute_signals enforces per-ticker and total exposure limits
+    within a single batch of signals (not just against pre-existing positions)."""
+
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_batch_ticker_cap_limits_per_ticker(
+        self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades,
+        mock_upsert, tmp_path,
+    ):
+        """Max 3 positions per ticker within a single batch — 4th should be skipped."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+        mock_paper_log.parent = tmp_path
+
+        pt = PaperTrader(_make_config(tmp_path))
+        pt._save_trades = MagicMock()
+        pt.alpaca = _mock_alpaca()
+
+        # 5 SPY opportunities with different strikes — only 3 should open
+        opps = [
+            _make_opportunity(ticker='SPY', short_strike=450 + i, long_strike=445 + i,
+                              credit=0.50, max_loss=0.50, score=80 - i)
+            for i in range(5)
+        ]
+        new_trades = pt.execute_signals(opps)
+
+        spy_trades = [t for t in new_trades if t['ticker'] == 'SPY']
+        assert len(spy_trades) <= 3, (
+            f"Expected max 3 SPY trades, got {len(spy_trades)}"
+        )
+
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_batch_ticker_cap_accumulates_with_existing(
+        self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades,
+        mock_upsert, tmp_path,
+    ):
+        """If 2 SPY positions already open, only 1 more SPY can be added in batch."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+        mock_paper_log.parent = tmp_path
+
+        pt = PaperTrader(_make_config(tmp_path))
+        pt._save_trades = MagicMock()
+        pt.alpaca = _mock_alpaca()
+
+        # Pre-load 2 existing SPY positions
+        for i in range(2):
+            existing = {
+                'id': f'existing-{i}', 'status': 'open', 'ticker': 'SPY',
+                'type': 'bull_put_spread', 'short_strike': 440 + i,
+                'long_strike': 435 + i, 'expiration': '2025-12-20',
+                'total_max_loss': 500, 'contracts': 1, 'total_credit': 200,
+            }
+            pt.trades['trades'].append(existing)
+            pt._open_trades.append(existing)
+
+        # Try to open 3 more SPY — only 1 should succeed (2 existing + 1 = 3 max)
+        opps = [
+            _make_opportunity(ticker='SPY', short_strike=460 + i, long_strike=455 + i,
+                              credit=0.50, max_loss=0.50, score=80 - i)
+            for i in range(3)
+        ]
+        new_trades = pt.execute_signals(opps)
+
+        spy_new = [t for t in new_trades if t['ticker'] == 'SPY']
+        assert len(spy_new) == 1, (
+            f"Expected exactly 1 new SPY trade (2 existing + 1 = 3 cap), got {len(spy_new)}"
+        )
+
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_batch_exposure_cap_stops_at_max_total_exposure(
+        self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades,
+        mock_upsert, tmp_path,
+    ):
+        """Batch should stop opening trades when cumulative risk hits MAX_TOTAL_EXPOSURE."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+        mock_paper_log.parent = tmp_path
+
+        pt = PaperTrader(_make_config(tmp_path))
+        pt._save_trades = MagicMock()
+        pt.alpaca = _mock_alpaca()
+        # Balance is 100,000 and MAX_TOTAL_EXPOSURE is 15% = $15,000 max risk
+
+        # 10 opportunities across different tickers, each ~$3,500 max loss per contract
+        # At 1 contract each, that's ~$350 risk each (max_loss=3.50 * 100 = $350 at pre-check)
+        # But _open_trade sizes to 1 contract min → total_max_loss = 3.50 * 1 * 100 = $350
+        # So theoretically many could fit... let's use bigger max_loss values
+        # Use max_loss=8.0 → per-contract = $800, and the sizer may give 2+ contracts
+        tickers = ['SPY', 'QQQ', 'IWM', 'AAPL', 'MSFT',
+                    'TSLA', 'AMZN', 'META', 'GOOGL', 'NFLX']
+        opps = [
+            _make_opportunity(
+                ticker=t, short_strike=450, long_strike=440,
+                credit=2.00, max_loss=8.00, score=80, expiration=f'2025-07-{20+i:02d}',
+            )
+            for i, t in enumerate(tickers)
+        ]
+
+        new_trades = pt.execute_signals(opps)
+
+        total_risk = sum(t.get('total_max_loss', 0) for t in new_trades)
+        balance = pt.trades['current_balance']
+        exposure_pct = total_risk / balance if balance > 0 else 0
+
+        assert exposure_pct <= MAX_TOTAL_EXPOSURE + 0.01, (
+            f"Batch opened {len(new_trades)} trades with {exposure_pct:.1%} exposure, "
+            f"exceeding MAX_TOTAL_EXPOSURE of {MAX_TOTAL_EXPOSURE:.0%}. "
+            f"Total risk: ${total_risk:,.0f}"
+        )
+
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_batch_exposure_includes_existing_positions(
+        self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades,
+        mock_upsert, tmp_path,
+    ):
+        """Existing open risk counts toward the MAX_TOTAL_EXPOSURE limit in batch."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+        mock_paper_log.parent = tmp_path
+
+        pt = PaperTrader(_make_config(tmp_path))
+        pt._save_trades = MagicMock()
+        pt.alpaca = _mock_alpaca()
+
+        # Pre-load positions consuming 14% of capital ($14,000 risk on $100k)
+        existing = {
+            'id': 'existing-big', 'status': 'open', 'ticker': 'AAPL',
+            'type': 'bull_put_spread', 'short_strike': 200,
+            'long_strike': 195, 'expiration': '2025-12-20',
+            'total_max_loss': 14000, 'contracts': 5, 'total_credit': 3000,
+        }
+        pt.trades['trades'].append(existing)
+        pt._open_trades.append(existing)
+
+        # Try to add a trade with ~$2,000 risk → 14k + 2k = 16k = 16% > 15%
+        opp = _make_opportunity(
+            ticker='SPY', credit=2.00, max_loss=20.00, score=80,
+        )
+        new_trades = pt.execute_signals([opp])
+
+        assert len(new_trades) == 0, (
+            f"Expected 0 trades (existing 14% + new would exceed 15%), "
+            f"got {len(new_trades)}"
+        )
+
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_open_trade_hard_backstop_enforces_max_exposure(
+        self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades,
+        mock_upsert, tmp_path,
+    ):
+        """_open_trade itself blocks when open_risk >= MAX_TOTAL_EXPOSURE (defense-in-depth)."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+        mock_paper_log.parent = tmp_path
+
+        pt = PaperTrader(_make_config(tmp_path))
+        pt._save_trades = MagicMock()
+        pt.alpaca = _mock_alpaca()
+
+        # Inject open risk at exactly 15% ($15,000 on $100k)
+        existing = {
+            'id': 'at-limit', 'status': 'open', 'ticker': 'AAPL',
+            'type': 'bull_put_spread', 'short_strike': 200,
+            'long_strike': 195, 'expiration': '2025-12-20',
+            'total_max_loss': 15000, 'contracts': 5, 'total_credit': 3000,
+        }
+        pt.trades['trades'].append(existing)
+        pt._open_trades.append(existing)
+
+        # Call _open_trade directly (bypasses execute_signals batch check)
+        opp = _make_opportunity(ticker='QQQ', credit=0.50, max_loss=0.50, score=80)
+        result = pt._open_trade(opp)
+
+        assert result is None, (
+            "Expected _open_trade to return None when exposure is at MAX_TOTAL_EXPOSURE"
+        )
+
+    @patch('paper_trader.upsert_trade')
+    @patch('paper_trader.get_trades', return_value=[])
+    @patch('paper_trader.init_db')
+    @patch('paper_trader.PAPER_LOG')
+    @patch('paper_trader.DATA_DIR')
+    def test_different_tickers_not_blocked_by_per_ticker_cap(
+        self, mock_data_dir, mock_paper_log, mock_init_db, mock_get_trades,
+        mock_upsert, tmp_path,
+    ):
+        """Per-ticker cap only affects the same ticker — different tickers can still open."""
+        mock_data_dir.__truediv__ = lambda s, n: tmp_path / n
+        mock_data_dir.mkdir = MagicMock()
+        mock_paper_log.exists.return_value = False
+        mock_paper_log.parent = tmp_path
+
+        pt = PaperTrader(_make_config(tmp_path))
+        pt._save_trades = MagicMock()
+        pt.alpaca = _mock_alpaca()
+
+        # 3 SPY + 2 QQQ — all should open (3 per ticker, within exposure)
+        opps = [
+            _make_opportunity(ticker='SPY', short_strike=450 + i, long_strike=445 + i,
+                              credit=0.50, max_loss=0.50, score=80 - i)
+            for i in range(3)
+        ] + [
+            _make_opportunity(ticker='QQQ', short_strike=380 + i, long_strike=375 + i,
+                              credit=0.50, max_loss=0.50, score=70 - i)
+            for i in range(2)
+        ]
+
+        new_trades = pt.execute_signals(opps)
+
+        spy_count = sum(1 for t in new_trades if t['ticker'] == 'SPY')
+        qqq_count = sum(1 for t in new_trades if t['ticker'] == 'QQQ')
+        assert spy_count == 3
+        assert qqq_count == 2
 
 
 # ---------------------------------------------------------------------------
