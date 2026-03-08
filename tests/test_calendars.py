@@ -7,7 +7,7 @@ Covers:
 """
 
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -106,6 +106,23 @@ class TestEarningsCalendar:
             cal = EarningsCalendar()
             result = cal.get_next_earnings("MSFT")
             assert result == earnings_dt
+
+    def test_yfinance_date_object_converted_to_datetime(self):
+        """When yfinance returns a bare datetime.date, it's converted to tz-aware datetime."""
+        bare_date = date(2026, 4, 15)
+
+        with patch("yfinance.Ticker") as MockTicker:
+            mock_instance = MagicMock()
+            mock_instance.calendar = {"Earnings Date": [bare_date]}
+            MockTicker.return_value = mock_instance
+
+            cal = EarningsCalendar()
+            result = cal.get_next_earnings("AAPL")
+            assert isinstance(result, datetime), f"Expected datetime, got {type(result)}"
+            assert result.tzinfo is not None, "Expected timezone-aware datetime"
+            assert result.year == 2026
+            assert result.month == 4
+            assert result.day == 15
 
     def test_yfinance_exception_returns_none(self):
         """When yfinance raises an exception, get_next_earnings returns None."""

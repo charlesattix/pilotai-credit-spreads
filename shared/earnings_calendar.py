@@ -7,7 +7,7 @@ play scanner (Phase 5).
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -72,6 +72,13 @@ class EarningsCalendar:
                     earnings_date = datetime.fromisoformat(earnings_date)
                 elif hasattr(earnings_date, "to_pydatetime"):
                     earnings_date = earnings_date.to_pydatetime()
+                # Convert datetime.date to datetime.datetime (yfinance
+                # sometimes returns bare date objects which lack tzinfo)
+                if isinstance(earnings_date, date) and not isinstance(earnings_date, datetime):
+                    earnings_date = datetime(
+                        earnings_date.year, earnings_date.month, earnings_date.day,
+                        tzinfo=timezone.utc,
+                    )
                 # Ensure timezone-aware
                 if earnings_date.tzinfo is None:
                     earnings_date = earnings_date.replace(tzinfo=timezone.utc)
