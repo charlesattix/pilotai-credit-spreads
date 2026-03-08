@@ -136,16 +136,26 @@ def _build_config(params: dict, starting_capital: float = 100_000) -> dict:
             "min_credit_pct":      params.get("min_credit_pct", 10),
             "direction":           params.get("direction", "both"),
             "trend_ma_period":     params.get("trend_ma_period", 20),
+            # combo is the MANDATORY default for all experiments (Carlos mandate, Mar 5 2026)
+            "regime_mode":         params.get("regime_mode", "combo"),
+            "regime_config":       params.get("regime_config", {}),
             "momentum_filter_pct": params.get("momentum_filter_pct", None),
             "iron_condor": {
                 "enabled":                 params.get("iron_condor_enabled", False),
                 "min_combined_credit_pct": params.get("ic_min_combined_credit_pct", 20),
+                "neutral_regime_only":     params.get("ic_neutral_regime_only", False),
+                "vix_min":                 params.get("ic_vix_min", 0),
+                "risk_per_trade":          params.get("ic_risk_per_trade", None),
             },
             "iv_rank_min_entry":     params.get("iv_rank_min_entry", 0),
             # VIX regime filter params (new)
             "vix_max_entry":         params.get("vix_max_entry", 0),
             "vix_close_all":         params.get("vix_close_all", 0),
             "vix_dynamic_sizing":    params.get("vix_dynamic_sizing", {}),
+            "seasonal_sizing":       params.get("seasonal_sizing", {}),
+            # COMPASS: Composite Macro Position & Sector Signal
+            "compass_enabled":       params.get("compass_enabled", False),
+            "compass_rrg_filter":    params.get("compass_rrg_filter", False),
         },
         "risk": {
             "stop_loss_multiplier": params.get("stop_loss_multiplier", 2.5),
@@ -192,7 +202,11 @@ def run_year(ticker: str, year: int, params: dict, use_real_data: bool,
         try:
             from backtest.historical_data import HistoricalOptionsData
             polygon_api_key = os.getenv("POLYGON_API_KEY", "")
-            hd = HistoricalOptionsData(polygon_api_key)
+            # offline_mode=True: use SQLite cache only — no live Polygon API calls.
+            # Cache misses return None (scan skips that time) instead of hanging on
+            # the 1s/call rate limiter.  All 2020-2025 data is pre-cached from
+            # prior exp runs.
+            hd = HistoricalOptionsData(polygon_api_key, offline_mode=True)
         except Exception as e:
             logger.warning("Could not init HistoricalOptionsData: %s — falling back to heuristic", e)
 
