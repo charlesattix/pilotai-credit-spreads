@@ -35,18 +35,26 @@ class ReconciliationResult:
     """Summary of what the reconciler did in one pass."""
 
     def __init__(self):
-        self.pending_resolved: int = 0   # pending_open → open
-        self.pending_failed: int = 0     # pending_open → failed_open
+        self.pending_resolved: int = 0   # pending_open → open (fill confirmed)
+        self.pending_failed: int = 0     # pending_open → failed_open (terminal state)
+        self.phantom_resolved: int = 0   # open → needs_investigation (not in Alpaca)
+        self.orphans_detected: int = 0   # Alpaca positions not in DB (logged, record created)
         self.errors: List[str] = []
 
     def __bool__(self) -> bool:
-        return bool(self.pending_resolved or self.pending_failed or self.errors)
+        return bool(
+            self.pending_resolved or self.pending_failed
+            or self.phantom_resolved or self.orphans_detected
+            or self.errors
+        )
 
     def __repr__(self) -> str:
         return (
             f"ReconciliationResult("
             f"resolved={self.pending_resolved}, "
             f"failed={self.pending_failed}, "
+            f"phantoms={self.phantom_resolved}, "
+            f"orphans={self.orphans_detected}, "
             f"errors={len(self.errors)})"
         )
 
@@ -70,15 +78,220 @@ class PositionReconciler:
         self.alpaca = alpaca
         self.db_path = db_path
 
+    def reconcile_pending_only(self) -> ReconciliationResult:
+        """Resolve pending_open orders only (step 1 of full reconciliation).
+
+        Called every monitor cycle to promote intra-day fills.  Does NOT run
+        phantom or orphan detection — those are reserved for startup via
+        ``reconcile()``.
+
+        Returns:
+            ReconciliationResult with pending_resolved / pending_failed counts.
+        """
+        result = ReconciliationResult()
+        self._reconcile_pending_opens(result)
+        if result:
+            logger.info("Pending-open reconciliation: %s", result)
+        return result
+
     def reconcile(self) -> ReconciliationResult:
-        """Run a full reconciliation pass. Safe to call at any time.
+        """Run a full reconciliation pass against Alpaca's live state.
+
+        Steps:
+          1. Resolve pending_open orders (check fills, terminal states).
+          2. Detect phantom positions: DB says open but Alpaca has no matching legs.
+          3. Detect orphan positions: Alpaca has option positions not in DB.
+
+        Safe to call at any time; idempotent (repeated calls converge to same state).
 
         Returns:
             ReconciliationResult summarising what changed.
         """
         result = ReconciliationResult()
+
+        # Step 1: pending_open → open / failed_open
         self._reconcile_pending_opens(result)
+
+        # Steps 2+3: only possible if we can fetch Alpaca positions
+        alpaca_positions = self._fetch_alpaca_positions()
+        if alpaca_positions is not None:
+            # Step 2: detect open DB trades whose legs have disappeared from Alpaca
+            self._reconcile_open_positions(result, alpaca_positions)
+            # Step 3: detect Alpaca option positions with no DB record
+            self._detect_orphan_positions(result, alpaca_positions)
+
+        if result:
+            logger.info("Reconciliation complete: %s", result)
+        else:
+            logger.info("Reconciliation complete: nothing to do")
+
         return result
+
+    def _fetch_alpaca_positions(self) -> Optional[Dict]:
+        """Fetch all current Alpaca positions as {symbol: pos_dict}.
+
+        Returns None if the API call fails (non-fatal — Steps 2+3 are skipped).
+        """
+        try:
+            positions = self.alpaca.get_positions()
+            return {p["symbol"]: p for p in positions}
+        except Exception as e:
+            logger.warning(
+                "Reconciler: could not fetch Alpaca positions (%s) — "
+                "skipping open-position and orphan reconciliation",
+                e,
+            )
+            return None
+
+    def _reconcile_open_positions(
+        self, result: ReconciliationResult, alpaca_positions: Dict
+    ) -> None:
+        """Detect phantom positions: DB status=open but ALL legs missing from Alpaca.
+
+        A position can disappear from Alpaca because it:
+        - Expired worthless (the most common case — no action needed)
+        - Was externally closed (manual close in Alpaca dashboard)
+        - Was assigned (stock position appeared instead)
+
+        Rather than guess, we mark these as ``needs_investigation`` so a human
+        (or later automation) can determine the cause and record the correct P&L.
+        """
+        from shared.database import get_trades, upsert_trade, insert_reconciliation_event
+
+        open_trades = get_trades(status="open", path=self.db_path)
+        if not open_trades:
+            return
+
+        for trade in open_trades:
+            trade_id = trade.get("id", "?")
+            ticker = trade.get("ticker", "")
+            exp = str(trade.get("expiration", "")).split(" ")[0]
+            spread_type = str(trade.get("strategy_type", trade.get("type", ""))).lower()
+
+            if not ticker or not exp:
+                continue
+
+            try:
+                syms = self._expected_symbols(trade, ticker, exp, spread_type)
+            except Exception as e:
+                logger.warning(
+                    "Reconciler: OCC symbol error for trade %s: %s — skipping", trade_id, e
+                )
+                continue
+
+            if not syms:
+                continue
+
+            all_missing = all(sym not in alpaca_positions for sym in syms)
+            if not all_missing:
+                continue  # at least one leg still present — all good
+
+            logger.warning(
+                "Reconciler: PHANTOM POSITION — trade %s (open) has no legs in Alpaca. "
+                "Expected: %s. Marking needs_investigation.",
+                trade_id, syms,
+            )
+            trade["status"] = "needs_investigation"
+            trade["exit_reason"] = "legs_not_found_in_alpaca"
+            try:
+                upsert_trade(trade, source="reconciler", path=self.db_path)
+                insert_reconciliation_event(
+                    trade_id, "needs_investigation",
+                    {"reason": "legs_not_found_in_alpaca", "expected_symbols": syms},
+                    self.db_path,
+                )
+            except Exception as e:
+                logger.error(
+                    "Reconciler: DB write failed for phantom %s: %s", trade_id, e
+                )
+                result.errors.append(f"phantom_write_fail:{trade_id}")
+            result.phantom_resolved += 1
+
+    def _detect_orphan_positions(
+        self, result: ReconciliationResult, alpaca_positions: Dict
+    ) -> None:
+        """Detect orphan option positions: in Alpaca but not in any DB open trade.
+
+        Orphans are logged and a minimal DB record is created with
+        ``status=unmanaged`` so they show up in reports and are not silently ignored.
+        The system does NOT attempt to close or manage orphans automatically.
+        """
+        from shared.database import get_trades, upsert_trade
+
+        open_trades = get_trades(status="open", path=self.db_path)
+
+        # Build the full set of OCC symbols managed by open DB trades
+        managed_symbols: set = set()
+        for trade in open_trades:
+            ticker = trade.get("ticker", "")
+            exp = str(trade.get("expiration", "")).split(" ")[0]
+            spread_type = str(trade.get("strategy_type", trade.get("type", ""))).lower()
+            if not ticker or not exp:
+                continue
+            try:
+                for sym in self._expected_symbols(trade, ticker, exp, spread_type):
+                    managed_symbols.add(sym)
+            except Exception:
+                pass
+
+        for symbol, pos_data in alpaca_positions.items():
+            asset_class = str(pos_data.get("asset_class", "")).lower()
+            if "option" not in asset_class:
+                continue
+            if symbol in managed_symbols:
+                continue
+
+            qty = pos_data.get("qty", "?")
+            logger.warning(
+                "Reconciler: ORPHAN POSITION — %s qty=%s has no DB record. "
+                "Creating unmanaged record. Manual review required.",
+                symbol, qty,
+            )
+            orphan_id = f"orphan-{symbol[:20]}"
+            orphan_record = {
+                "id": orphan_id,
+                "ticker": symbol[:3],
+                "strategy_type": "unknown",
+                "status": "unmanaged",
+                "credit": 0.0,
+                "contracts": 0,
+                "short_strike": 0.0,
+                "long_strike": 0.0,
+                "expiration": "",
+                "entry_date": datetime.now(timezone.utc).isoformat(),
+                "alpaca_symbol": symbol,
+            }
+            try:
+                upsert_trade(orphan_record, source="reconciler", path=self.db_path)
+            except Exception as e:
+                logger.error(
+                    "Reconciler: failed to create orphan record for %s: %s", symbol, e
+                )
+                result.errors.append(f"orphan_write_fail:{symbol}")
+            result.orphans_detected += 1
+
+    def _expected_symbols(
+        self, trade: Dict, ticker: str, exp: str, spread_type: str
+    ) -> List[str]:
+        """Return the list of OCC symbols expected for this trade's legs."""
+        syms = []
+        if "condor" in spread_type:
+            legs = [
+                (trade.get("put_short_strike") or trade.get("short_strike"), "put"),
+                (trade.get("put_long_strike") or trade.get("long_strike"), "put"),
+                (trade.get("call_short_strike"), "call"),
+                (trade.get("call_long_strike"), "call"),
+            ]
+        else:
+            opt_type = "call" if "call" in spread_type else "put"
+            legs = [
+                (trade.get("short_strike"), opt_type),
+                (trade.get("long_strike"), opt_type),
+            ]
+        for strike, ot in legs:
+            if strike:
+                syms.append(self.alpaca._build_occ_symbol(ticker, exp, strike, ot))
+        return syms
 
     # ------------------------------------------------------------------
     # Private helpers

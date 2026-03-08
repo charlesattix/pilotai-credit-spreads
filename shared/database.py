@@ -15,7 +15,8 @@ from shared.constants import DATA_DIR
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = Path(DATA_DIR) / "pilotai.db"
+import os as _os
+DB_PATH = Path(_os.environ.get('PILOTAI_DB_PATH', str(Path(DATA_DIR) / "pilotai.db")))
 
 
 def get_db(path: Optional[str] = None) -> sqlite3.Connection:
@@ -83,6 +84,7 @@ def init_db(path: Optional[str] = None) -> None:
         for migration_sql in [
             "ALTER TABLE trades ADD COLUMN alpaca_client_order_id TEXT",
             "ALTER TABLE trades ADD COLUMN alpaca_fill_price REAL",
+            "ALTER TABLE trades ADD COLUMN alpaca_status TEXT",
         ]:
             try:
                 conn.execute(migration_sql)
