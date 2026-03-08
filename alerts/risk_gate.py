@@ -23,7 +23,10 @@ logger = logging.getLogger(__name__)
 
 
 class RiskGate:
-    """Hard-coded risk gate.  No constructor config — rules come from constants."""
+    """Hard-coded risk gate with optional config-driven drawdown circuit breaker."""
+
+    def __init__(self, config: dict = None):
+        self.config = config or {}
 
     def check(self, alert: Alert, account_state: dict) -> tuple:
         """Evaluate an alert against all risk rules.
@@ -119,6 +122,25 @@ class RiskGate:
                 )
                 logger.warning("RiskGate BLOCKED: %s", reason)
                 return (False, reason)
+
+        # 7. Drawdown circuit breaker (config-driven, default 35%)
+        drawdown_cb_pct = self.config.get("risk", {}).get("drawdown_cb_pct", 0)
+        if drawdown_cb_pct > 0:
+            account_value = account_state.get("account_value", 0)
+            starting_capital = self.config.get("backtest", {}).get(
+                "starting_capital",
+                self.config.get("risk", {}).get("account_size", account_value),
+            )
+            peak_equity = account_state.get("peak_equity", starting_capital)
+            if peak_equity and peak_equity > 0:
+                drawdown_pct = ((account_value - peak_equity) / peak_equity) * 100
+                if drawdown_pct < -drawdown_cb_pct:
+                    reason = (
+                        f"Drawdown CB triggered: {drawdown_pct:.1f}% < "
+                        f"-{drawdown_cb_pct}% — halting new entries"
+                    )
+                    logger.warning("RiskGate BLOCKED: %s", reason)
+                    return (False, reason)
 
         return (True, "")
 

@@ -8,6 +8,7 @@ Pipeline stages:
   4. Position sizing
   5. Prioritize (by type priority, then score)
   6. Dispatch (Telegram + SQLite persistence)
+  7. Execute (optional — submit orders to Alpaca via ExecutionEngine)
 """
 
 import logging
@@ -36,7 +37,7 @@ _DEDUP_WINDOW = 30 * 60  # 30 minutes
 
 
 class AlertRouter:
-    """Central pipeline: validate → dedup → risk-check → size → prioritize → dispatch."""
+    """Central pipeline: validate → dedup → risk-check → size → prioritize → dispatch → execute."""
 
     def __init__(
         self,
@@ -44,11 +45,15 @@ class AlertRouter:
         position_sizer: AlertPositionSizer,
         telegram_bot,
         formatter: TelegramAlertFormatter,
+        execution_engine=None,
+        config: Optional[Dict] = None,
     ):
         self.risk_gate = risk_gate
         self.position_sizer = position_sizer
         self.telegram_bot = telegram_bot
         self.formatter = formatter
+        self.execution_engine = execution_engine  # None = alert-only mode
+        self.config = config or {}
 
         # In-memory dedup ledger: (ticker, direction) → last_routed_at
         self._dedup_ledger: Dict[tuple, datetime] = {}
@@ -147,7 +152,72 @@ class AlertRouter:
 
             # Mark dedup ledger
             self._dedup_ledger[(alert.ticker, alert.direction.value)] = now
+
+            # Step 7: Execute — submit live order to Alpaca if engine is wired
+            if self.execution_engine:
+                dte_ok, dte_reason = self._validate_dte(alert)
+                if not dte_ok:
+                    logger.warning(
+                        "AlertRouter: DTE gate blocked execution for %s — %s",
+                        alert.ticker, dte_reason,
+                    )
+                    dispatched.append(alert)
+                    continue
+                try:
+                    opp_dict = alert.to_dict()
+                    # Inject contract count from sizing result
+                    if alert.sizing:
+                        opp_dict["contracts"] = alert.sizing.contracts
+                    result = self.execution_engine.submit_opportunity(opp_dict)
+                    exec_status = result.get("status", "unknown")
+                    logger.info(
+                        "AlertRouter: execution %s for %s (%s)",
+                        exec_status, alert.ticker, result.get("client_order_id", ""),
+                    )
+                    alert.execution_result = result
+                except Exception as e:
+                    logger.error(
+                        "AlertRouter: execution failed for %s: %s", alert.ticker, e
+                    )
+
             dispatched.append(alert)
 
         logger.info("AlertRouter: dispatched %d alerts", len(dispatched))
         return dispatched
+
+    # ------------------------------------------------------------------
+    # DTE validation (defense-in-depth: mirrors backtester min/max DTE)
+    # ------------------------------------------------------------------
+
+    def _validate_dte(self, alert: Alert):
+        """Check that the alert's expiration is within the configured DTE window.
+
+        Returns:
+            (True, "") if DTE is acceptable or no config is set.
+            (False, reason) if DTE is out of range.
+        """
+        strategy = self.config.get("strategy", {})
+        min_dte = strategy.get("min_dte")
+        max_dte = strategy.get("max_dte")
+
+        if min_dte is None and max_dte is None:
+            return True, ""  # no DTE config — pass through
+
+        if not alert.legs:
+            return True, ""  # no legs to inspect — pass through
+
+        expiration_str = str(alert.legs[0].expiration).split(" ")[0]
+        try:
+            from datetime import date
+            exp_date = date.fromisoformat(expiration_str)
+            dte = (exp_date - date.today()).days
+        except (ValueError, TypeError):
+            logger.warning("AlertRouter: cannot parse expiration '%s' for DTE check", expiration_str)
+            return True, ""  # cannot parse — don't block
+
+        if min_dte is not None and dte < int(min_dte):
+            return False, f"DTE={dte} < min_dte={min_dte}"
+        if max_dte is not None and dte > int(max_dte):
+            return False, f"DTE={dte} > max_dte={max_dte}"
+
+        return True, ""
