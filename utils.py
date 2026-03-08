@@ -27,19 +27,20 @@ def _resolve_env_vars(obj):
     return obj
 
 
-def load_config(config_file: str = 'config.yaml') -> Dict:
+def load_config(config_file: str = 'config.yaml', env_file: str = None) -> Dict:
     """
     Load configuration from YAML file.
     Supports ${ENV_VAR} substitution in string values.
-    
+
     Args:
         config_file: Path to config file
-        
+        env_file: Optional path to a .env file to load (defaults to .env in cwd)
+
     Returns:
         Configuration dictionary
     """
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(dotenv_path=env_file)
 
     config_path = Path(config_file)
 

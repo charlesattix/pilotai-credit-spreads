@@ -9,6 +9,8 @@ Usage:
     python main.py backtest      # Run backtest
     python main.py dashboard     # Display P&L dashboard
     python main.py alerts        # Generate alerts only
+
+Position tracking, P&L, and trade management go through Alpaca API only.
 """
 
 import os
@@ -41,9 +43,8 @@ from alerts.alert_router import AlertRouter
 from alerts.formatters.telegram import TelegramAlertFormatter
 from backtest import Backtester, HistoricalOptionsData, PerformanceMetrics
 from tracker import TradeTracker, PnLDashboard
-from paper_trader import PaperTrader
 from shared.data_cache import DataCache
-from shared.database import insert_alert
+from shared.database import insert_alert, get_trades
 from shared.metrics import metrics
 from shared.provider_protocol import DataProvider  # noqa: F401 – ARCH-PY-06
 
@@ -69,7 +70,6 @@ class CreditSpreadSystem:
         alert_generator: Optional[AlertGenerator] = None,
         telegram_bot: Optional[TelegramBot] = None,
         tracker: Optional[TradeTracker] = None,
-        paper_trader: Optional[PaperTrader] = None,
         data_cache: Optional[DataCache] = None,
         ml_pipeline=None,
     ):
@@ -84,11 +84,12 @@ class CreditSpreadSystem:
             alert_generator: Pre-built AlertGenerator or None for default.
             telegram_bot: Pre-built TelegramBot or None for default.
             tracker: Pre-built TradeTracker or None for default.
-            paper_trader: Pre-built PaperTrader or None for default.
             data_cache: Pre-built DataCache or None for default.
             ml_pipeline: Pre-built ML pipeline or None for default.
         """
         self.config = config
+        # Track peak equity across calls for drawdown CB (P2 Fix 8)
+        self._peak_equity = float(self.config.get('risk', {}).get('account_size', 100_000))
 
         logger.info("=" * 80)
         logger.info("Credit Spread Trading System Starting")
@@ -103,7 +104,6 @@ class CreditSpreadSystem:
         self.telegram_bot = telegram_bot or TelegramBot(self.config)
         self.tracker = tracker or TradeTracker(self.config)
         self.dashboard = PnLDashboard(self.config, self.tracker)
-        self.paper_trader = paper_trader or PaperTrader(self.config)
 
         # ML pipeline: use injected instance, or try to build one
         if ml_pipeline is not None:
@@ -124,12 +124,43 @@ class CreditSpreadSystem:
         self.rules_score_weight = 1.0 - self.ml_score_weight
         self.event_risk_threshold = strategy_cfg.get('event_risk_threshold', _DEFAULT_EVENT_RISK_THRESHOLD)
 
-        # MASTERPLAN alert router pipeline
+        # AlpacaProvider — wired when alpaca.enabled=true in config (P0 Fix 1)
+        self.alpaca_provider = None
+        alpaca_cfg = self.config.get('alpaca', {})
+        if alpaca_cfg.get('enabled', False):
+            try:
+                from strategy.alpaca_provider import AlpacaProvider
+                api_key = alpaca_cfg.get('api_key', '')
+                api_secret = alpaca_cfg.get('api_secret', '')
+                # Resolve ${ENV_VAR} references
+                if api_key.startswith('${') and api_key.endswith('}'):
+                    api_key = os.environ.get(api_key[2:-1], '')
+                if api_secret.startswith('${') and api_secret.endswith('}'):
+                    api_secret = os.environ.get(api_secret[2:-1], '')
+                self.alpaca_provider = AlpacaProvider(
+                    api_key=api_key,
+                    api_secret=api_secret,
+                    paper=alpaca_cfg.get('paper', True),
+                )
+                logger.info("AlpacaProvider initialized (paper=%s)", alpaca_cfg.get('paper', True))
+            except Exception as e:
+                logger.warning("AlpacaProvider init failed — running in alert-only mode: %s", e)
+
+        # ExecutionEngine (P0 Fix 1)
+        from execution.execution_engine import ExecutionEngine
+        self.execution_engine = ExecutionEngine(
+            alpaca_provider=self.alpaca_provider,
+            db_path=os.environ.get('PILOTAI_DB_PATH'),
+        )
+
+        # MASTERPLAN alert router pipeline (P0 Fix 1: now accepts execution_engine)
         self.alert_router = AlertRouter(
-            risk_gate=RiskGate(),
-            position_sizer=AlertPositionSizer(),
+            risk_gate=RiskGate(config=self.config),
+            position_sizer=AlertPositionSizer(config=self.config),
             telegram_bot=self.telegram_bot,
             formatter=TelegramAlertFormatter(),
+            execution_engine=self.execution_engine,
+            config=self.config,
         )
 
         logger.info("All components initialized successfully")
@@ -174,28 +205,6 @@ class CreditSpreadSystem:
         # Generate alerts
         self._generate_alerts(all_opportunities)
 
-        # Auto paper trade the best signals
-        new_trades = self.paper_trader.execute_signals(all_opportunities)
-        if new_trades:
-            logger.info(f"Paper traded {len(new_trades)} new positions")
-
-        # Check existing positions
-        current_prices = {}
-        for ticker in self.config['tickers']:
-            try:
-                hist = self.data_cache.get_history(ticker, period='1y')
-                if not hist.empty:
-                    current_prices[ticker] = float(hist['Close'].iloc[-1])
-            except Exception as e:
-                logger.warning(f"Failed to fetch price for {ticker}: {e}")
-
-        if current_prices:
-            closed = self.paper_trader.check_positions(current_prices)
-            if closed:
-                logger.info(f"Closed {len(closed)} paper positions")
-
-        self.paper_trader.print_summary()
-
         return all_opportunities
 
     def _analyze_ticker(self, ticker: str) -> list:
@@ -210,7 +219,9 @@ class CreditSpreadSystem:
         """
         try:
             # Get price data
-            price_data = self.data_cache.get_history(ticker, period='1y')
+            # Use 2y window when combo regime is active — MA200 needs ~200 days of warmup
+            _period = '2y' if self.strategy.regime_mode == 'combo' else '1y'
+            price_data = self.data_cache.get_history(ticker, period=_period)
 
             if price_data.empty:
                 logger.warning(f"No price data for {ticker}")
@@ -227,6 +238,39 @@ class CreditSpreadSystem:
 
             # Technical analysis
             technical_signals = self.technical_analyzer.analyze(ticker, price_data)
+
+            # P1 Fix 4: Inject combo regime into technical_signals for spread_strategy
+            if self.strategy.regime_mode == 'combo' and self.strategy._combo_regime_detector:
+                try:
+                    vix_data = self.data_cache.get_history('^VIX', period='2y')
+                    vix_by_date = {}
+                    vix3m_by_date = {}
+                    if not vix_data.empty:
+                        for ts, row in vix_data.iterrows():
+                            vix_by_date[ts] = float(row['Close'])
+                    try:
+                        vix3m_data = self.data_cache.get_history('^VIX3M', period='2y')
+                        if not vix3m_data.empty:
+                            for ts, row in vix3m_data.iterrows():
+                                vix3m_by_date[ts] = float(row['Close'])
+                    except Exception:
+                        pass
+                    regime_series = self.strategy._combo_regime_detector.compute_regime_series(
+                        price_data=price_data,
+                        vix_by_date=vix_by_date,
+                        vix3m_by_date=vix3m_by_date,
+                    )
+                    if regime_series:
+                        last_key = max(regime_series.keys())
+                        current_regime = regime_series[last_key]
+                        technical_signals['combo_regime'] = current_regime
+                        logger.info("%s: ComboRegime = %s", ticker, current_regime)
+                except Exception as e:
+                    logger.warning("ComboRegimeDetector failed for %s: %s", ticker, e)
+                    # Defense-in-depth: explicit NEUTRAL prevents IC gate bypass.
+                    # Without this, combo_regime is absent → current_regime=None →
+                    # ic_neutral_regime_only check skips entirely → ICs allowed in any regime.
+                    technical_signals['combo_regime'] = 'NEUTRAL'
 
             # IV analysis
             current_iv = self.options_analyzer.get_current_iv(options_chain)
@@ -341,60 +385,111 @@ class CreditSpreadSystem:
             logger.warning(f"Alert router pipeline failed (non-fatal): {e}")
 
     def _build_account_state(self) -> Dict:
-        """Build the account_state dict expected by RiskGate / AlertRouter.
+        """Build account_state dict from real Alpaca positions and account info.
 
-        Reads live data from the paper trader and trade tracker.
+        When AlpacaProvider is available, reads real portfolio value, open
+        positions, and closed-trade P&L so RiskGate can enforce live limits.
+        Falls back to config-based static values if Alpaca is unavailable.
         """
-        # Account value
-        account_value = self.paper_trader.trades.get(
-            "current_balance", self.paper_trader.account_size
-        )
+        starting_capital = float(self.config.get('risk', {}).get('account_size', 100_000))
 
-        # Open positions — map to the shape RiskGate expects
-        open_positions = []
-        for pos in self.paper_trader.open_trades:
-            # Infer direction from spread type
-            opp_type = pos.get("strategy_type") or pos.get("type", "")
-            if "condor" in opp_type:
-                direction = "neutral"
-            elif "put" in opp_type:
-                direction = "bullish"
-            else:
-                direction = "bearish"
+        if not self.alpaca_provider:
+            # Alert-only mode: static skeleton — risk gate still functions
+            return {
+                "account_value": starting_capital,
+                "peak_equity": starting_capital,
+                "open_positions": [],
+                "daily_pnl_pct": 0.0,
+                "weekly_pnl_pct": 0.0,
+                "recent_stops": [],
+            }
 
-            open_positions.append({
-                "ticker": pos.get("ticker", ""),
-                "direction": direction,
-                "risk_pct": pos.get("risk_pct", 0.02),
-                "entry_time": pos.get("entry_date", ""),
-            })
-
-        # P&L — approximate daily/weekly from total stats
-        daily_pnl_pct = 0.0
-        weekly_pnl_pct = 0.0
         try:
-            total_pnl = self.paper_trader.trades.get("stats", {}).get("total_pnl", 0)
-            if account_value > 0 and total_pnl:
-                daily_pnl_pct = total_pnl / account_value
-        except Exception:
-            pass
+            account = self.alpaca_provider.get_account()
+            account_value = float(account['portfolio_value'])
 
-        # Recent stops
-        recent_stops = []
-        for pos in self.paper_trader.closed_trades:
-            if pos.get("exit_reason") in ("stop_loss", "stopped"):
-                recent_stops.append({
-                    "ticker": pos.get("ticker", ""),
-                    "stopped_at": pos.get("exit_date", ""),
+            alpaca_positions = self.alpaca_provider.get_positions()
+
+            # Load open trades from SQLite for metadata
+            db_positions = get_trades(status="open", path=os.environ.get('PILOTAI_DB_PATH'))
+
+            # Build enriched position list from DB metadata + Alpaca market values
+            open_positions = []
+            for db_pos in db_positions:
+                ticker = db_pos.get('ticker', '')
+                matching = [p for p in alpaca_positions if ticker in p.get('symbol', '')]
+                unrealized_pl = sum(float(p.get('unrealized_pl', 0)) for p in matching)
+                max_loss = db_pos.get('pnl') or 0  # fallback
+                # Estimate max_loss from spread geometry if possible
+                short_strike = db_pos.get('short_strike') or 0
+                long_strike = db_pos.get('long_strike') or 0
+                credit = float(db_pos.get('credit') or 0)
+                contracts = int(db_pos.get('contracts') or 1)
+                if short_strike and long_strike:
+                    max_loss = abs(short_strike - long_strike) * contracts * 100
+                risk_pct = (max_loss / account_value) if account_value > 0 else 0
+                open_positions.append({
+                    "id": db_pos.get('id'),
+                    "ticker": ticker,
+                    "direction": db_pos.get('strategy_type', ''),
+                    "entry_time": db_pos.get('entry_date'),
+                    "credit": credit,
+                    "contracts": contracts,
+                    "unrealized_pl": unrealized_pl,
+                    "risk_pct": risk_pct,
                 })
 
-        return {
-            "account_value": account_value,
-            "open_positions": open_positions,
-            "daily_pnl_pct": daily_pnl_pct,
-            "weekly_pnl_pct": weekly_pnl_pct,
-            "recent_stops": recent_stops[-10:],
-        }
+            # Daily / weekly realized P&L from closed trades
+            now = datetime.now(timezone.utc)
+            db_path = os.environ.get('PILOTAI_DB_PATH')
+            closed_all = (
+                get_trades(status="closed_profit", path=db_path) +
+                get_trades(status="closed_loss", path=db_path)
+            )
+
+            def _days_ago(trade, days):
+                exit_str = trade.get('exit_date') or ''
+                try:
+                    t = datetime.fromisoformat(exit_str)
+                    if t.tzinfo is None:
+                        t = t.replace(tzinfo=timezone.utc)
+                    return (now - t).days < days
+                except (ValueError, TypeError):
+                    return False
+
+            daily_pnl = sum(t.get('pnl') or 0 for t in closed_all if _days_ago(t, 1))
+            weekly_pnl = sum(t.get('pnl') or 0 for t in closed_all if _days_ago(t, 7))
+            daily_pnl_pct = (daily_pnl / account_value * 100) if account_value > 0 else 0.0
+            weekly_pnl_pct = (weekly_pnl / account_value * 100) if account_value > 0 else 0.0
+
+            recent_stops = [
+                {"ticker": t.get('ticker'), "stopped_at": t.get('exit_date')}
+                for t in closed_all
+                if t.get('exit_reason') == 'stop_loss' and _days_ago(t, 7)
+            ]
+
+            self._peak_equity = max(self._peak_equity, account_value)
+            peak_equity = self._peak_equity
+
+            return {
+                "account_value": account_value,
+                "peak_equity": peak_equity,
+                "open_positions": open_positions,
+                "daily_pnl_pct": daily_pnl_pct,
+                "weekly_pnl_pct": weekly_pnl_pct,
+                "recent_stops": recent_stops,
+            }
+
+        except Exception as e:
+            logger.error("_build_account_state: Alpaca query failed, using static fallback: %s", e)
+            return {
+                "account_value": starting_capital,
+                "peak_equity": starting_capital,
+                "open_positions": [],
+                "daily_pnl_pct": 0.0,
+                "weekly_pnl_pct": 0.0,
+                "recent_stops": [],
+            }
 
     def run_backtest(self, ticker: str = 'SPY', lookback_days: int = 365, clear_cache: bool = False):
         """
@@ -483,7 +578,7 @@ class CreditSpreadSystem:
         self._generate_alerts(stored_alerts)
 
 
-def create_system(config_file: str = 'config.yaml') -> CreditSpreadSystem:
+def create_system(config_file: str = 'config.yaml', env_file: str = None) -> CreditSpreadSystem:
     """Factory function that loads config and builds a CreditSpreadSystem.
 
     This preserves the original single-argument construction workflow:
@@ -492,15 +587,29 @@ def create_system(config_file: str = 'config.yaml') -> CreditSpreadSystem:
 
     Args:
         config_file: Path to the YAML configuration file.
+        env_file: Optional path to a .env file (e.g. .env.exp154). Defaults to .env.
 
     Returns:
         A fully initialised CreditSpreadSystem.
     """
-    config = load_config(config_file)
+    config = load_config(config_file, env_file=env_file)
     validate_config(config)
     setup_logging(config)
 
     system = CreditSpreadSystem(config=config)
+
+    # P2 Fix 9: Run position reconciliation on startup
+    if system.alpaca_provider:
+        try:
+            from shared.reconciler import PositionReconciler
+            reconciler = PositionReconciler(
+                alpaca=system.alpaca_provider,
+                db_path=os.environ.get('PILOTAI_DB_PATH'),
+            )
+            result = reconciler.reconcile()
+            logger.info("Startup reconciliation complete: %s", result)
+        except Exception as e:
+            logger.warning("Startup reconciliation failed (non-fatal): %s", e)
 
     # Pre-warm the data cache with commonly used tickers
     system.data_cache.pre_warm(['SPY', '^VIX', 'TLT'])
@@ -523,12 +632,13 @@ Examples:
   python main.py backtest --ticker QQQ --days 180
   python main.py dashboard         # Show P&L dashboard
   python main.py alerts            # Generate alerts only
+        Note: position tracking and P&L are managed via Alpaca API directly.
         """
     )
 
     parser.add_argument(
         'command',
-        choices=['scan', 'scheduler', 'backtest', 'dashboard', 'alerts', 'paper'],
+        choices=['scan', 'scheduler', 'backtest', 'dashboard', 'alerts'],
         help='Command to run'
     )
 
@@ -558,6 +668,20 @@ Examples:
         help='Config file path (default: config.yaml)'
     )
 
+    parser.add_argument(
+        '--env-file',
+        default=None,
+        dest='env_file',
+        help='Path to .env file to load (default: .env in cwd)'
+    )
+
+    parser.add_argument(
+        '--db',
+        default=None,
+        dest='db_path',
+        help='Path to SQLite database file (default: data/pilotai.db)'
+    )
+
     args = parser.parse_args()
 
     # Register graceful shutdown handlers
@@ -572,36 +696,52 @@ Examples:
     signal.signal(signal.SIGINT, _shutdown_handler)
 
     try:
+        # Set custom DB path before any database imports use the default
+        if args.db_path:
+            import os
+            os.environ['PILOTAI_DB_PATH'] = args.db_path
+
         # Initialize system
-        system = create_system(config_file=args.config)
+        system = create_system(config_file=args.config, env_file=args.env_file)
 
         # Execute command
         if args.command == 'scan':
             system.scan_opportunities()
-            system.paper_trader.sync_alpaca_orders()
 
         elif args.command == 'scheduler':
             from shared.scheduler import ScanScheduler
-
-            _scan_count = 0
+            from execution.position_monitor import PositionMonitor
+            import threading
 
             def scan_and_sync():
-                nonlocal _scan_count
                 system.scan_opportunities()
-                system.paper_trader.sync_alpaca_orders()
-                _scan_count += 1
-                # Run a full reconciliation pass every 3 scans (~90 min).
-                # Catches positions that closed in Alpaca without going through
-                # our normal exit path (expiration, manual close, etc.).
-                if _scan_count % 3 == 0:
-                    system.paper_trader.reconcile_positions()
 
             scheduler = ScanScheduler(scan_fn=scan_and_sync)
 
-            # Let SIGTERM/SIGINT stop the scheduler cleanly
+            # P0 Fix 2: Start PositionMonitor as background daemon thread
+            position_monitor = None
+            if system.alpaca_provider:
+                position_monitor = PositionMonitor(
+                    alpaca_provider=system.alpaca_provider,
+                    config=system.config,
+                    db_path=args.db_path,
+                )
+                monitor_thread = threading.Thread(
+                    target=position_monitor.start,
+                    daemon=True,
+                    name="PositionMonitor",
+                )
+                monitor_thread.start()
+                logger.info("PositionMonitor started as background thread")
+            else:
+                logger.info("PositionMonitor skipped — no AlpacaProvider configured")
+
+            # Let SIGTERM/SIGINT stop cleanly
             def _stop_scheduler(signum, frame):
                 sig_name = signal.Signals(signum).name
                 logger.info("Received %s — stopping scheduler", sig_name)
+                if position_monitor:
+                    position_monitor.stop()
                 scheduler.stop()
 
             signal.signal(signal.SIGTERM, _stop_scheduler)
@@ -618,9 +758,6 @@ Examples:
 
         elif args.command == 'alerts':
             system.generate_alerts_only()
-
-        elif args.command == 'paper':
-            system.paper_trader.print_summary()
 
         logger.info("Command completed successfully")
 

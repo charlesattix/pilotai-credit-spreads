@@ -55,7 +55,20 @@ class CreditSpreadStrategy:
         self.spread_width_low_iv = self.strategy_params.get('spread_width_low_iv', 10)
         self.default_spread_width = self.strategy_params.get('spread_width', 10)
 
-        logger.info("CreditSpreadStrategy initialized")
+        # Regime detection mode: 'combo' (v2 rule-based) or 'hmm' (legacy ML)
+        self.regime_mode = self.strategy_params.get('regime_mode', 'hmm')
+        self._combo_regime_detector = None
+        if self.regime_mode == 'combo':
+            try:
+                from ml.combo_regime_detector import ComboRegimeDetector
+                regime_config = self.strategy_params.get('regime_config', {})
+                self._combo_regime_detector = ComboRegimeDetector(regime_config)
+                logger.info("CreditSpreadStrategy: using ComboRegimeDetector v2 (BULL/BEAR/NEUTRAL)")
+            except Exception as e:
+                logger.warning("CreditSpreadStrategy: ComboRegimeDetector init failed, falling back to hmm: %s", e)
+                self.regime_mode = 'hmm'
+
+        logger.info("CreditSpreadStrategy initialized (regime_mode=%s)", self.regime_mode)
 
     def evaluate_spread_opportunity(
         self,
@@ -108,9 +121,12 @@ class CreditSpreadStrategy:
         # Find iron condor opportunities (both legs on same expiration)
         condor_config = self.strategy_params.get('iron_condor', {})
         if condor_config.get('enabled', True):
+            # Pass regime from technical_signals (injected by caller for combo mode)
+            current_regime = technical_signals.get('combo_regime')
             condors = self.find_iron_condors(
                 ticker, option_chain, current_price, technical_signals, iv_data,
-                as_of_date=as_of_date
+                as_of_date=as_of_date,
+                current_regime=current_regime,
             )
 
             # Include condors alongside directional spreads — let scoring decide
@@ -254,13 +270,29 @@ class CreditSpreadStrategy:
         technical_signals: Dict,
         iv_data: Dict,
         as_of_date: Optional[datetime] = None,
+        current_regime: Optional[str] = None,
     ) -> List[IronCondorOpportunity]:
         """Find iron condor opportunities (bull put + bear call on same expiration).
 
         Iron condors work in neutral/range-bound markets. We reuse the existing
         _find_spreads() logic for each wing, then pair them.
+
+        Args:
+            current_regime: Regime label (BULL/BEAR/NEUTRAL) from ComboRegimeDetector.
+                           If ic_neutral_regime_only=true in config, ICs are blocked
+                           unless regime == NEUTRAL.
         """
         condor_config = self.strategy_params.get('iron_condor', {})
+
+        # P1 Fix 5: IC-in-NEUTRAL-only regime gating
+        if condor_config.get('ic_neutral_regime_only', False) and current_regime is not None:
+            if current_regime != 'NEUTRAL':
+                logger.info(
+                    "find_iron_condors: IC blocked for %s — regime=%s (NEUTRAL required)",
+                    ticker, current_regime,
+                )
+                return []
+
         rsi_min = condor_config.get('rsi_min', 30)
         rsi_max = condor_config.get('rsi_max', 70)
         min_combined_credit_pct = condor_config.get('min_combined_credit_pct', 25)
