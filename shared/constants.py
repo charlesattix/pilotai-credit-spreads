@@ -40,7 +40,15 @@ MAX_CONTRACTS_PER_TRADE = 10
 # ---------------------------------------------------------------------------
 # Position management
 # ---------------------------------------------------------------------------
-MANAGEMENT_DTE_THRESHOLD = 21
+MANAGEMENT_DTE_THRESHOLD = 5
+
+# 0DTE strategy
+ZERO_DTE_TICKERS = ["SPY", "QQQ"]
+ZERO_DTE_STRATEGY_NAME = "ZeroDTESpreadStrategy"
+
+# Per-strategy and delta caps (backtester parity)
+MAX_POSITIONS_PER_STRATEGY = 5
+MAX_ABS_DELTA = 50.0
 
 # 0DTE strategy
 ZERO_DTE_TICKERS = ["SPY", "QQQ"]
