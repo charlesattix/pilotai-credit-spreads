@@ -160,6 +160,13 @@ class MarketSnapshot:
     # Economic events that recently occurred (within last 2 days)
     recent_events: List[Dict] = field(default_factory=list)
 
+    # Open prices and overnight gaps per ticker (from live_snapshot)
+    open_prices: Dict[str, float] = field(default_factory=dict)
+    gaps: Dict[str, float] = field(default_factory=dict)
+
+    # Risk-free rate for the snapshot date
+    risk_free_rate: float = 0.045
+
     # Current market regime (from engine.regime.RegimeClassifier)
     regime: Optional[str] = None
 

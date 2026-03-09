@@ -271,6 +271,7 @@ class TestHedgeIntegration:
         assert pos.legs[0].leg_type == LegType.LONG_PUT
         assert pos.legs[0].strike == 525.0
 
+    @pytest.mark.skip(reason="PaperTrader deleted — _evaluate_position no longer exists")
     def test_debit_pnl_profit(self):
         """Protective put appreciates on VIX spike → positive PnL."""
         pt = self._make_eval_trader()
@@ -282,6 +283,7 @@ class TestHedgeIntegration:
         # Put should be worth more than we paid
         assert pnl > 0
 
+    @pytest.mark.skip(reason="PaperTrader deleted — _evaluate_position no longer exists")
     def test_debit_pnl_loss(self):
         """Protective put loses value via time decay → negative PnL."""
         pt = self._make_eval_trader()
@@ -292,6 +294,7 @@ class TestHedgeIntegration:
         pnl, reason = pt._evaluate_position(trade, current_price=550, dte=5)
         assert pnl < 0
 
+    @pytest.mark.skip(reason="PaperTrader deleted — _evaluate_position no longer exists")
     def test_debit_expiration_trigger(self):
         """DTE <= 1 triggers expiration close for protective put."""
         pt = self._make_eval_trader()
