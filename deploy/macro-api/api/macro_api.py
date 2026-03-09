@@ -136,14 +136,17 @@ class MacroIndicators(BaseModel):
 
 
 class MacroScoreResponse(BaseModel):
-    overall:       Optional[float] = Field(None, description="Composite macro score 0–100")
-    growth:        Optional[float] = None
-    inflation:     Optional[float] = None
-    fed_policy:    Optional[float] = None
-    risk_appetite: Optional[float] = None
-    regime:        Optional[str]   = Field(None, description="BULL_MACRO | NEUTRAL_MACRO | BEAR_MACRO")
-    indicators:    Optional[MacroIndicators] = None
-    as_of_date:    Optional[str]   = None
+    overall:            Optional[float] = Field(None, description="Composite macro score 0–100")
+    overall_v2:         Optional[float] = Field(None, description="v2 formula score (reserved; currently NULL)")
+    growth:             Optional[float] = None
+    inflation:          Optional[float] = None
+    fed_policy:         Optional[float] = None
+    risk_appetite:      Optional[float] = None
+    score_velocity:     Optional[float] = Field(None, description="Week-over-week change in overall score")
+    risk_app_velocity:  Optional[float] = Field(None, description="Week-over-week change in risk appetite score")
+    regime:             Optional[str]   = Field(None, description="BULL_MACRO | NEUTRAL_MACRO | BEAR_MACRO")
+    indicators:         Optional[MacroIndicators] = None
+    as_of_date:         Optional[str]   = None
 
 
 class MacroEventItem(BaseModel):
@@ -152,6 +155,7 @@ class MacroEventItem(BaseModel):
     description:    Optional[str]  = None
     days_out:       int
     scaling_factor: float = Field(..., description="Position size multiplier (0.50–1.00)")
+    is_emergency:   bool  = Field(False, description="True for unscheduled emergency events (e.g. COVID FOMC)")
 
 
 class SnapshotResponse(BaseModel):
@@ -175,6 +179,10 @@ class SnapshotSummary(BaseModel):
     top_sector_12m: Optional[str]   = None
     macro_overall:  Optional[float] = None
     regime:         Optional[str]   = None
+    growth:         Optional[float] = None
+    inflation:      Optional[float] = None
+    fed_policy:     Optional[float] = None
+    risk_appetite:  Optional[float] = None
 
 
 class EligibleResponse(BaseModel):
@@ -253,10 +261,13 @@ def _build_snapshot_response(data: Dict) -> SnapshotResponse:
 
     macro_resp = MacroScoreResponse(
         overall=ms.get("overall"),
+        overall_v2=ms.get("overall_v2"),
         growth=ms.get("growth"),
         inflation=ms.get("inflation"),
         fed_policy=ms.get("fed_policy"),
         risk_appetite=ms.get("risk_appetite"),
+        score_velocity=ms.get("score_velocity"),
+        risk_app_velocity=ms.get("risk_app_velocity"),
         regime=ms.get("regime"),
         as_of_date=data["date"],
         indicators=MacroIndicators(
@@ -296,6 +307,7 @@ def _build_snapshot_response(data: Dict) -> SnapshotResponse:
             description=ev.get("description"),
             days_out=ev["days_out"],
             scaling_factor=ev["scaling_factor"],
+            is_emergency=bool(ev.get("is_emergency", False)),
         )
         for ev in events
     ]
@@ -488,10 +500,13 @@ def get_macro_score(
     d = dict(row)
     return MacroScoreResponse(
         overall=d.get("overall"),
+        overall_v2=d.get("overall_v2"),
         growth=d.get("growth"),
         inflation=d.get("inflation"),
         fed_policy=d.get("fed_policy"),
         risk_appetite=d.get("risk_appetite"),
+        score_velocity=d.get("score_velocity"),
+        risk_app_velocity=d.get("risk_app_velocity"),
         regime=d.get("regime"),
         as_of_date=d.get("date"),
         indicators=MacroIndicators(
@@ -536,6 +551,7 @@ def get_macro_events(
             description=ev.get("description"),
             days_out=ev["days_out"],
             scaling_factor=ev["scaling_factor"],
+            is_emergency=bool(ev.get("is_emergency", False)),
         )
         for ev in events
     ]
@@ -617,7 +633,8 @@ def get_history(
         rows = conn.execute(
             """
             SELECT s.date, s.spy_close, s.top_sector_3m, s.top_sector_12m,
-                   m.overall AS macro_overall, m.regime
+                   m.overall AS macro_overall, m.regime,
+                   m.growth, m.inflation, m.fed_policy, m.risk_appetite
             FROM snapshots s
             LEFT JOIN macro_score m ON s.date = m.date
             WHERE s.date >= ? AND s.date <= ?
@@ -636,6 +653,10 @@ def get_history(
             top_sector_12m=r["top_sector_12m"],
             macro_overall=r["macro_overall"],
             regime=r["regime"],
+            growth=r["growth"],
+            inflation=r["inflation"],
+            fed_policy=r["fed_policy"],
+            risk_appetite=r["risk_appetite"],
         )
         for r in rows
     ]

@@ -39,8 +39,9 @@ ET = pytz.timezone("America/New_York")
 SLOT_SCAN = "scan"
 SLOT_PRE_MARKET = "pre_market"
 SLOT_DAILY_REPORT = "daily_report"
+SLOT_MACRO_WEEKLY = "macro_weekly"   # Friday 17:00 ET only
 
-# (hour, minute, slot_type) in ET — 16 slots per day
+# (hour, minute, slot_type) in ET — 17 slots per day; macro_weekly fires Fridays only
 SCAN_TIMES = [
     (9, 0, SLOT_PRE_MARKET),
     (9, 15, SLOT_SCAN), (9, 45, SLOT_SCAN),
@@ -51,6 +52,7 @@ SCAN_TIMES = [
     (14, 0, SLOT_SCAN), (14, 30, SLOT_SCAN),
     (15, 0, SLOT_SCAN), (15, 30, SLOT_SCAN),
     (16, 15, SLOT_DAILY_REPORT),
+    (17, 0, SLOT_MACRO_WEEKLY),   # weekly macro snapshot — skipped on Mon–Thu
 ]
 
 
@@ -70,6 +72,9 @@ def _next_scan_time(now_et: datetime) -> Tuple[datetime, str]:
     for hour, minute, slot_type in SCAN_TIMES:
         candidate = ET.localize(datetime(today_date.year, today_date.month, today_date.day, hour, minute))
         if candidate > now_et and _is_weekday(candidate):
+            # SLOT_MACRO_WEEKLY only fires on Fridays (weekday() == 4)
+            if slot_type == SLOT_MACRO_WEEKLY and candidate.weekday() != 4:
+                continue
             return candidate, slot_type
 
     # No more slots today — find next weekday

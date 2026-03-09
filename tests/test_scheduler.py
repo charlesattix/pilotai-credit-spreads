@@ -74,13 +74,23 @@ class TestNextScanTime:
         assert slot_type == SLOT_PRE_MARKET
         assert nxt.date() == datetime(2026, 2, 17).date()  # Tuesday
 
-    def test_friday_after_close_skips_weekend(self):
-        """Friday after close → next slot is Monday 9:00 AM."""
-        now = ET.localize(datetime(2026, 2, 20, 16, 30))  # Friday 4:30 PM
+    def test_friday_after_macro_weekly_skips_weekend(self):
+        """Friday after 17:00 (macro_weekly slot) → next slot is Monday 9:00 AM."""
+        now = ET.localize(datetime(2026, 2, 20, 17, 1))  # Friday 5:01 PM (past last slot)
         nxt, slot_type = _next_scan_time(now)
         assert nxt.hour == 9
         assert nxt.minute == 0
         assert nxt.weekday() == 0  # Monday
+
+    def test_friday_before_macro_weekly_returns_macro_slot(self):
+        """Friday 4:30 PM → next slot is macro_weekly at 17:00 (not Monday)."""
+        from shared.scheduler import SLOT_MACRO_WEEKLY
+        now = ET.localize(datetime(2026, 2, 20, 16, 30))  # Friday 4:30 PM
+        nxt, slot_type = _next_scan_time(now)
+        assert nxt.hour == 17
+        assert nxt.minute == 0
+        assert slot_type == SLOT_MACRO_WEEKLY
+        assert nxt.weekday() == 4  # still Friday
 
     def test_saturday_skips_to_monday(self):
         """Saturday → next slot is Monday 9:00 AM."""
@@ -90,8 +100,8 @@ class TestNextScanTime:
         assert nxt.hour == 9
         assert nxt.minute == 0
 
-    def test_all_16_scan_times_defined(self):
-        assert len(SCAN_TIMES) == 16
+    def test_all_17_scan_times_defined(self):
+        assert len(SCAN_TIMES) == 17
 
     def test_market_scan_times_has_14_entries(self):
         """MARKET_SCAN_TIMES (backtester compat) should have 14 scan-only slots."""
@@ -104,10 +114,12 @@ class TestNextScanTime:
             assert a < b, f"SCAN_TIMES not sorted: {SCAN_TIMES[i]} >= {SCAN_TIMES[i+1]}"
 
     def test_slot_types_correct(self):
-        """First slot is pre-market, last is daily report, rest are scans."""
+        """First=pre_market, second-to-last=daily_report, last=macro_weekly; middle are scans."""
+        from shared.scheduler import SLOT_MACRO_WEEKLY
         assert SCAN_TIMES[0][2] == SLOT_PRE_MARKET
-        assert SCAN_TIMES[-1][2] == SLOT_DAILY_REPORT
-        for h, m, s in SCAN_TIMES[1:-1]:
+        assert SCAN_TIMES[-2][2] == SLOT_DAILY_REPORT
+        assert SCAN_TIMES[-1][2] == SLOT_MACRO_WEEKLY
+        for h, m, s in SCAN_TIMES[1:-2]:
             assert s == SLOT_SCAN
 
 

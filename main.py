@@ -709,12 +709,45 @@ Examples:
             system.scan_opportunities()
 
         elif args.command == 'scheduler':
-            from shared.scheduler import ScanScheduler, SLOT_SCAN
+            from shared.scheduler import ScanScheduler, SLOT_SCAN, SLOT_MACRO_WEEKLY
             from execution.position_monitor import PositionMonitor
             import threading
+            import time as _time
+
+            def _run_macro_weekly_with_retry(max_attempts: int = 3, retry_delay_secs: int = 300) -> None:
+                """Run the weekly macro snapshot with up to max_attempts retries."""
+                from scripts.run_macro_snapshot import run_weekly as _run_weekly
+                for attempt in range(1, max_attempts + 1):
+                    try:
+                        logger.info("Macro weekly snapshot — attempt %d/%d", attempt, max_attempts)
+                        _run_weekly()
+                        logger.info(
+                            "MACRO WEEKLY SNAPSHOT SUCCEEDED (attempt %d/%d) — "
+                            "macro_state.db updated, API serving fresh data",
+                            attempt, max_attempts,
+                        )
+                        return
+                    except Exception:
+                        logger.exception(
+                            "Macro weekly snapshot FAILED on attempt %d/%d",
+                            attempt, max_attempts,
+                        )
+                        if attempt < max_attempts:
+                            logger.info(
+                                "Retrying macro weekly snapshot in %ds...", retry_delay_secs
+                            )
+                            _time.sleep(retry_delay_secs)
+                logger.error(
+                    "MACRO WEEKLY SNAPSHOT FAILED after %d attempts — "
+                    "manual run required: python3 scripts/run_macro_snapshot.py --weekly",
+                    max_attempts,
+                )
 
             def scan_and_sync(slot_type=SLOT_SCAN):
-                system.scan_opportunities()
+                if slot_type == SLOT_MACRO_WEEKLY:
+                    _run_macro_weekly_with_retry()
+                else:
+                    system.scan_opportunities()
 
             scheduler = ScanScheduler(scan_fn=scan_and_sync)
 

@@ -270,7 +270,22 @@ def save_snapshot(snap: dict, db_path: Optional[str] = None) -> None:
                 ),
             )
 
-        # macro_score table — includes E9 velocity columns (score_velocity, risk_app_velocity)
+        # Compute score_velocity and risk_app_velocity from week-over-week delta
+        # if the engine hasn't already populated them in the snapshot dict.
+        score_velocity = ms.get("score_velocity")
+        risk_app_velocity = ms.get("risk_app_velocity")
+        if score_velocity is None or risk_app_velocity is None:
+            prev = conn.execute(
+                "SELECT overall, risk_appetite FROM macro_score WHERE date < ? ORDER BY date DESC LIMIT 1",
+                (snap_date,),
+            ).fetchone()
+            if prev:
+                if score_velocity is None and ms.get("overall") is not None and prev["overall"] is not None:
+                    score_velocity = round(float(ms["overall"]) - float(prev["overall"]), 2)
+                if risk_app_velocity is None and ms.get("risk_appetite") is not None and prev["risk_appetite"] is not None:
+                    risk_app_velocity = round(float(ms["risk_appetite"]) - float(prev["risk_appetite"]), 2)
+
+        # macro_score table — includes velocity columns (score_velocity, risk_app_velocity)
         conn.execute(
             """
             INSERT OR REPLACE INTO macro_score
@@ -297,8 +312,8 @@ def save_snapshot(snap: dict, db_path: Optional[str] = None) -> None:
                 ind.get("fedfunds"),
                 ind.get("vix"),
                 ind.get("hy_oas_pct"),
-                ms.get("score_velocity"),
-                ms.get("risk_app_velocity"),
+                score_velocity,
+                risk_app_velocity,
             ),
         )
 
@@ -337,8 +352,8 @@ def upsert_events(events: List[Dict], db_path: Optional[str] = None) -> None:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO macro_events
-                  (event_date, event_type, description, days_out, scaling_factor)
-                VALUES (?, ?, ?, ?, ?)
+                  (event_date, event_type, description, days_out, scaling_factor, is_emergency)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     ev["event_date"],
@@ -346,6 +361,7 @@ def upsert_events(events: List[Dict], db_path: Optional[str] = None) -> None:
                     ev.get("description", ""),
                     ev.get("days_out"),
                     ev.get("scaling_factor"),
+                    1 if ev.get("is_emergency") else 0,
                 ),
             )
         conn.commit()
