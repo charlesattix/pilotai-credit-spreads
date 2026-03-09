@@ -42,10 +42,41 @@ MAX_CONTRACTS_PER_TRADE = 10
 # ---------------------------------------------------------------------------
 MANAGEMENT_DTE_THRESHOLD = 21
 
+# 0DTE strategy
+ZERO_DTE_TICKERS = ["SPY", "QQQ"]
+ZERO_DTE_STRATEGY_NAME = "zero_dte_spread"
+ZERO_DTE_MANAGEMENT_DTE_THRESHOLD = 0
+
+# Per-strategy and delta caps (backtester parity)
+MAX_POSITIONS_PER_STRATEGY = 5
+MAX_ABS_DELTA = 50.0
+
 # ---------------------------------------------------------------------------
 # Options pricing
 # ---------------------------------------------------------------------------
 DEFAULT_RISK_FREE_RATE = float(os.environ.get('PILOTAI_RISK_FREE_RATE', '0.045'))
+
+# Historical average Fed Funds effective rate by year (for dynamic BS pricing).
+# Source: FRED (DFF series) — annual averages rounded to 3 decimal places.
+RISK_FREE_RATE_BY_YEAR = {
+    2020: 0.004,   # ~0.4% avg (0% from Mar onward)
+    2021: 0.001,   # ~0.1% (near zero all year)
+    2022: 0.017,   # ~1.7% avg (0% Jan → 4.3% Dec, weighted)
+    2023: 0.051,   # ~5.1% avg
+    2024: 0.053,   # ~5.3% avg
+    2025: 0.045,   # ~4.5% est (rate cuts beginning)
+    2026: 0.038,   # ~3.8% est
+}
+
+
+def get_risk_free_rate(date) -> float:
+    """Return the risk-free rate appropriate for a given date.
+
+    Uses year-level granularity from RISK_FREE_RATE_BY_YEAR.
+    Falls back to DEFAULT_RISK_FREE_RATE for unknown years.
+    """
+    year = date.year if hasattr(date, 'year') else date
+    return RISK_FREE_RATE_BY_YEAR.get(year, DEFAULT_RISK_FREE_RATE)
 
 # ---------------------------------------------------------------------------
 # Backtesting defaults
