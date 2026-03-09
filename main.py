@@ -23,6 +23,11 @@ from typing import Dict, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from shared.types import AppConfig
+from shared.macro_state_db import (
+    get_current_macro_score,
+    get_sector_rankings,
+    LIQUID_SECTOR_ETFS,
+)
 
 try:
     import sentry_sdk
@@ -165,6 +170,105 @@ class CreditSpreadSystem:
 
         logger.info("All components initialized successfully")
 
+    def _get_compass_universe(self) -> list:
+        """Return list of (ticker, direction_override, rrg_quadrant) tuples.
+
+        SPY is always first with no override.  Sector ETFs are added when their
+        current RRG quadrant meets the configured ``compass.min_leading_pct``
+        threshold (mapped to RRG quadrant categories):
+
+        - min_leading_pct >= 0.65 (strict): only ``Leading`` quadrant qualifies
+          for bull-put spreads.
+        - min_leading_pct  < 0.65 (relaxed): ``Leading`` or ``Improving``
+          qualify.
+
+        Bear-macro veto (macro_score < 45): sector ETFs are suppressed; only
+        SPY is scanned.
+
+        On any DB error the method falls back to the static ``config.tickers``
+        list with no overrides, so existing behaviour is preserved.
+        """
+        compass_cfg = self.config.get('compass', {})
+        min_leading_pct = compass_cfg.get('min_leading_pct', 0.65)
+
+        # Strict mode: only "Leading"; relaxed: "Leading" or "Improving"
+        if min_leading_pct >= 0.65:
+            bull_quadrants = {'Leading'}
+        else:
+            bull_quadrants = {'Leading', 'Improving'}
+
+        universe: list = [('SPY', None, None)]
+
+        try:
+            macro_score = get_current_macro_score()
+            if macro_score < 45:
+                logger.info(
+                    "COMPASS: bear-macro veto (score=%.1f < 45) — scanning SPY only",
+                    macro_score,
+                )
+                return universe
+
+            rankings = get_sector_rankings()
+            for item in rankings:
+                ticker = item['ticker']
+                if ticker not in LIQUID_SECTOR_ETFS:
+                    continue
+                quadrant = item.get('rrg_quadrant') or ''
+                if quadrant in bull_quadrants:
+                    universe.append((ticker, 'bull_put', quadrant))
+                elif quadrant in ('Lagging', 'Weakening'):
+                    universe.append((ticker, 'bear_call', quadrant))
+
+            logger.info(
+                "COMPASS universe (%d tickers): %s",
+                len(universe),
+                [(t, d) for t, d, _ in universe],
+            )
+
+        except Exception as e:
+            logger.warning(
+                "COMPASS universe selection failed — falling back to config tickers: %s", e
+            )
+            return [(t, None, None) for t in self.config.get('tickers', ['SPY'])]
+
+        return universe
+
+    def _augment_with_compass_state(self, state: dict) -> None:
+        """Augment *state* (in-place) with COMPASS macro data when enabled.
+
+        Adds:
+            macro_score       float  — current overall macro score (0-100)
+            rrg_quadrants     dict   — {ticker: rrg_quadrant} from latest snapshot
+            macro_sizing_flag str    — 'boost' | 'neutral' | 'reduce'
+
+        Only runs when ``compass.universe_enabled`` or ``compass.rrg_filter``
+        is true in config.  Silently skips on DB errors so live scanning is
+        never hard-blocked by a stale or missing macro_state.db.
+        """
+        compass_cfg = self.config.get('compass', {})
+        if not (compass_cfg.get('universe_enabled', False) or compass_cfg.get('rrg_filter', False)):
+            return
+        try:
+            macro_score = get_current_macro_score()
+            rankings = get_sector_rankings()
+            state['macro_score'] = macro_score
+            state['rrg_quadrants'] = {
+                r['ticker']: r.get('rrg_quadrant', '') for r in rankings
+            }
+            if macro_score < 45:
+                state['macro_sizing_flag'] = 'boost'
+            elif macro_score > 75:
+                state['macro_sizing_flag'] = 'reduce'
+            else:
+                state['macro_sizing_flag'] = 'neutral'
+            logger.debug(
+                "COMPASS macro_score=%.1f sizing_flag=%s",
+                macro_score,
+                state['macro_sizing_flag'],
+            )
+        except Exception as e:
+            logger.warning("COMPASS macro state fetch failed (non-fatal): %s", e)
+
     def scan_opportunities(self):
         """
         Scan for credit spread opportunities across all tickers.
@@ -173,10 +277,19 @@ class CreditSpreadSystem:
 
         all_opportunities = []
 
+        # Build scan universe: static list or dynamic COMPASS selection
+        compass_cfg = self.config.get('compass', {})
+        if compass_cfg.get('universe_enabled', False):
+            ticker_universe = self._get_compass_universe()
+        else:
+            ticker_universe = [(t, None, None) for t in self.config['tickers']]
+
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = {
-                executor.submit(self._analyze_ticker, ticker): ticker
-                for ticker in self.config['tickers']
+                executor.submit(
+                    self._analyze_ticker, ticker, direction_override, rrg_quadrant
+                ): ticker
+                for ticker, direction_override, rrg_quadrant in ticker_universe
             }
             for future in as_completed(futures):
                 ticker = futures[future]
@@ -207,15 +320,26 @@ class CreditSpreadSystem:
 
         return all_opportunities
 
-    def _analyze_ticker(self, ticker: str) -> list:
-        """
-        Analyze a single ticker for opportunities.
+    def _analyze_ticker(
+        self,
+        ticker: str,
+        direction_override: Optional[str] = None,
+        rrg_quadrant: Optional[str] = None,
+    ) -> list:
+        """Analyze a single ticker for opportunities.
 
         Args:
-            ticker: Stock ticker symbol
+            ticker: Stock ticker symbol.
+            direction_override: When set by COMPASS universe selection, one of
+                ``'bull_put'`` or ``'bear_call'``.  Sector ETFs get their
+                regime injected directly from the RRG quadrant instead of
+                running ComboRegimeDetector.
+            rrg_quadrant: The sector's current RRG quadrant string (e.g.
+                ``'Leading'``).  Stored in technical_signals for downstream
+                consumers (ML scorer, formatters).
 
         Returns:
-            List of opportunities
+            List of opportunity dicts.
         """
         try:
             # Get price data
@@ -239,8 +363,20 @@ class CreditSpreadSystem:
             # Technical analysis
             technical_signals = self.technical_analyzer.analyze(ticker, price_data)
 
-            # P1 Fix 4: Inject combo regime into technical_signals for spread_strategy
-            if self.strategy.regime_mode == 'combo' and self.strategy._combo_regime_detector:
+            # P1 Fix 4: Inject combo regime into technical_signals for spread_strategy.
+            #
+            # COMPASS sector ETFs (direction_override set): skip ComboRegimeDetector and
+            # derive regime directly from the RRG quadrant so each sector gets its own
+            # independent signal rather than inheriting SPY's macro regime.
+            if direction_override is not None:
+                rrg_regime = 'BULL' if direction_override == 'bull_put' else 'BEAR'
+                technical_signals['combo_regime'] = rrg_regime
+                if rrg_quadrant:
+                    technical_signals['compass_rrg_quadrant'] = rrg_quadrant
+                logger.info(
+                    "%s: COMPASS RRG regime = %s (quadrant=%s)", ticker, rrg_regime, rrg_quadrant
+                )
+            elif self.strategy.regime_mode == 'combo' and self.strategy._combo_regime_detector:
                 try:
                     vix_data = self.data_cache.get_history('^VIX', period='2y')
                     vix_by_date = {}
@@ -395,7 +531,7 @@ class CreditSpreadSystem:
 
         if not self.alpaca_provider:
             # Alert-only mode: static skeleton — risk gate still functions
-            return {
+            state = {
                 "account_value": starting_capital,
                 "peak_equity": starting_capital,
                 "open_positions": [],
@@ -403,6 +539,8 @@ class CreditSpreadSystem:
                 "weekly_pnl_pct": 0.0,
                 "recent_stops": [],
             }
+            self._augment_with_compass_state(state)
+            return state
 
         try:
             account = self.alpaca_provider.get_account()
@@ -471,7 +609,7 @@ class CreditSpreadSystem:
             self._peak_equity = max(self._peak_equity, account_value)
             peak_equity = self._peak_equity
 
-            return {
+            state = {
                 "account_value": account_value,
                 "peak_equity": peak_equity,
                 "open_positions": open_positions,
@@ -479,10 +617,12 @@ class CreditSpreadSystem:
                 "weekly_pnl_pct": weekly_pnl_pct,
                 "recent_stops": recent_stops,
             }
+            self._augment_with_compass_state(state)
+            return state
 
         except Exception as e:
             logger.error("_build_account_state: Alpaca query failed, using static fallback: %s", e)
-            return {
+            state = {
                 "account_value": starting_capital,
                 "peak_equity": starting_capital,
                 "open_positions": [],
@@ -490,6 +630,8 @@ class CreditSpreadSystem:
                 "weekly_pnl_pct": 0.0,
                 "recent_stops": [],
             }
+            self._augment_with_compass_state(state)
+            return state
 
     def run_backtest(self, ticker: str = 'SPY', lookback_days: int = 365, clear_cache: bool = False):
         """
@@ -578,6 +720,47 @@ class CreditSpreadSystem:
         self._generate_alerts(stored_alerts)
 
 
+def _validate_paper_mode_safety(config: dict) -> None:
+    """Safety check: when paper_mode=true, reject any configuration that points at live Alpaca.
+
+    Rules enforced:
+      1. alpaca.paper must be True (not False)
+      2. alpaca.base_url (if set) must contain the substring "paper"
+
+    These checks prevent a paper-trading config from accidentally hitting the
+    live brokerage API (which would place real orders with real money).
+
+    Raises:
+        ValueError: if paper_mode=true and the Alpaca config looks live.
+    """
+    if not config.get("paper_mode", False):
+        return  # live mode — no constraint, skip
+
+    alpaca_cfg = config.get("alpaca", {})
+
+    # Rule 1: alpaca.paper must be True
+    if not alpaca_cfg.get("paper", True):
+        raise ValueError(
+            "SAFETY: paper_mode=true but alpaca.paper=false — "
+            "this would submit orders to the live Alpaca brokerage. "
+            "Set alpaca.paper: true or remove paper_mode from your config."
+        )
+
+    # Rule 2: base_url (if explicitly set) must contain "paper"
+    base_url = alpaca_cfg.get("base_url", "")
+    if base_url and "paper" not in base_url.lower():
+        raise ValueError(
+            f"SAFETY: paper_mode=true but alpaca.base_url='{base_url}' does not "
+            "contain 'paper' — this looks like a live endpoint. "
+            "Use https://paper-api.alpaca.markets or remove base_url."
+        )
+
+    logger.info(
+        "Paper-mode safety check PASSED (alpaca.paper=%s base_url=%s)",
+        alpaca_cfg.get("paper"), base_url or "(default)",
+    )
+
+
 def create_system(config_file: str = 'config.yaml', env_file: str = None) -> CreditSpreadSystem:
     """Factory function that loads config and builds a CreditSpreadSystem.
 
@@ -594,6 +777,7 @@ def create_system(config_file: str = 'config.yaml', env_file: str = None) -> Cre
     """
     config = load_config(config_file, env_file=env_file)
     validate_config(config)
+    _validate_paper_mode_safety(config)
     setup_logging(config)
 
     system = CreditSpreadSystem(config=config)
@@ -714,9 +898,19 @@ Examples:
             import threading
             import time as _time
 
-            def _run_macro_weekly_with_retry(max_attempts: int = 3, retry_delay_secs: int = 300) -> None:
-                """Run the weekly macro snapshot with up to max_attempts retries."""
+            def _run_macro_weekly_with_retry(max_attempts: int = 5) -> None:
+                """Run the weekly macro snapshot with exponential backoff retries.
+
+                Backoff schedule (seconds between attempts):
+                  attempt 1 → fail → wait 5min
+                  attempt 2 → fail → wait 10min
+                  attempt 3 → fail → wait 20min
+                  attempt 4 → fail → wait 40min
+                  attempt 5 → fail → Telegram alert, give up
+                """
                 from scripts.run_macro_snapshot import run_weekly as _run_weekly
+                from shared.telegram_alerts import send_message as _tg_send
+                _BACKOFF_SECS = [300, 600, 1200, 2400]  # waits after attempts 1-4
                 for attempt in range(1, max_attempts + 1):
                     try:
                         logger.info("Macro weekly snapshot — attempt %d/%d", attempt, max_attempts)
@@ -733,14 +927,22 @@ Examples:
                             attempt, max_attempts,
                         )
                         if attempt < max_attempts:
+                            delay = _BACKOFF_SECS[attempt - 1]
                             logger.info(
-                                "Retrying macro weekly snapshot in %ds...", retry_delay_secs
+                                "Retrying macro weekly snapshot in %ds (%.0fmin)...",
+                                delay, delay / 60,
                             )
-                            _time.sleep(retry_delay_secs)
+                            _time.sleep(delay)
                 logger.error(
                     "MACRO WEEKLY SNAPSHOT FAILED after %d attempts — "
                     "manual run required: python3 scripts/run_macro_snapshot.py --weekly",
                     max_attempts,
+                )
+                _tg_send(
+                    "⚠️ <b>MACRO WEEKLY SNAPSHOT FAILED</b>\n\n"
+                    f"All {max_attempts} attempts exhausted. "
+                    "macro_state.db is stale.\n\n"
+                    "Manual fix: <code>python3 scripts/run_macro_snapshot.py --weekly</code>"
                 )
 
             def scan_and_sync(slot_type=SLOT_SCAN):

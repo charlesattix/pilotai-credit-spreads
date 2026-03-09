@@ -1,0 +1,199 @@
+# Credit Spread Trading System Configuration — EXP-305 (COMPASS Multi-Underlying)
+# Paper trading: SPY (combo regime) + top-2 sector ETFs by RRG quadrant (strict 0.65 threshold)
+# Backtest champion: avg +70.6% det, max DD -16.7%, 6/6 years
+# Backtest config: configs/exp_305_compass_top2_strict.json
+
+# ---------------------------------------------------------------------------
+# COMPASS universe: SPY always + sector ETFs where RRG quadrant = "Leading"
+# (strict min_leading_pct: 0.65 → only Leading quadrant, not Improving)
+# ---------------------------------------------------------------------------
+compass:
+  universe_enabled: true          # Enable dynamic multi-underlying selection
+  rrg_filter: true                # Block bull-puts for Lagging/Weakening sectors
+  min_leading_pct: 0.65           # Strict: only "Leading" quadrant eligible
+
+# Static fallback (used when compass.universe_enabled: false)
+tickers:
+  - SPY
+
+# ---------------------------------------------------------------------------
+# Strategy Parameters  — exp_305 backtest values
+# ---------------------------------------------------------------------------
+strategy:
+  min_dte: 25
+  max_dte: 45
+  target_dte: 35
+  manage_dte: 21
+
+  # Strike selection: OTM% mode (3% OTM, 12-delta target)
+  use_delta_selection: false
+  target_delta: 0.12
+
+  # Legacy range filter — kept for backward compat
+  min_delta: 0.20
+  max_delta: 0.30
+
+  # Spread width: $5 wide
+  spread_width: 5
+  spread_width_high_iv: 10
+  spread_width_low_iv: 5
+
+  # Direction: both (SPY uses combo regime; sector ETFs use RRG quadrant)
+  direction: both
+
+  # IV Rank filters
+  min_iv_rank: 12
+  min_iv_percentile: 12
+
+  # Iron condor parameters — IC-in-NEUTRAL only (SPY only; sector ETFs use directional)
+  iron_condor:
+    enabled: true
+    ic_neutral_regime_only: true      # Only when combo_regime=NEUTRAL (SPY)
+    ic_risk_per_trade: 8.0            # exp_305 backtest IC risk
+    prefer_in_low_iv: false
+    low_iv_threshold: 30
+    min_combined_credit_pct: 8
+    max_wing_width: 10
+    rsi_min: 30
+    rsi_max: 70
+
+  # SPY regime: combo v2 (price_vs_ma200 + rsi_momentum + vix_structure)
+  # Sector ETF regime: overridden per-ticker from RRG quadrant (see COMPASS above)
+  regime_mode: combo
+  regime_config:
+    signals:
+      - price_vs_ma200
+      - rsi_momentum
+      - vix_structure
+    ma_slow_period: 200
+    ma200_neutral_band_pct: 0.5
+    rsi_period: 14
+    rsi_bull_threshold: 55.0
+    rsi_bear_threshold: 45.0
+    vix_structure_bull: 0.95
+    vix_structure_bear: 1.05
+    bear_requires_unanimous: true
+    cooldown_days: 3
+    vix_extreme: 40.0
+
+  # Technical filters
+  technical:
+    use_trend_filter: true
+    use_rsi_filter: true
+    use_support_resistance: true
+    fast_ma: 20
+    slow_ma: 200
+    rsi_period: 14
+    rsi_oversold: 30
+    rsi_overbought: 70
+
+# ---------------------------------------------------------------------------
+# Risk Management — exp_305 backtest values
+# ---------------------------------------------------------------------------
+risk:
+  account_size: 100000
+
+  # 8% flat risk per trade (exp_305 backtest max_risk_per_trade=8%)
+  max_risk_per_trade: 8.0
+
+  # Flat sizing (compound: false)
+  sizing_mode: flat
+
+  # Capital allocation: SPY gets 50% of account (exp_305 spy_allocation=0.50)
+  # Sector ETFs share remaining 50% equally (up to 2 sectors)
+  spy_allocation: 0.50
+
+  min_contracts: 1
+  max_contracts: 25
+
+  max_positions: 50
+  max_positions_per_ticker: 2
+
+  scan_days: [0, 1, 2, 3, 4]
+
+  profit_target: 50
+  stop_loss_pct_of_width: 75
+  stop_loss_multiplier: 3.5
+
+  delta_threshold: 0.30
+  min_credit_pct: 8
+
+  portfolio_risk:
+    max_portfolio_risk_pct: 40
+    max_single_ticker_pct: 16
+    max_same_expiration: 4
+
+  correlation_groups:
+    equity_indices:
+      tickers: [SPY, QQQ, IWM]
+      max_correlated_positions: 5
+
+  # exp_305 backtest: drawdown_cb_pct=30
+  drawdown_cb_pct: 30
+
+  enable_rolling: false
+  max_rolls_per_position: 0
+  min_roll_credit: 0.30
+
+# ---------------------------------------------------------------------------
+# Alert Settings
+# ---------------------------------------------------------------------------
+alerts:
+  output_json: true
+  output_text: true
+  output_csv: true
+
+  json_file: "alerts.json"
+  text_file: "alerts.txt"
+  csv_file: "alerts.csv"
+
+  telegram:
+    enabled: true
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
+
+# ---------------------------------------------------------------------------
+# Alpaca Paper Trading — EXP-305 account
+# ---------------------------------------------------------------------------
+alpaca:
+  enabled: true
+  api_key: "${ALPACA_API_KEY}"
+  api_secret: "${ALPACA_API_SECRET}"
+  paper: true
+
+# ---------------------------------------------------------------------------
+# Data Settings
+# ---------------------------------------------------------------------------
+data:
+  provider: "polygon"
+
+  tradier:
+    api_key: "${TRADIER_API_KEY}"
+
+  polygon:
+    api_key: "${POLYGON_API_KEY}"
+    sandbox: true
+
+  backtest_lookback: 365
+  use_cache: true
+  cache_expiry_minutes: 15
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+logging:
+  level: "INFO"
+  file: "logs/trading_exp305.log"
+  console: true
+
+# ---------------------------------------------------------------------------
+# Backtesting
+# ---------------------------------------------------------------------------
+backtest:
+  starting_capital: 100000
+  commission_per_contract: 0.65
+  slippage: 0.05
+  exit_slippage: 0.10
+  score_threshold: 25
+  generate_reports: true
+  report_dir: "output/backtest_reports"
