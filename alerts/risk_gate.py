@@ -142,6 +142,95 @@ class RiskGate:
                     logger.warning("RiskGate BLOCKED: %s", reason)
                     return (False, reason)
 
+        # 8. COMPASS portfolio risk limits (only when compass.portfolio_mode: true).
+        #    Enforces per-ticker sector cap, correlated-group cap, and max
+        #    total directional exposure across the multi-underlying portfolio.
+        compass_cfg = self.config.get("compass", {})
+        if compass_cfg.get("portfolio_mode", False):
+            passed, reason = self._check_compass_portfolio_limits(
+                alert, account_state, compass_cfg
+            )
+            if not passed:
+                logger.warning("RiskGate BLOCKED (COMPASS portfolio limit): %s", reason)
+                return (False, reason)
+
+        return (True, "")
+
+    def _check_compass_portfolio_limits(
+        self,
+        alert: Alert,
+        account_state: dict,
+        compass_cfg: dict,
+    ) -> tuple:
+        """Enforce COMPASS portfolio risk limits.
+
+        Checks (all configurable, all default to permissive when absent):
+          a) Max single sector exposure (no sector > max_single_sector_pct)
+          b) Correlated sector group cap (e.g., tech cluster combined)
+          c) Max total directional delta exposure across portfolio
+
+        Returns:
+            (True, "") if approved.
+            (False, reason) if rejected.
+        """
+        limits_cfg = compass_cfg.get("portfolio_risk_limits", {})
+        account_value = account_state.get("account_value", 0)
+        open_positions = account_state.get("open_positions", [])
+        incoming_ticker = alert.ticker.upper()
+
+        if account_value <= 0:
+            return (True, "")
+
+        # a) Max single sector pct
+        max_sector_pct = float(limits_cfg.get("max_single_sector_pct", 0.40))
+        ticker_risk_pct = sum(
+            p.get("risk_pct", 0)
+            for p in open_positions
+            if p.get("ticker", "").upper() == incoming_ticker
+        )
+        if ticker_risk_pct >= max_sector_pct:
+            return (
+                False,
+                f"{incoming_ticker} sector exposure {ticker_risk_pct:.1%} "
+                f">= max {max_sector_pct:.1%}",
+            )
+
+        # b) Correlated sector group cap
+        for group_name, group_cfg in limits_cfg.get("correlated_sector_groups", {}).items():
+            group_tickers = [t.upper() for t in group_cfg.get("tickers", [])]
+            if incoming_ticker not in group_tickers:
+                continue
+            max_combined_pct = float(group_cfg.get("max_combined_pct", 1.0))
+            group_risk_pct = sum(
+                p.get("risk_pct", 0)
+                for p in open_positions
+                if p.get("ticker", "").upper() in group_tickers
+            )
+            if group_risk_pct >= max_combined_pct:
+                return (
+                    False,
+                    f"Correlated group '{group_name}' exposure {group_risk_pct:.1%} "
+                    f">= max {max_combined_pct:.1%} (adding {incoming_ticker})",
+                )
+
+        # c) Max total portfolio delta (directional positions only)
+        max_total_delta_pct = float(limits_cfg.get("max_total_delta_pct", 1.0))
+        if max_total_delta_pct < 1.0:
+            directional_risk = sum(
+                p.get("risk_pct", 0)
+                for p in open_positions
+                if p.get("direction", "") not in ("neutral", "")
+            )
+            incoming_is_directional = alert.direction.value not in ("neutral",)
+            incoming_risk_contribution = alert.risk_pct if incoming_is_directional else 0.0
+            total_directional = directional_risk + incoming_risk_contribution
+            if total_directional > max_total_delta_pct:
+                return (
+                    False,
+                    f"Total directional exposure {total_directional:.1%} "
+                    f"> max {max_total_delta_pct:.1%}",
+                )
+
         return (True, "")
 
     def weekly_loss_breach(self, account_state: dict) -> bool:

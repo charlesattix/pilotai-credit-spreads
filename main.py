@@ -578,6 +578,44 @@ class CreditSpreadSystem:
         self._generate_alerts(stored_alerts)
 
 
+def _validate_paper_mode_safety(config: dict) -> None:
+    """Safety check: when paper_mode=true, reject configurations that point at live Alpaca.
+
+    Rules enforced:
+      1. alpaca.paper must be True (not False)
+      2. alpaca.base_url (if set) must contain the substring "paper"
+
+    Raises:
+        ValueError: if paper_mode=true and the Alpaca config looks live.
+    """
+    if not config.get("paper_mode", False):
+        return  # live mode — no constraint
+
+    alpaca_cfg = config.get("alpaca", {})
+
+    # Rule 1: alpaca.paper must be True
+    if not alpaca_cfg.get("paper", True):
+        raise ValueError(
+            "SAFETY: paper_mode=true but alpaca.paper=false — "
+            "this would submit orders to the live Alpaca brokerage. "
+            "Set alpaca.paper: true or remove paper_mode from your config."
+        )
+
+    # Rule 2: base_url (if explicitly set) must contain "paper"
+    base_url = alpaca_cfg.get("base_url", "")
+    if base_url and "paper" not in base_url.lower():
+        raise ValueError(
+            f"SAFETY: paper_mode=true but alpaca.base_url='{base_url}' does not "
+            "contain 'paper' — this looks like a live endpoint. "
+            "Use https://paper-api.alpaca.markets or remove base_url."
+        )
+
+    logger.info(
+        "Paper-mode safety check PASSED (alpaca.paper=%s base_url=%s)",
+        alpaca_cfg.get("paper"), base_url or "(default)",
+    )
+
+
 def create_system(config_file: str = 'config.yaml', env_file: str = None) -> CreditSpreadSystem:
     """Factory function that loads config and builds a CreditSpreadSystem.
 
@@ -594,6 +632,7 @@ def create_system(config_file: str = 'config.yaml', env_file: str = None) -> Cre
     """
     config = load_config(config_file, env_file=env_file)
     validate_config(config)
+    _validate_paper_mode_safety(config)
     setup_logging(config)
 
     system = CreditSpreadSystem(config=config)
