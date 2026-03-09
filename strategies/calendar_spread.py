@@ -6,6 +6,7 @@ Profits from the faster time decay of the near-dated leg.
 Prefers low-volatility environments.
 """
 
+from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 

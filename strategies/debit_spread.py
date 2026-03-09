@@ -5,6 +5,7 @@ Buy bull call debit spreads in uptrends, bear put debit spreads in downtrends.
 Shorter DTE than credit spreads (needs directional move faster).
 """
 
+from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 

@@ -5,6 +5,7 @@ Long mode: buy ATM/NTM call + put before major events.
 Short mode: sell call + put after events to capture IV crush.
 """
 
+from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 

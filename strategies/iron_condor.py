@@ -5,6 +5,7 @@ Sells both a bull put spread and bear call spread simultaneously.
 Requires RSI in neutral zone and optionally elevated IV.
 """
 
+from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 

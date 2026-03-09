@@ -5,6 +5,7 @@ Ported from backtest/backtester.py heuristic mode. Uses MA trend filter,
 momentum filter, and Black-Scholes pricing.
 """
 
+from __future__ import annotations
 import logging
 from datetime import datetime
 from typing import Any, Dict, List

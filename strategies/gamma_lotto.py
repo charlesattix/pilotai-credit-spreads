@@ -5,6 +5,7 @@ Buys cheap OTM calls/puts before FOMC, CPI, NFP, PPI, GDP events.
 Debit strategy with 0.5% max risk per MASTERPLAN cap.
 """
 
+from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 

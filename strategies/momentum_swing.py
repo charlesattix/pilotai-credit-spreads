@@ -5,6 +5,7 @@ Uses EMA crossover, ADX filter, and RSI confirmation for trend-following.
 Equity mode trades the underlying; debit spread mode uses ITM debit spreads.
 """
 
+from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 
