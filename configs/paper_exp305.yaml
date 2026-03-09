@@ -19,7 +19,6 @@
 
 # --- Paper trading safety flags ---
 paper_mode: true          # SAFETY: blocks live API URLs when true (see main.py)
-compass_universe_enabled: true  # CC1 populates active_sectors at scan time
 
 # Tickers: SPY is always included. Sector ETFs injected at runtime by CC1
 # based on COMPASS universe selection.
@@ -30,6 +29,9 @@ tickers:
 # COMPASS Portfolio Configuration
 # ============================================================================
 compass:
+  universe_enabled: true          # Enable dynamic multi-underlying selection
+  rrg_filter: true                # Block bull-puts for Lagging/Weakening sectors
+  min_leading_pct: 0.65           # Strict: only "Leading" quadrant eligible
   portfolio_mode: true
 
   # Capital allocation: SPY gets 65%, sectors share the remaining 35%
@@ -179,8 +181,8 @@ alpaca:
   enabled: true
   paper: true                          # MUST be true for paper_mode config
   base_url: "https://paper-api.alpaca.markets"  # Paper endpoint (safety check validates this)
-  api_key: "${APCA_PAPER_API_KEY}"
-  api_secret: "${APCA_PAPER_SECRET_KEY}"
+  api_key: "${ALPACA_API_KEY}"
+  api_secret: "${ALPACA_API_SECRET}"
 
 # ============================================================================
 # Alert Settings
