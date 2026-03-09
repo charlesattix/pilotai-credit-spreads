@@ -55,10 +55,13 @@ class RiskGate:
 
     def __init__(self, config: dict = None):
         self.config = config or {}
-        # BUG #19 fix: MAX_TOTAL_EXPOSURE is configurable; MASTERPLAN default 15%
         risk_cfg = self.config.get("risk", {})
+        # BUG #19 fix: MAX_TOTAL_EXPOSURE is configurable; MASTERPLAN default 15%
         cfg_pct = risk_cfg.get("max_total_exposure_pct")
         self._max_total_exposure = (float(cfg_pct) / 100.0) if cfg_pct is not None else MAX_TOTAL_EXPOSURE
+        # Per-trade risk cap: read from config.risk.max_risk_per_trade (default: constant 5%)
+        cfg_per_trade = risk_cfg.get("max_risk_per_trade")
+        self._max_risk_per_trade = (float(cfg_per_trade) / 100.0) if cfg_per_trade is not None else MAX_RISK_PER_TRADE
 
     def check(self, alert: Alert, account_state: dict) -> tuple:
         """Evaluate an alert against all risk rules.
@@ -89,10 +92,10 @@ class RiskGate:
             return (False, reason)
 
         # 1. Per-trade risk cap
-        if alert.risk_pct > MAX_RISK_PER_TRADE:
+        if alert.risk_pct > self._max_risk_per_trade:
             reason = (
                 f"Per-trade risk {alert.risk_pct:.2%} exceeds "
-                f"max {MAX_RISK_PER_TRADE:.2%}"
+                f"max {self._max_risk_per_trade:.2%}"
             )
             logger.warning("RiskGate BLOCKED: %s", reason)
             return (False, reason)
