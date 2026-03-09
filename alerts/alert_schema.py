@@ -160,7 +160,9 @@ class Alert:
             alert_type = AlertType.momentum_swing
         elif alert_source == "earnings_play" or "earnings" in opp_type:
             alert_type = AlertType.earnings_play
-        elif "condor" in opp_type:
+        elif alert_source == "iron_condor" or "condor" in opp_type:
+            # Explicit alert_source check first (PARTIAL #23 fix) so that
+            # iron_condor_scanner results route correctly even if opp_type varies.
             alert_type = AlertType.iron_condor
         elif "put" in opp_type:
             alert_type = AlertType.credit_spread

@@ -28,14 +28,30 @@ class ExecutionEngine:
         # result['status'] == 'submitted' | 'dry_run' | 'error'
     """
 
-    def __init__(self, alpaca_provider, db_path: Optional[str] = None):
+    def __init__(self, alpaca_provider, db_path: Optional[str] = None, config: Optional[Dict] = None):
         """
         Args:
             alpaca_provider: AlpacaProvider instance, or None for dry-run/alert-only mode.
             db_path: Optional override for the SQLite database path.
+            config: Application config dict.  Reads ``execution.atomic_ic_execution``
+                    (default False).  When True (future: requires Alpaca 4-leg OTO support),
+                    iron condors will be submitted as a single atomic order instead of two
+                    separate 2-leg orders.  Currently this flag only controls a log warning;
+                    the two-order path is always used until Alpaca supports atomic 4-leg ICs.
         """
         self.alpaca = alpaca_provider
         self.db_path = db_path
+        self.config = config or {}
+        # PARTIAL #8: atomic_ic_execution flag — reserved for future Alpaca 4-leg OTO support
+        self._atomic_ic = bool(
+            self.config.get("execution", {}).get("atomic_ic_execution", False)
+        )
+        if self._atomic_ic:
+            logger.warning(
+                "ExecutionEngine: atomic_ic_execution=True is set but not yet supported "
+                "by Alpaca. IC orders will still be submitted as two 2-leg orders. "
+                "This flag will activate automatic 4-leg submission once Alpaca adds support."
+            )
         init_db(db_path)
 
     def submit_opportunity(self, opp: Dict) -> Dict:

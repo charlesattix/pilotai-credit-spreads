@@ -47,8 +47,10 @@ _MARKET_DAYS = frozenset({0, 1, 2, 3, 4})  # Mon–Fri (weekday() values)
 # Alpaca order statuses where the close order is terminal but did NOT fill
 _TERMINAL_NO_FILL = frozenset({"cancelled", "canceled", "expired", "replaced"})
 
-# 2026 US market full holidays — system skips these entirely
-_MARKET_HOLIDAYS_2026 = frozenset({
+# US market full holidays 2026-2030 — system skips these entirely (BUG #24 fix)
+# Source: NYSE market holiday calendar
+_MARKET_HOLIDAYS = frozenset({
+    # 2026
     "2026-01-01",  # New Year's Day
     "2026-01-19",  # Martin Luther King Jr. Day
     "2026-02-16",  # Presidents Day
@@ -59,14 +61,74 @@ _MARKET_HOLIDAYS_2026 = frozenset({
     "2026-09-07",  # Labor Day
     "2026-11-26",  # Thanksgiving Day
     "2026-12-25",  # Christmas Day (Friday)
+    # 2027
+    "2027-01-01",  # New Year's Day
+    "2027-01-18",  # Martin Luther King Jr. Day
+    "2027-02-15",  # Presidents Day
+    "2027-03-26",  # Good Friday
+    "2027-05-31",  # Memorial Day
+    "2027-06-18",  # Juneteenth (observed; Jun 19 is Saturday)
+    "2027-07-05",  # Independence Day (observed; Jul 4 is Sunday)
+    "2027-09-06",  # Labor Day
+    "2027-11-25",  # Thanksgiving Day
+    "2027-12-24",  # Christmas Day (observed; Dec 25 is Saturday)
+    # 2028
+    "2028-01-17",  # Martin Luther King Jr. Day (Jan 1 falls on Saturday, observed Dec 31 2027)
+    "2028-02-21",  # Presidents Day
+    "2028-04-14",  # Good Friday
+    "2028-05-29",  # Memorial Day
+    "2028-06-19",  # Juneteenth
+    "2028-07-04",  # Independence Day
+    "2028-09-04",  # Labor Day
+    "2028-11-23",  # Thanksgiving Day
+    "2028-12-25",  # Christmas Day
+    # 2029
+    "2029-01-01",  # New Year's Day
+    "2029-01-15",  # Martin Luther King Jr. Day
+    "2029-02-19",  # Presidents Day
+    "2029-03-30",  # Good Friday
+    "2029-05-28",  # Memorial Day
+    "2029-06-19",  # Juneteenth
+    "2029-07-04",  # Independence Day
+    "2029-09-03",  # Labor Day
+    "2029-11-22",  # Thanksgiving Day
+    "2029-12-25",  # Christmas Day
+    # 2030
+    "2030-01-01",  # New Year's Day
+    "2030-01-21",  # Martin Luther King Jr. Day
+    "2030-02-18",  # Presidents Day
+    "2030-04-19",  # Good Friday
+    "2030-05-27",  # Memorial Day
+    "2030-06-19",  # Juneteenth
+    "2030-07-04",  # Independence Day
+    "2030-09-02",  # Labor Day
+    "2030-11-28",  # Thanksgiving Day
+    "2030-12-25",  # Christmas Day
 })
+# Backward-compat alias used in _is_market_hours checks below
+_MARKET_HOLIDAYS_2026 = _MARKET_HOLIDAYS
 
-# 2026 early close days — market closes at 1:00 PM ET instead of 4:00 PM ET
+# Early close days 2026-2030 — market closes at 1:00 PM ET instead of 4:00 PM ET
 # Format: "YYYY-MM-DD" → close hour (24h, ET)
-_EARLY_CLOSE_DATES_2026: Dict[str, int] = {
-    "2026-11-25": 13,  # Day before Thanksgiving (Wednesday)
-    "2026-12-24": 13,  # Christmas Eve (Thursday)
+_EARLY_CLOSE_DATES: Dict[str, int] = {
+    # 2026
+    "2026-11-25": 13,  # Day before Thanksgiving
+    "2026-12-24": 13,  # Christmas Eve
+    # 2027
+    "2027-11-24": 13,  # Day before Thanksgiving
+    "2027-12-23": 13,  # Christmas Eve (observed)
+    # 2028
+    "2028-11-22": 13,  # Day before Thanksgiving
+    "2028-12-22": 13,  # Day before Christmas Eve
+    # 2029
+    "2029-11-21": 13,  # Day before Thanksgiving
+    "2029-12-24": 13,  # Christmas Eve
+    # 2030
+    "2030-11-27": 13,  # Day before Thanksgiving
+    "2030-12-24": 13,  # Christmas Eve
 }
+# Backward-compat alias
+_EARLY_CLOSE_DATES_2026 = _EARLY_CLOSE_DATES
 
 # Warn when a pending_close order has been unfilled for this many minutes
 _STALE_CLOSE_MINUTES = 10
@@ -135,10 +197,10 @@ class PositionMonitor:
         """Return (close_hour, close_min) for a given YYYY-MM-DD date string.
 
         Accounts for early-close days (half sessions) where the market closes
-        at 1:00 PM ET instead of 4:00 PM ET.
+        at 1:00 PM ET instead of 4:00 PM ET.  Covers 2026-2030.
         """
-        if date_str in _EARLY_CLOSE_DATES_2026:
-            return (_EARLY_CLOSE_DATES_2026[date_str], 0)
+        if date_str in _EARLY_CLOSE_DATES:
+            return (_EARLY_CLOSE_DATES[date_str], 0)
         return (_MARKET_CLOSE_HOUR, _MARKET_CLOSE_MIN)
 
     @staticmethod
@@ -147,14 +209,14 @@ class PositionMonitor:
 
         Respects:
         - Weekend (Sat/Sun): always False
-        - Full market holidays (_MARKET_HOLIDAYS_2026): always False
-        - Early close days (_EARLY_CLOSE_DATES_2026): closes at 1:00 PM ET
+        - Full market holidays (_MARKET_HOLIDAYS, 2026-2030): always False
+        - Early close days (_EARLY_CLOSE_DATES, 2026-2030): closes at 1:00 PM ET
         """
         now_et = datetime.now(_ET)
         if now_et.weekday() not in _MARKET_DAYS:
             return False
         date_str = now_et.strftime("%Y-%m-%d")
-        if date_str in _MARKET_HOLIDAYS_2026:
+        if date_str in _MARKET_HOLIDAYS:
             return False
         close_hour, close_min = PositionMonitor._get_market_close_time(date_str)
         open_mins = _MARKET_OPEN_HOUR * 60 + _MARKET_OPEN_MIN

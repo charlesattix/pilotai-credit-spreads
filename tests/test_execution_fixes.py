@@ -410,9 +410,10 @@ class TestAlertPositionSizerFlat:
         result = sizer.size(alert=alert, account_value=100_000, iv_rank=30,
                             current_portfolio_risk=0, weekly_loss_breach=False)
 
-        # IC: 12% risk = $12000; width=5, credit=2.0 → max_loss=(5*2-2)*100=$800
-        # contracts = 12000 / 800 = 15
-        assert result.contracts == 15
+        # IC: 12% risk = $12000; width=5, credit=2.0 → max_loss=(5-2)*100=$300 (single wing)
+        # Both wings cannot simultaneously expire ITM; only one can lose.
+        # contracts = 12000 / 300 = 40, capped at max_contracts=25
+        assert result.contracts == 25
 
     def test_max_contracts_from_config_not_hardcoded(self):
         from alerts.alert_position_sizer import AlertPositionSizer

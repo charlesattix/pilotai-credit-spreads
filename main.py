@@ -622,6 +622,8 @@ class CreditSpreadSystem:
 
         except Exception as e:
             logger.error("_build_account_state: Alpaca query failed, using static fallback: %s", e)
+            # circuit_breaker=True tells the risk gate to block ALL new trades when we
+            # cannot verify current portfolio exposure (PARTIAL #12 fix).
             state = {
                 "account_value": starting_capital,
                 "peak_equity": starting_capital,
@@ -629,6 +631,7 @@ class CreditSpreadSystem:
                 "daily_pnl_pct": 0.0,
                 "weekly_pnl_pct": 0.0,
                 "recent_stops": [],
+                "circuit_breaker": True,
             }
             self._augment_with_compass_state(state)
             return state

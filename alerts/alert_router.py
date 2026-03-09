@@ -3,19 +3,22 @@ Central alert routing pipeline.
 
 Pipeline stages:
   1. Convert opportunity dicts → Alert objects
-  2. Deduplicate (same ticker+direction within 30 min)
-  3. Risk-gate check
-  4. Position sizing
-  5. Prioritize (by type priority, then score)
-  6. Dispatch (Telegram + SQLite persistence)
-  7. Execute (optional — submit orders to Alpaca via ExecutionEngine)
+  2. Deduplicate (same ticker+direction within 30 min, persisted across restarts)
+  3. Position sizing  ← moved before risk gate so risk_pct reflects real sized risk
+  4. Update alert.risk_pct from sizing result (BUG #7 fix)
+  5. Risk-gate check (now sees real risk_pct)
+  6. Prioritize (by type priority, then score)
+  7. Dispatch (Telegram + SQLite persistence)
+  8. Execute (optional — submit orders to Alpaca via ExecutionEngine)
+     Dedup ledger is only marked AFTER successful execution (BUG #15 fix)
 """
 
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-from shared.database import insert_alert
+from shared.database import insert_alert, upsert_dedup_entry, load_dedup_entries, delete_old_dedup_entries
 from alerts.alert_schema import Alert, AlertType
 from alerts.risk_gate import RiskGate
 from alerts.alert_position_sizer import AlertPositionSizer
@@ -56,7 +59,9 @@ class AlertRouter:
         self.config = config or {}
 
         # In-memory dedup ledger: (ticker, direction) → last_routed_at
+        # Populated from SQLite on startup so restarts don't lose dedup state (BUG #17).
         self._dedup_ledger: Dict[tuple, datetime] = {}
+        self._load_dedup_from_db()
 
     def route_opportunities(
         self,
@@ -107,17 +112,9 @@ class AlertRouter:
                 continue
             deduped.append(alert)
 
-        # 3. Risk-check
-        approved: List[Alert] = []
+        # 3. Size FIRST — so risk gate sees the real position-sized risk_pct (BUG #7 fix).
+        #    Pipeline order changed: Size → update risk_pct → Risk gate.
         for alert in deduped:
-            passed, reason = self.risk_gate.check(alert, account_state)
-            if passed:
-                approved.append(alert)
-            else:
-                logger.info("AlertRouter: rejected %s — %s", alert.ticker, reason)
-
-        # 4. Size
-        for alert in approved:
             try:
                 sizing = self.position_sizer.size(
                     alert=alert,
@@ -127,8 +124,21 @@ class AlertRouter:
                     weekly_loss_breach=weekly_breach,
                 )
                 alert.sizing = sizing
+                # Update risk_pct on the alert with the real sized value so that
+                # risk gate rules 1 & 2 enforce actual exposure, not the default 2%.
+                if sizing and sizing.risk_pct > 0:
+                    alert.risk_pct = sizing.risk_pct
             except Exception as e:
                 logger.warning("AlertRouter: sizing failed for %s: %s", alert.ticker, e)
+
+        # 4. Risk-check (now has real risk_pct from step 3)
+        approved: List[Alert] = []
+        for alert in deduped:
+            passed, reason = self.risk_gate.check(alert, account_state)
+            if passed:
+                approved.append(alert)
+            else:
+                logger.info("AlertRouter: rejected %s — %s", alert.ticker, reason)
 
         # 5. Prioritize — by type priority then score, take top 5
         approved.sort(
@@ -150,10 +160,9 @@ class AlertRouter:
             except Exception as e:
                 logger.warning("AlertRouter: DB persist failed for %s: %s", alert.ticker, e)
 
-            # Mark dedup ledger
-            self._dedup_ledger[(alert.ticker, alert.direction.value)] = now
-
-            # Step 7: Execute — submit live order to Alpaca if engine is wired
+            # 7. Execute — dedup ledger is only marked AFTER successful execution (BUG #15 fix).
+            #    If Alpaca rejects the order, the next scan can retry.
+            execution_succeeded = True
             if self.execution_engine:
                 dte_ok, dte_reason = self._validate_dte(alert)
                 if not dte_ok:
@@ -161,11 +170,12 @@ class AlertRouter:
                         "AlertRouter: DTE gate blocked execution for %s — %s",
                         alert.ticker, dte_reason,
                     )
+                    # DTE-blocked: mark dedup (alert was valid, DTE is deterministic)
+                    self._mark_dedup(alert.ticker, alert.direction.value, now)
                     dispatched.append(alert)
                     continue
                 try:
                     opp_dict = alert.to_dict()
-                    # Inject contract count from sizing result
                     if alert.sizing:
                         opp_dict["contracts"] = alert.sizing.contracts
                     result = self.execution_engine.submit_opportunity(opp_dict)
@@ -175,15 +185,59 @@ class AlertRouter:
                         exec_status, alert.ticker, result.get("client_order_id", ""),
                     )
                     alert.execution_result = result
+                    if exec_status not in ("submitted", "accepted", "pending_new"):
+                        execution_succeeded = False
                 except Exception as e:
-                    logger.error(
-                        "AlertRouter: execution failed for %s: %s", alert.ticker, e
-                    )
+                    logger.error("AlertRouter: execution failed for %s: %s", alert.ticker, e)
+                    execution_succeeded = False
+
+            # Only mark dedup when execution actually succeeded (or no engine configured)
+            if execution_succeeded:
+                self._mark_dedup(alert.ticker, alert.direction.value, now)
+            else:
+                logger.info(
+                    "AlertRouter: skipping dedup mark for %s — execution failed, will retry next scan",
+                    alert.ticker,
+                )
 
             dispatched.append(alert)
 
         logger.info("AlertRouter: dispatched %d alerts", len(dispatched))
         return dispatched
+
+    # ------------------------------------------------------------------
+    # Dedup persistence helpers (BUG #17 fix)
+    # ------------------------------------------------------------------
+
+    def _load_dedup_from_db(self) -> None:
+        """Load recent dedup entries from SQLite on startup."""
+        try:
+            db_path = os.environ.get("PILOTAI_DB_PATH")
+            delete_old_dedup_entries(window_seconds=_DEDUP_WINDOW, path=db_path)
+            entries = load_dedup_entries(window_seconds=_DEDUP_WINDOW, path=db_path)
+            for entry in entries:
+                key = (entry["ticker"], entry["direction"])
+                try:
+                    ts = datetime.fromisoformat(entry["last_routed_at"])
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=timezone.utc)
+                    self._dedup_ledger[key] = ts
+                except (ValueError, TypeError):
+                    pass
+            if entries:
+                logger.info("AlertRouter: loaded %d dedup entries from DB", len(entries))
+        except Exception as e:
+            logger.warning("AlertRouter: could not load dedup entries from DB (non-fatal): %s", e)
+
+    def _mark_dedup(self, ticker: str, direction: str, ts: datetime) -> None:
+        """Mark a (ticker, direction) pair as recently routed in memory and DB."""
+        key = (ticker, direction)
+        self._dedup_ledger[key] = ts
+        try:
+            db_path = os.environ.get("PILOTAI_DB_PATH")
+            upsert_dedup_entry(ticker, direction, ts.isoformat(), path=db_path)
+        except Exception as e:
+            logger.warning("AlertRouter: could not persist dedup entry (non-fatal): %s", e)
 
     # ------------------------------------------------------------------
     # DTE validation (defense-in-depth: mirrors backtester min/max DTE)

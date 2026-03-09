@@ -65,6 +65,7 @@ def get_db(path: Optional[str] = None) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout = 5000")  # wait up to 5 s instead of failing immediately
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA wal_autocheckpoint=1000")  # checkpoint every 1000 pages
     conn.row_factory = sqlite3.Row
@@ -284,20 +285,30 @@ def save_snapshot(snap: dict, db_path: Optional[str] = None) -> None:
                     score_velocity = round(float(ms["overall"]) - float(prev["overall"]), 2)
                 if risk_app_velocity is None and ms.get("risk_appetite") is not None and prev["risk_appetite"] is not None:
                     risk_app_velocity = round(float(ms["risk_appetite"]) - float(prev["risk_appetite"]), 2)
+            else:
+                # First-ever row: no prior week, use 0.0 (cleaner than NULL for consumers)
+                if score_velocity is None:
+                    score_velocity = 0.0
+                if risk_app_velocity is None:
+                    risk_app_velocity = 0.0
+
+        # overall_v2: copy of overall (reserved for future alternative formula)
+        overall_v2 = ms.get("overall")
 
         # macro_score table — includes velocity columns (score_velocity, risk_app_velocity)
         conn.execute(
             """
             INSERT OR REPLACE INTO macro_score
-              (date, overall, growth, inflation, fed_policy, risk_appetite, regime,
+              (date, overall, overall_v2, growth, inflation, fed_policy, risk_appetite, regime,
                cfnai_3m, payrolls_3m_avg_k, cpi_yoy_pct, core_cpi_yoy_pct,
                breakeven_5y, t10y2y, fedfunds, vix, hy_oas_pct,
                score_velocity, risk_app_velocity, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
             """,
             (
                 snap_date,
                 ms.get("overall"),
+                overall_v2,
                 ms.get("growth"),
                 ms.get("inflation"),
                 ms.get("fed_policy"),
@@ -495,5 +506,64 @@ def get_snapshot_count(db_path: Optional[str] = None) -> int:
     try:
         row = conn.execute("SELECT COUNT(*) AS n FROM snapshots").fetchone()
         return row["n"] if row else 0
+    finally:
+        conn.close()
+
+
+def backfill_macro_score_velocities(db_path: Optional[str] = None) -> int:
+    """
+    Backfill overall_v2, score_velocity, risk_app_velocity, and updated_at
+    for all rows in macro_score (overwrites existing values).
+
+    - score_velocity     = current overall - previous week overall
+    - risk_app_velocity  = current risk_appetite - previous week risk_appetite
+    - overall_v2         = overall (copy; reserved for alternative formula)
+    - updated_at         = datetime('now')
+
+    Rows are processed in chronological order; the first row gets NULL velocities
+    (no prior week available). Returns the number of rows updated.
+    """
+    conn = get_db(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT date, overall, risk_appetite FROM macro_score ORDER BY date ASC"
+        ).fetchall()
+
+        updated = 0
+        prev_overall: Optional[float] = None
+        prev_risk_app: Optional[float] = None
+
+        for row in rows:
+            overall = row["overall"]
+            risk_app = row["risk_appetite"]
+
+            # First row has no prior week → 0.0 (cleaner than NULL for consumers)
+            score_vel: float = 0.0
+            risk_vel: float = 0.0
+
+            if prev_overall is not None and overall is not None:
+                score_vel = round(float(overall) - float(prev_overall), 2)
+            if prev_risk_app is not None and risk_app is not None:
+                risk_vel = round(float(risk_app) - float(prev_risk_app), 2)
+
+            conn.execute(
+                """
+                UPDATE macro_score
+                SET overall_v2 = ?, score_velocity = ?, risk_app_velocity = ?,
+                    updated_at = datetime('now')
+                WHERE date = ?
+                """,
+                (overall, score_vel, risk_vel, row["date"]),
+            )
+            updated += 1
+
+            prev_overall = overall
+            prev_risk_app = risk_app
+
+        conn.commit()
+        logger.info(
+            "backfill_macro_score_velocities: updated %d rows in macro_score", updated
+        )
+        return updated
     finally:
         conn.close()

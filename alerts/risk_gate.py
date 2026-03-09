@@ -27,11 +27,38 @@ from alerts.alert_schema import Alert
 logger = logging.getLogger(__name__)
 
 
+def _directions_match(pos_direction: str, alert_direction_value: str) -> bool:
+    """Compare a position's stored direction string against an alert's Direction enum value.
+
+    Positions are stored by strategy_type ("bull_put_spread", "bear_call_spread", …).
+    Alert directions use the Direction enum ("bullish", "bearish", "neutral").
+    Both representations are normalised to a common set before comparison.
+    """
+    _BULL = {"bullish", "bull", "bull_put", "bull_put_spread"}
+    _BEAR = {"bearish", "bear", "bear_call", "bear_call_spread"}
+    _NEUTRAL = {"neutral", "iron_condor"}
+
+    pos_norm = pos_direction.lower()
+    alert_norm = alert_direction_value.lower()
+
+    if alert_norm in _BULL:
+        return pos_norm in _BULL
+    if alert_norm in _BEAR:
+        return pos_norm in _BEAR
+    if alert_norm in _NEUTRAL:
+        return pos_norm in _NEUTRAL
+    return False
+
+
 class RiskGate:
     """Hard-coded risk gate with optional config-driven drawdown circuit breaker."""
 
     def __init__(self, config: dict = None):
         self.config = config or {}
+        # BUG #19 fix: MAX_TOTAL_EXPOSURE is configurable; MASTERPLAN default 15%
+        risk_cfg = self.config.get("risk", {})
+        cfg_pct = risk_cfg.get("max_total_exposure_pct")
+        self._max_total_exposure = (float(cfg_pct) / 100.0) if cfg_pct is not None else MAX_TOTAL_EXPOSURE
 
     def check(self, alert: Alert, account_state: dict) -> tuple:
         """Evaluate an alert against all risk rules.
@@ -48,12 +75,19 @@ class RiskGate:
                     "weekly_pnl_pct": float,
                     "recent_stops": list[dict],
                         # each has: ticker, stopped_at (datetime)
+                    "circuit_breaker": bool,  # True when broker API is down
                 }
 
         Returns:
             ``(True, "")`` if approved.
             ``(False, reason)`` if rejected.
         """
+        # 0. Circuit breaker — Alpaca API down; block ALL new trades
+        if account_state.get("circuit_breaker", False):
+            reason = "circuit_breaker=True — Alpaca account state unavailable, halting new entries"
+            logger.warning("RiskGate BLOCKED: %s", reason)
+            return (False, reason)
+
         # 1. Per-trade risk cap
         if alert.risk_pct > MAX_RISK_PER_TRADE:
             reason = (
@@ -67,10 +101,10 @@ class RiskGate:
         open_risk = sum(
             p.get("risk_pct", 0) for p in account_state.get("open_positions", [])
         )
-        if open_risk + alert.risk_pct > MAX_TOTAL_EXPOSURE + 1e-9:
+        if open_risk + alert.risk_pct > self._max_total_exposure + 1e-9:
             reason = (
                 f"Total exposure would be {open_risk + alert.risk_pct:.2%}, "
-                f"exceeds max {MAX_TOTAL_EXPOSURE:.2%}"
+                f"exceeds max {self._max_total_exposure:.2%}"
             )
             logger.warning("RiskGate BLOCKED: %s", reason)
             return (False, reason)
@@ -98,10 +132,12 @@ class RiskGate:
             )
 
         # 5. Correlated positions (same direction)
+        # Uses _directions_match() to normalise between DB storage values
+        # ("bull_put_spread") and Alert Direction enum values ("bullish").
         same_direction_count = sum(
             1
             for p in account_state.get("open_positions", [])
-            if p.get("direction") == alert.direction.value
+            if _directions_match(p.get("direction", ""), alert.direction.value)
         )
         if same_direction_count >= MAX_CORRELATED_POSITIONS:
             reason = (

@@ -25,6 +25,7 @@ def get_db(path: Optional[str] = None) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout = 5000")  # wait up to 5 s instead of failing immediately
     conn.execute("PRAGMA foreign_keys=ON")
     conn.row_factory = sqlite3.Row
     return conn
@@ -76,6 +77,13 @@ def init_db(path: Optional[str] = None) -> None:
                 event_type TEXT NOT NULL,
                 details JSON,
                 created_at TEXT DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS alert_dedup (
+                ticker TEXT NOT NULL,
+                direction TEXT NOT NULL,
+                last_routed_at TEXT NOT NULL,
+                PRIMARY KEY (ticker, direction)
             );
 
             CREATE TABLE IF NOT EXISTS deviation_snapshots (
@@ -309,6 +317,44 @@ def insert_reconciliation_event(
         conn.execute(
             "INSERT INTO reconciliation_events (trade_id, event_type, details) VALUES (?, ?, ?)",
             (trade_id, event_type, json.dumps(details or {}, default=str)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def upsert_dedup_entry(ticker: str, direction: str, last_routed_at: str, path: Optional[str] = None) -> None:
+    """Persist a dedup ledger entry so the router survives restarts."""
+    conn = get_db(path)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO alert_dedup (ticker, direction, last_routed_at) VALUES (?, ?, ?)",
+            (ticker, direction, last_routed_at),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_dedup_entries(window_seconds: int = 1800, path: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Return dedup entries younger than *window_seconds*."""
+    conn = get_db(path)
+    try:
+        cutoff = f"datetime('now', '-{window_seconds} seconds')"
+        rows = conn.execute(
+            f"SELECT ticker, direction, last_routed_at FROM alert_dedup WHERE last_routed_at > {cutoff}"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def delete_old_dedup_entries(window_seconds: int = 1800, path: Optional[str] = None) -> None:
+    """Delete dedup entries older than *window_seconds* to keep the table small."""
+    conn = get_db(path)
+    try:
+        conn.execute(
+            f"DELETE FROM alert_dedup WHERE last_routed_at <= datetime('now', '-{window_seconds} seconds')"
         )
         conn.commit()
     finally:

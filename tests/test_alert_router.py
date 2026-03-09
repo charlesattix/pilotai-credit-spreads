@@ -60,7 +60,11 @@ def _build_router(
         telegram_bot.send_alert = MagicMock(return_value=True)
     if formatter is None:
         formatter = TelegramAlertFormatter()
-    return AlertRouter(risk_gate, position_sizer, telegram_bot, formatter)
+    router = AlertRouter(risk_gate, position_sizer, telegram_bot, formatter)
+    # Clear any stale dedup entries loaded from the real DB at init,
+    # so each test starts with a clean dedup state.
+    router._dedup_ledger = {}
+    return router
 
 
 # ---------------------------------------------------------------------------
