@@ -72,8 +72,12 @@ compass:
 strategy:
   min_dte: 25
   max_dte: 45
+  target_dte: 35
 
   manage_dte: 21
+
+  # Direction: both (SPY uses combo regime; sector ETFs use RRG quadrant direction)
+  direction: both
 
   # Delta-based strike selection
   use_delta_selection: false
@@ -109,9 +113,27 @@ strategy:
     use_support_resistance: true
     fast_ma: 20
     slow_ma: 200
+    rsi_period: 14
+    rsi_oversold: 30
+    rsi_overbought: 70
 
   # Regime detection
   regime_mode: combo             # SPY uses combo regime detector
+  regime_config:
+    signals:
+      - price_vs_ma200
+      - rsi_momentum
+      - vix_structure
+    ma_slow_period: 200
+    ma200_neutral_band_pct: 0.5
+    rsi_period: 14
+    rsi_bull_threshold: 55.0
+    rsi_bear_threshold: 45.0
+    vix_structure_bull: 0.95
+    vix_structure_bear: 1.05
+    bear_requires_unanimous: true
+    cooldown_days: 3
+    vix_extreme: 40.0
   neutral_band: 0.5              # ±0.5% neutral band for regime classification
 
   # Sector ETFs use MA regime (not combo)
