@@ -862,6 +862,18 @@ Examples:
         # Execute command
         if args.command == 'scan':
             system.scan_opportunities()
+            # Run one position-monitor cycle after every scan so stop-loss /
+            # profit-target exits are evaluated even in cron (one-shot) mode.
+            # In scheduler mode PositionMonitor runs as a background thread;
+            # here we call _check_positions() directly for the same effect.
+            if system.alpaca_provider:
+                from execution.position_monitor import PositionMonitor
+                _pm = PositionMonitor(
+                    alpaca_provider=system.alpaca_provider,
+                    config=system.config,
+                    db_path=os.environ.get('PILOTAI_DB_PATH'),
+                )
+                _pm._check_positions()
 
         elif args.command == 'scheduler':
             from shared.scheduler import ScanScheduler, SLOT_SCAN, SLOT_MACRO_WEEKLY
