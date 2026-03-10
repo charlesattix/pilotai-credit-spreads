@@ -18,7 +18,8 @@
 # ============================================================================
 
 # --- Paper trading safety flags ---
-paper_mode: true          # SAFETY: blocks live API URLs when true (see main.py)
+paper_mode: true          # SAFETY: blocks live API URLs when true
+db_path: "data/pilotai_exp305.db"   # Isolated DB — prevents cross-contamination with other experiments (see main.py)
 
 # Tickers: SPY is always included. Sector ETFs injected at runtime by CC1
 # based on COMPASS universe selection.

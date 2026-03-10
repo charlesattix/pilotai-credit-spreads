@@ -1,0 +1,170 @@
+# ============================================================================
+# paper_exp059.yaml — Paper Trading Config
+# ============================================================================
+# Experiment: exp_059 (friday IC, 10% flat risk, MA200 filter)
+# Base strategy: configs/exp_059_friday_ic_risk10.json
+# Capital: SPY only
+#
+# Usage:
+#   python main.py scheduler --config configs/paper_exp059.yaml \
+#                            --env-file .env.local
+#
+# Required env vars (from .env.local):
+#   ALPACA_API_KEY
+#   ALPACA_API_SECRET
+#   TELEGRAM_BOT_TOKEN
+#   TELEGRAM_CHAT_ID
+#   POLYGON_API_KEY
+# ============================================================================
+
+# --- Paper trading safety flags ---
+paper_mode: true          # SAFETY: blocks live API URLs when true
+db_path: "data/pilotai_exp059.db"   # Isolated DB — prevents cross-contamination with other experiments
+
+tickers:
+  - SPY
+
+# ============================================================================
+# Strategy (exp_059 params: 10% flat risk, IC enabled, MA200 filter)
+# ============================================================================
+strategy:
+  min_dte: 25
+  max_dte: 45
+  target_dte: 35
+
+  manage_dte: 21
+
+  direction: both
+
+  use_delta_selection: false
+  target_delta: 0.12
+  min_delta: 0.20
+  max_delta: 0.30
+  otm_pct: 0.03
+
+  spread_width: 5
+  spread_width_high_iv: 10
+  spread_width_low_iv: 5
+
+  min_iv_rank: 0
+  min_iv_percentile: 0
+
+  min_credit_pct: 8
+
+  iron_condor:
+    enabled: true
+    min_combined_credit_pct: 12    # exp_059: 12% combined credit floor
+    max_wing_width: 10
+
+  # Technical filters — MA200 trend filter (simple, not combo regime)
+  technical:
+    use_trend_filter: true
+    use_rsi_filter: true
+    use_support_resistance: true
+    fast_ma: 20
+    slow_ma: 200
+    rsi_period: 14
+    rsi_oversold: 30
+    rsi_overbought: 70
+
+  # Simple MA200 trend filter (exp_059 baseline — no combo regime)
+  regime_mode: ma
+  trend_ma_period: 200
+
+# ============================================================================
+# Risk Management (exp_059 params)
+# ============================================================================
+risk:
+  account_size: 100000
+
+  # 10% flat risk per trade
+  max_risk_per_trade: 10.0
+  sizing_mode: flat
+
+  # Compounding enabled (exp_059 param)
+  compound: true
+
+  min_contracts: 1
+  max_contracts: 25
+
+  max_positions: 50
+  max_positions_per_ticker: 2
+
+  scan_days: [0, 1, 2, 3, 4]
+
+  profit_target: 50
+  stop_loss_multiplier: 2.5
+
+  delta_threshold: 0.30
+  min_credit_pct: 8
+
+  drawdown_cb_pct: 40
+  cooldown_bars: 3
+
+  enable_rolling: false
+  max_rolls_per_position: 0
+  min_roll_credit: 0.30
+
+# ============================================================================
+# Scheduler
+# ============================================================================
+scheduler:
+  scan_interval: 1800      # 30-minute scans
+
+# ============================================================================
+# Alpaca Paper Trading
+# ============================================================================
+alpaca:
+  enabled: true
+  paper: true
+  base_url: "https://paper-api.alpaca.markets"
+  api_key: "${ALPACA_API_KEY}"
+  api_secret: "${ALPACA_API_SECRET}"
+
+# ============================================================================
+# Alert Settings
+# ============================================================================
+alerts:
+  output_json: true
+  output_text: true
+  output_csv: true
+  json_file: "alerts_exp059.json"
+  text_file: "alerts_exp059.txt"
+  csv_file: "alerts_exp059.csv"
+
+  telegram:
+    enabled: true
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
+
+# ============================================================================
+# Data Settings
+# ============================================================================
+data:
+  provider: "polygon"
+  polygon:
+    api_key: "${POLYGON_API_KEY}"
+    sandbox: false
+  backtest_lookback: 365
+  use_cache: true
+  cache_expiry_minutes: 15
+
+# ============================================================================
+# Logging
+# ============================================================================
+logging:
+  level: "INFO"
+  file: "logs/paper_exp059.log"
+  console: true
+
+# ============================================================================
+# Backtesting (exp_059 validated params)
+# ============================================================================
+backtest:
+  starting_capital: 100000
+  commission_per_contract: 0.65
+  slippage: 0.05
+  exit_slippage: 0.10
+  score_threshold: 25
+  generate_reports: true
+  report_dir: "output/backtest_reports"

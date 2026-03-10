@@ -820,10 +820,20 @@ Examples:
     signal.signal(signal.SIGINT, _shutdown_handler)
 
     try:
-        # Set custom DB path before any database imports use the default
+        # Set custom DB path before any database imports use the default.
+        # CLI --db takes priority; fall back to db_path field in the YAML config.
         if args.db_path:
-            import os
             os.environ['PILOTAI_DB_PATH'] = args.db_path
+        else:
+            try:
+                import yaml as _yaml
+                with open(args.config or 'config.yaml') as _f:
+                    _raw = _yaml.safe_load(_f)
+                _cfg_db = (_raw or {}).get('db_path')
+                if _cfg_db:
+                    os.environ['PILOTAI_DB_PATH'] = _cfg_db
+            except Exception:
+                pass
 
         # Initialize system
         system = create_system(config_file=args.config, env_file=args.env_file)
