@@ -11,6 +11,7 @@ from alerts.alert_generator import AlertGenerator
 def _make_config(tmp_dir=None):
     return {
         'alerts': {
+            'min_score': 60,
             'output_json': True,
             'output_text': True,
             'output_csv': True,

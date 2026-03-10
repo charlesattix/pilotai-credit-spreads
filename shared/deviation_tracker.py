@@ -72,7 +72,7 @@ def record_deviation_snapshot(
     comparisons = None
     overall_status = "INFO"
 
-    if n >= 5 and config.exists():
+    if n >= 5:
         try:
             backtest = run_backtest_for_range(config, start, end)
             comparisons = compare_metrics(live, backtest)

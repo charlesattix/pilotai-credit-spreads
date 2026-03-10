@@ -531,7 +531,7 @@ class TestZeroDTEBacktestValidator:
         mock_backtester = MagicMock()
         mock_backtester.run_backtest.return_value = None
 
-        with patch("alerts.zero_dte_backtest.Backtester", return_value=mock_backtester):
+        with patch("backtest.Backtester", return_value=mock_backtester):
             results = validator.run(ticker="SPY", lookback_days=30)
 
         assert results["validation"]["passed"] is False
@@ -547,7 +547,7 @@ class TestZeroDTEBacktestValidator:
             "total_pnl": 3000,
         }
 
-        with patch("alerts.zero_dte_backtest.Backtester", return_value=mock_backtester):
+        with patch("backtest.Backtester", return_value=mock_backtester):
             results = validator.run(ticker="SPY", lookback_days=30)
 
         assert results["validation"]["passed"] is True
