@@ -36,11 +36,17 @@ logger = logging.getLogger(__name__)
 _LEGACY_MAX_CONTRACTS = 5
 _LEGACY_BASE_RISK_PCT = 0.02
 
-# Macro score thresholds for position size scaling (COMPASS portfolio mode)
-_MACRO_FEAR_THRESHOLD = 45    # score < this → boost size 1.2×
-_MACRO_GREED_THRESHOLD = 75   # score > this → reduce size 0.85×
-_MACRO_FEAR_SCALE = 1.20
-_MACRO_GREED_SCALE = 0.85
+# Macro score thresholds for position size scaling (COMPASS portfolio mode).
+# Mirrors backtester.py lines 607-616 (5-tier scale):
+#   ra < 30  → 1.2× (strong fear boost)
+#   ra < 45  → 1.1× (mild fear boost)
+#   ra > 75  → 0.85× (strong greed reduction)
+#   ra > 65  → 0.95× (mild greed reduction)
+#   else     → 1.0× (neutral)
+_MACRO_STRONG_FEAR_THRESHOLD = 30   # score < this → 1.2×
+_MACRO_MILD_FEAR_THRESHOLD = 45     # score < this → 1.1×
+_MACRO_MILD_GREED_THRESHOLD = 65    # score > this → 0.95×
+_MACRO_STRONG_GREED_THRESHOLD = 75  # score > this → 0.85×
 
 
 class AlertPositionSizer:
@@ -216,13 +222,16 @@ class AlertPositionSizer:
     def _macro_scale(self, macro_score: Optional[float]) -> float:
         """Return position size scalar based on macro score.
 
+        Mirrors backtester.py lines 607-616 (5-tier scale).
         If macro_score is None, attempts to read from macro_state.db.
         Falls back to 1.0 (no scaling) on any error.
 
         Returns:
-            1.2 (fear boost) if score < 45
-            0.85 (greed reduction) if score > 75
-            1.0 (neutral) otherwise
+            1.2  (strong fear boost)  if score < 30
+            1.1  (mild fear boost)    if 30 <= score < 45
+            0.85 (strong greed cut)   if score > 75
+            0.95 (mild greed cut)     if 65 < score <= 75
+            1.0  (neutral)            otherwise
         """
         score = macro_score
         if score is None:
@@ -232,18 +241,26 @@ class AlertPositionSizer:
                 logger.debug("AlertPositionSizer: macro score fetch failed: %s", e)
                 return 1.0
 
-        if score < _MACRO_FEAR_THRESHOLD:
-            logger.info(
-                "AlertPositionSizer: macro_score=%.1f < %d → fear boost ×%.2f",
-                score, _MACRO_FEAR_THRESHOLD, _MACRO_FEAR_SCALE,
-            )
-            return _MACRO_FEAR_SCALE
-        if score > _MACRO_GREED_THRESHOLD:
-            logger.info(
-                "AlertPositionSizer: macro_score=%.1f > %d → greed reduction ×%.2f",
-                score, _MACRO_GREED_THRESHOLD, _MACRO_GREED_SCALE,
-            )
-            return _MACRO_GREED_SCALE
+        if score < _MACRO_STRONG_FEAR_THRESHOLD:
+            scale = 1.20
+            logger.info("AlertPositionSizer: macro_score=%.1f < %d → strong fear boost ×%.2f",
+                        score, _MACRO_STRONG_FEAR_THRESHOLD, scale)
+            return scale
+        if score < _MACRO_MILD_FEAR_THRESHOLD:
+            scale = 1.10
+            logger.info("AlertPositionSizer: macro_score=%.1f < %d → mild fear boost ×%.2f",
+                        score, _MACRO_MILD_FEAR_THRESHOLD, scale)
+            return scale
+        if score > _MACRO_STRONG_GREED_THRESHOLD:
+            scale = 0.85
+            logger.info("AlertPositionSizer: macro_score=%.1f > %d → strong greed reduction ×%.2f",
+                        score, _MACRO_STRONG_GREED_THRESHOLD, scale)
+            return scale
+        if score > _MACRO_MILD_GREED_THRESHOLD:
+            scale = 0.95
+            logger.info("AlertPositionSizer: macro_score=%.1f > %d → mild greed reduction ×%.2f",
+                        score, _MACRO_MILD_GREED_THRESHOLD, scale)
+            return scale
         return 1.0
 
     # ------------------------------------------------------------------
