@@ -100,19 +100,34 @@ class CreditSpreadStrategy:
         # Filter by DTE (use as_of_date for backtesting, datetime.now() for live)
         valid_expirations = self._filter_by_dte(option_chain, as_of_date=as_of_date)
 
+        # Determine direction flags once, outside the expiration loop.
+        # In combo mode, direction is decided SOLELY by ComboRegimeDetector output
+        # (technical_signals['combo_regime']), mirroring backtester.py lines 715-729:
+        #   _want_puts = (regime == 'BULL')
+        #   _want_calls = (regime == 'BEAR')
+        # NEUTRAL → ICs only; no directional spreads opened.
+        # In non-combo mode, fall back to _check_bullish/_check_bearish_conditions.
+        combo_regime = technical_signals.get('combo_regime')
+        if self.regime_mode == 'combo' and combo_regime is not None:
+            want_bull_put = (combo_regime == 'BULL')
+            want_bear_call = (combo_regime == 'BEAR')
+        else:
+            want_bull_put = self._check_bullish_conditions(technical_signals, iv_data)
+            want_bear_call = self._check_bearish_conditions(technical_signals, iv_data)
+
         for expiration in valid_expirations:
             exp_chain = option_chain[option_chain['expiration'] == expiration]
 
-            # Evaluate bull put spreads (bullish/neutral)
-            if self._check_bullish_conditions(technical_signals, iv_data):
+            # Evaluate bull put spreads
+            if want_bull_put:
                 bull_puts = self._find_bull_put_spreads(
                     ticker, exp_chain, current_price, expiration, iv_data,
                     as_of_date=as_of_date,
                 )
                 opportunities.extend(bull_puts)
 
-            # Evaluate bear call spreads (bearish/neutral)
-            if self._check_bearish_conditions(technical_signals, iv_data):
+            # Evaluate bear call spreads
+            if want_bear_call:
                 bear_calls = self._find_bear_call_spreads(
                     ticker, exp_chain, current_price, expiration, iv_data,
                     as_of_date=as_of_date,
@@ -387,8 +402,9 @@ class CreditSpreadStrategy:
                     if max_loss <= 0:
                         continue
 
-                    # Check minimum combined credit
-                    if (combined_credit / spread_width) * 100 < min_combined_credit_pct:
+                    # Check minimum combined credit — denominator is 2×width (total IC risk)
+                    # matching backtester semantics: combined_credit / (2 * spread_width)
+                    if (combined_credit / (2 * spread_width)) * 100 < min_combined_credit_pct:
                         continue
 
                     # Combined POP: probability that NEITHER wing is breached

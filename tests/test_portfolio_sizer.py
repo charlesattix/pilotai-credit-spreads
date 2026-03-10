@@ -286,13 +286,14 @@ class TestMacroScoreScaling:
         assert sizer._macro_scale(45.0) == pytest.approx(1.0)
 
     def test_macro_scale_boundary_exactly_75(self):
-        """Score exactly at 75 is NOT in the greed zone (> 75)."""
+        """Score exactly at 75 is in the mild greed zone (65 < 75, but not > 75 strong greed)."""
         sizer = AlertPositionSizer(config=_make_compass_config())
-        assert sizer._macro_scale(75.0) == pytest.approx(1.0)
+        assert sizer._macro_scale(75.0) == pytest.approx(0.95)
 
     def test_macro_scale_fear_returns_correct_constant(self):
+        """Score 25 (< 30) hits the strong fear tier → 1.2×."""
         sizer = AlertPositionSizer(config=_make_compass_config())
-        assert sizer._macro_scale(30.0) == pytest.approx(_MACRO_FEAR_SCALE)
+        assert sizer._macro_scale(25.0) == pytest.approx(_MACRO_FEAR_SCALE)
 
     def test_macro_scale_greed_returns_correct_constant(self):
         sizer = AlertPositionSizer(config=_make_compass_config())

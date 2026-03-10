@@ -112,7 +112,9 @@ class TestFindIronCondorsNeutralMarket:
 
     def test_finds_condors(self):
         strategy = CreditSpreadStrategy(_make_config())
-        chain = _make_option_chain()
+        # iv_multiplier=2.0 produces premiums consistent with elevated-IV environment,
+        # satisfying the min_combined_credit_pct check (denominator = 2×spread_width).
+        chain = _make_option_chain(iv_multiplier=2.0)
         condors = strategy.find_iron_condors(
             'SPY', chain, 450.0, _neutral_signals(), _elevated_iv()
         )
@@ -122,7 +124,7 @@ class TestFindIronCondorsNeutralMarket:
 
     def test_condor_has_all_fields(self):
         strategy = CreditSpreadStrategy(_make_config())
-        chain = _make_option_chain()
+        chain = _make_option_chain(iv_multiplier=2.0)
         condors = strategy.find_iron_condors(
             'SPY', chain, 450.0, _neutral_signals(), _elevated_iv()
         )
