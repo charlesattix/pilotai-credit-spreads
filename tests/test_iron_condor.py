@@ -142,21 +142,28 @@ class TestFindIronCondorsNeutralMarket:
 
 
 class TestFindIronCondorsTrendingMarket:
-    """test_find_iron_condors_trending_market — bullish/bearish trend → no condors."""
+    """find_iron_condors — RSI out-of-range → no condors (rsi_min=35, rsi_max=65).
+
+    Trend alone no longer blocks condors; the RSI gate is the guard against
+    directional/overbought markets.  These tests use RSI values outside the
+    [35, 65] window to confirm the block fires.
+    """
 
     def test_bullish_no_condors(self):
+        """Overbought RSI (75 > rsi_max 65) blocks condors."""
         strategy = CreditSpreadStrategy(_make_config())
         chain = _make_option_chain()
         condors = strategy.find_iron_condors(
-            'SPY', chain, 450.0, {'trend': 'bullish', 'rsi': 50}, _elevated_iv()
+            'SPY', chain, 450.0, {'trend': 'bullish', 'rsi': 75}, _elevated_iv()
         )
         assert len(condors) == 0
 
     def test_bearish_no_condors(self):
+        """Oversold RSI (25 < rsi_min 35) blocks condors."""
         strategy = CreditSpreadStrategy(_make_config())
         chain = _make_option_chain()
         condors = strategy.find_iron_condors(
-            'SPY', chain, 450.0, {'trend': 'bearish', 'rsi': 50}, _elevated_iv()
+            'SPY', chain, 450.0, {'trend': 'bearish', 'rsi': 25}, _elevated_iv()
         )
         assert len(condors) == 0
 
@@ -229,12 +236,13 @@ class TestCondorScoringNeutralTrend:
 
 
 class TestCondorScoringTrending:
-    """test_condor_scoring_trending — no condors when market is trending."""
+    """No condors when RSI is overbought (rsi_max=65)."""
 
     def test_no_condors_in_trending(self):
+        """RSI 75 > rsi_max 65 blocks condors via the RSI gate."""
         strategy = CreditSpreadStrategy(_make_config())
         chain = _make_option_chain()
-        tech = {'trend': 'bullish', 'rsi': 60}
+        tech = {'trend': 'bullish', 'rsi': 75}
         iv = {'iv_rank': 50, 'iv_percentile': 50}
         results = strategy.evaluate_spread_opportunity(
             'SPY', chain, tech, iv, 450.0

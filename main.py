@@ -389,10 +389,11 @@ class CreditSpreadSystem:
                         logger.info("%s: ComboRegime = %s", ticker, current_regime)
                 except Exception as e:
                     logger.warning("ComboRegimeDetector failed for %s: %s", ticker, e)
-                    # Defense-in-depth: explicit NEUTRAL prevents IC gate bypass.
-                    # Without this, combo_regime is absent → current_regime=None →
-                    # ic_neutral_regime_only check skips entirely → ICs allowed in any regime.
-                    technical_signals['combo_regime'] = 'NEUTRAL'
+                    # BULL matches ComboRegimeDetector's optimistic prior (line 125:
+                    # current_regime = 'BULL') and the backtester's starting state.
+                    # With ic_neutral_regime_only=True, BULL blocks ICs and allows only
+                    # bull puts — the correct conservative behaviour on detector failure.
+                    technical_signals['combo_regime'] = 'BULL'
 
             # IV analysis
             current_iv = self.options_analyzer.get_current_iv(options_chain)
