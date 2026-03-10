@@ -355,7 +355,8 @@ class CreditSpreadStrategy:
 
         condors: List[IronCondorOpportunity] = []
         valid_expirations = self._filter_by_dte(option_chain, as_of_date=as_of_date)
-        spread_width = self._select_spread_width(iv_data)
+        # Single spread_width from config — matches backtester (no IV-based switching)
+        spread_width = self.strategy_params.get('spread_width', self.default_spread_width)
 
         for expiration in valid_expirations:
             exp_chain = option_chain[option_chain['expiration'] == expiration]
@@ -509,11 +510,8 @@ class CreditSpreadStrategy:
                     (legs['delta'] <= target_delta_max)
                 ]
 
-        # Dynamic spread width based on IV environment
-        if iv_data:
-            spread_width = self._select_spread_width(iv_data)
-        else:
-            spread_width = self.strategy_params['spread_width']
+        # Single spread_width from config — matches backtester (no IV-based switching)
+        spread_width = self.strategy_params.get('spread_width', self.default_spread_width)
 
         for _, short_leg in short_candidates.iterrows():
             short_strike = short_leg['strike']
