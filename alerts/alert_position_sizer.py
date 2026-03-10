@@ -47,6 +47,9 @@ _MACRO_STRONG_FEAR_THRESHOLD = 30   # score < this → 1.2×
 _MACRO_MILD_FEAR_THRESHOLD = 45     # score < this → 1.1×
 _MACRO_MILD_GREED_THRESHOLD = 65    # score > this → 0.95×
 _MACRO_STRONG_GREED_THRESHOLD = 75  # score > this → 0.85×
+# Backward-compat aliases used in tests
+_MACRO_FEAR_SCALE = 1.20
+_MACRO_GREED_SCALE = 0.85
 
 
 class AlertPositionSizer:
