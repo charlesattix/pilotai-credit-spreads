@@ -3,7 +3,7 @@ Iron condor exit alert monitor.
 
 Watches paper-traded iron condor positions and fires Telegram alerts when:
 1. Profit target hit (50% of credit received)
-2. Stop loss hit (2x credit)
+2. Stop loss hit (3.5x credit — matches position_monitor.py and backtester default)
 3. Weekly close approaching (Thursday warning, Friday force close)
 """
 
@@ -17,7 +17,10 @@ logger = logging.getLogger(__name__)
 
 # Exit thresholds for iron condor positions
 _PROFIT_TARGET_PCT = 0.50   # 50% of credit received (req 3.4)
-_STOP_LOSS_MULT = 2.0       # 2x credit
+_STOP_LOSS_MULT = 3.5       # 3.5x credit — must match risk.stop_loss_multiplier in configs
+                             # and the backtester default (backtester.py line 1348).
+                             # Previous value of 2.0 was wrong: alerts fired at half the
+                             # threshold of the actual execution system.
 
 
 def _now_et(now_et: Optional[datetime] = None) -> datetime:
@@ -128,7 +131,7 @@ class IronCondorExitMonitor:
                 self._fire_exit_alert(
                     trade, ticker, pnl, total_credit,
                     reason="stop_loss",
-                    action="CLOSE — Stop Loss (2x credit)",
+                    action="CLOSE — Stop Loss (3.5x credit)",
                     instructions="Cut losses on iron condor. Close all four legs immediately.",
                 )
                 self._alerted.add(stop_key)
