@@ -93,7 +93,7 @@ class AlertPositionSizer:
                 alert, account_value, weekly_loss_breach, macro_score
             )
 
-        return self._flat_risk_size(alert, account_value, weekly_loss_breach)
+        return self._flat_risk_size(alert, account_value, weekly_loss_breach, macro_score)
 
     # ------------------------------------------------------------------
     # Portfolio-mode sizing (COMPASS multi-underlying)
@@ -166,13 +166,6 @@ class AlertPositionSizer:
 
         # Macro score scaling
         effective_risk_pct = raw_risk_pct * self._macro_scale(macro_score)
-
-        # Weekly loss breach → 50% reduction
-        if weekly_loss_breach:
-            effective_risk_pct *= 0.5
-            logger.info(
-                "AlertPositionSizer (portfolio): 50%% size reduction (weekly loss breach)"
-            )
 
         dollar_risk = account_base * effective_risk_pct
 
@@ -257,7 +250,13 @@ class AlertPositionSizer:
     # Flat-risk sizing (exp_154 / backtest-parity mode)
     # ------------------------------------------------------------------
 
-    def _flat_risk_size(self, alert: Alert, account_value: float, weekly_loss_breach: bool) -> SizeResult:
+    def _flat_risk_size(
+        self,
+        alert: Alert,
+        account_value: float,
+        weekly_loss_breach: bool,
+        macro_score: Optional[float] = None,
+    ) -> SizeResult:
         """Flat-risk sizing matching backtester.py logic."""
         risk_cfg = self.config.get("risk", {})
         strategy_cfg = self.config.get("strategy", {})
@@ -290,10 +289,10 @@ class AlertPositionSizer:
 
         effective_risk_pct = raw_risk_pct * vix_scale
 
-        # Weekly loss breach → 50% reduction
-        if weekly_loss_breach:
-            effective_risk_pct *= 0.5
-            logger.info("AlertPositionSizer: 50%% size reduction (weekly loss breach)")
+        # COMPASS macro score scaling — mirrors backtester lines 1643-1644.
+        # Applied when strategy.compass_enabled=true (same key as backtester).
+        if strategy_cfg.get("compass_enabled", False):
+            effective_risk_pct *= self._macro_scale(macro_score)
 
         dollar_risk = account_base * effective_risk_pct
 
@@ -374,18 +373,15 @@ class AlertPositionSizer:
         current_portfolio_risk: float,
         weekly_loss_breach: bool,
     ) -> SizeResult:
-        """Original IV-rank based dynamic sizing (pre-exp_154)."""
-        from shared.constants import MAX_RISK_PER_TRADE
+        """Original IV-rank based dynamic sizing (pre-exp_154).
+
+        Matches backtester: only the 40% portfolio heat cap inside
+        calculate_dynamic_risk applies. The MAX_RISK_PER_TRADE extra cap layer
+        and weekly-loss breach reduction are removed (backtester has neither).
+        """
         from ml.position_sizer import calculate_dynamic_risk, get_contract_size
 
         dollar_risk = calculate_dynamic_risk(account_value, iv_rank, current_portfolio_risk)
-
-        hard_cap = MAX_RISK_PER_TRADE * account_value
-        dollar_risk = min(dollar_risk, hard_cap)
-
-        if weekly_loss_breach:
-            dollar_risk *= 0.5
-            logger.info("AlertPositionSizer [legacy]: 50%% size reduction (weekly loss breach)")
 
         risk_pct = dollar_risk / account_value if account_value > 0 else 0.0
         spread_width, credit = self._extract_spread_params(alert)
