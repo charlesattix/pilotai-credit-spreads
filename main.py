@@ -110,24 +110,10 @@ class CreditSpreadSystem:
         self.tracker = tracker or TradeTracker(self.config)
         self.dashboard = PnLDashboard(self.config, self.tracker)
 
-        # ML pipeline: use injected instance, or try to build one
-        if ml_pipeline is not None:
-            self.ml_pipeline = ml_pipeline
-        else:
-            self.ml_pipeline = None
-            try:
-                from ml.ml_pipeline import MLPipeline
-                self.ml_pipeline = MLPipeline(self.config, data_cache=self.data_cache)
-                self.ml_pipeline.initialize()
-                logger.info("ML pipeline initialized successfully")
-            except Exception as e:
-                logger.warning(f"ML pipeline not available, using rules-based scoring: {e}")
-
-        # ML/rules blending weights (configurable via config.yaml strategy section)
-        strategy_cfg = self.config.get('strategy', {})
-        self.ml_score_weight = strategy_cfg.get('ml_score_weight', _DEFAULT_ML_SCORE_WEIGHT)
-        self.rules_score_weight = 1.0 - self.ml_score_weight
-        self.event_risk_threshold = strategy_cfg.get('event_risk_threshold', _DEFAULT_EVENT_RISK_THRESHOLD)
+        # ML pipeline: disconnected from scan path — not validated in backtesting.
+        # The backtester uses rules-based scoring + combo regime + COMPASS macro signals.
+        # Reconnect only after the ML model has been backtested end-to-end.
+        self.ml_pipeline = None  # intentionally unused; keep attribute for future wiring
 
         # AlpacaProvider — wired when alpaca.enabled=true in config (P0 Fix 1)
         self.alpaca_provider = None
@@ -336,7 +322,7 @@ class CreditSpreadSystem:
                 running ComboRegimeDetector.
             rrg_quadrant: The sector's current RRG quadrant string (e.g.
                 ``'Leading'``).  Stored in technical_signals for downstream
-                consumers (ML scorer, formatters).
+                consumers (alert router, formatters).
 
         Returns:
             List of opportunity dicts.
@@ -423,57 +409,8 @@ class CreditSpreadSystem:
                 current_price=current_price
             )
 
-            # Enhance with ML scoring if available
-            if self.ml_pipeline and opportunities:
-                try:
-                    # Compute regime ONCE per ticker (not per-opportunity)
-                    regime_data = self.ml_pipeline.regime_detector.detect_regime(ticker=ticker)
-                    market_features = self.ml_pipeline.feature_engine.compute_market_features()
-
-                    # Limit to top 10 opportunities to avoid combinatorial explosion
-                    # (iron condors can generate O(N^2) pairs per expiration)
-                    ml_candidates = opportunities[:10]
-
-                    for opp in ml_candidates:
-                        # Map spread type correctly — iron condors are neutral, not directional
-                        opp_type = opp.get('type', '').lower()
-                        if 'condor' in opp_type:
-                            spread_type = 'iron_condor'
-                        elif 'put' in opp_type:
-                            spread_type = 'bull_put'
-                        else:
-                            spread_type = 'bear_call'
-
-                        ml_result = self.ml_pipeline.analyze_trade(
-                            ticker=ticker,
-                            current_price=current_price,
-                            options_chain=options_chain,
-                            spread_type=spread_type,
-                            technical_signals=technical_signals,
-                            regime=regime_data,
-                            market_features=market_features,
-                            spread_credit=opp.get('credit', 0),
-                            spread_max_loss=opp.get('max_loss', 0),
-                        )
-                        # Blend ML score with rules-based score (60% ML, 40% rules)
-                        rules_score = opp.get('score', 50)
-                        ml_score = ml_result.get('enhanced_score', rules_score)
-                        opp['rules_score'] = rules_score
-                        opp['ml_score'] = ml_score
-                        opp['score'] = self.ml_score_weight * ml_score + self.rules_score_weight * rules_score
-                        opp['regime'] = ml_result.get('regime', {}).get('regime', 'unknown')
-                        opp['regime_confidence'] = ml_result.get('regime', {}).get('confidence', 0)
-                        opp['event_risk'] = ml_result.get('event_risk', {}).get('event_risk_score', 0)
-                        opp['ml_position_size'] = ml_result.get('position_sizing', {})
-
-                        # Skip if high event risk
-                        if opp['event_risk'] > self.event_risk_threshold:
-                            logger.warning(f"Skipping {ticker} {opp['type']} due to high event risk: {opp['event_risk']:.2f}")
-                            opp['score'] = 0  # Zero out to filter
-
-                except Exception as e:
-                    logger.warning(f"ML scoring failed for {ticker}, using rules-based: {e}")
-
+            # Scores from rules-based scoring + combo regime + COMPASS are used directly.
+            # ML pipeline is intentionally disconnected (not validated in backtesting).
             return opportunities
 
         except Exception as e:
