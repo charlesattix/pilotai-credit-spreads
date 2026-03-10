@@ -861,10 +861,10 @@ class PositionMonitor:
         # Multiplied by contracts × 100 (options multiplier) for total dollar P&L
         pnl = (credit - fill_price) * contracts * 100
 
-        # Commission deduction (default 0 = paper trading; set execution.commission_per_contract
-        # in config for live trading, e.g. 0.65 for standard broker rate)
+        # Commission deduction — defaults to $0.65/contract matching backtester default.
+        # Set execution.commission_per_contract: 0 in config to disable.
         commission_per_contract = float(
-            self.config.get("execution", {}).get("commission_per_contract", 0.0)
+            self.config.get("execution", {}).get("commission_per_contract", 0.65)
         )
         if commission_per_contract > 0:
             spread_type = str(pos.get("strategy_type", pos.get("type", ""))).lower()

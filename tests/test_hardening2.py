@@ -514,11 +514,12 @@ class TestCommissionTracking:
         # net pnl = 150 - 5.20 = 144.80
         assert abs(actual_pnl - 144.80) < 0.01
 
-    def test_no_commission_when_not_configured(self, tmp_path):
+    def test_default_065_commission_applied_when_not_configured(self, tmp_path):
+        """Default commission is $0.65/contract matching backtester — not zero."""
         from shared.database import init_db, upsert_trade, get_trades
         db = str(tmp_path / "trades.db")
         init_db(db)
-        monitor, _ = _make_monitor(tmp_path)  # no execution.commission_per_contract
+        monitor, _ = _make_monitor(tmp_path)  # no execution.commission_per_contract → default 0.65
         monitor.db_path = db
 
         pos, order = self._make_pos_and_order()
@@ -528,8 +529,10 @@ class TestCommissionTracking:
 
         trades = get_trades(path=db)
         t = next((x for x in trades if x["id"] == "comm-001"), None)
-        # gross pnl = (1.50 - 0.75) * 2 * 100 = $150, no commission deducted
-        assert abs(float(t["pnl"]) - 150.0) < 0.01
+        # gross pnl = (1.50 - 0.75) * 2 * 100 = $150
+        # commission = 0.65 * 2 contracts * 2 legs * 2 sides = $5.20
+        # net pnl = 150 - 5.20 = $144.80
+        assert abs(float(t["pnl"]) - 144.80) < 0.01
 
     def test_iron_condor_uses_4_legs_for_commission(self, tmp_path):
         """IC has 4 legs (2 wings × 2 legs each) = 4 legs per side."""
