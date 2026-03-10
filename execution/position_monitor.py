@@ -320,7 +320,13 @@ class PositionMonitor:
                     exp_date = exp_date.replace(tzinfo=timezone.utc)
                 dte = (exp_date - datetime.now(timezone.utc)).days
                 if dte <= 0:
-                    # Expiring today — close immediately to avoid pin risk and assignment
+                    # Expiring today — close immediately to avoid pin risk and assignment.
+                    # NOTE (E7): This intentionally differs from the backtester, which holds
+                    # through the full expiration day and settles at the closing price.
+                    # Live trading exits at market open on expiration day to avoid pin risk.
+                    # For spreads expiring worthless the P&L impact is negligible. For spreads
+                    # near the short strike, the live system exits earlier (at open) vs the
+                    # backtester which sees the full day's intraday moves before settlement.
                     logger.warning(
                         "PositionMonitor: %s expires TODAY (DTE=%d) — urgent close "
                         "(pin risk / assignment avoidance)",
@@ -355,6 +361,10 @@ class PositionMonitor:
         pnl_pct = (pnl / credit) * 100
 
         # 3. Profit target
+        # NOTE (E4 — exit slippage): backtester applies VIX-scaled slippage to every exit
+        # (base=0.10, up to 3x at VIX≥40; see backtester.py _vix_scaled_exit_slippage()).
+        # The live system uses real Alpaca market fills instead — no explicit slippage parameter.
+        # Validate quarterly: compare actual fill prices vs intraday mid-price at trigger time.
         if pnl_pct >= self.profit_target_pct:
             logger.info(
                 "PositionMonitor: %s profit target hit: %.1f%% >= %.0f%% → closing",
@@ -922,6 +932,17 @@ class PositionMonitor:
 
         # Commission deduction — defaults to $0.65/contract matching backtester default.
         # Set execution.commission_per_contract: 0 in config to disable.
+        #
+        # E6 AUDIT — CONFIRMED MATCH with backtester:
+        # Backtester (backtester.py line 1349 IC / line 1596 2-leg):
+        #   commission_cost = self.commission * N_legs  (entry-side only)
+        #   At entry: capital -= commission_cost
+        #   At exit:  pnl -= pos['commission']  (= commission_cost again)
+        #   => round-trip = 2 × N_legs × $0.65/contract
+        #
+        # Live (here): commission = 0.65 × contracts × N_legs × 2  (round-trip in one shot)
+        #   IC (4 legs):  $0.65 × 1 × 4 × 2 = $5.20/contract ✓ matches backtester
+        #   2-leg:        $0.65 × 1 × 2 × 2 = $2.60/contract ✓ matches backtester
         commission_per_contract = float(
             self.config.get("execution", {}).get("commission_per_contract", 0.65)
         )
