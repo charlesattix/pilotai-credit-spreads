@@ -175,7 +175,7 @@ class AlertRouter:
                     dispatched.append(alert)
                     continue
                 try:
-                    opp_dict = alert.to_dict()
+                    opp_dict = self._build_execution_dict(alert)
                     if alert.sizing:
                         opp_dict["contracts"] = alert.sizing.contracts
                     result = self.execution_engine.submit_opportunity(opp_dict)
@@ -204,6 +204,64 @@ class AlertRouter:
 
         logger.info("AlertRouter: dispatched %d alerts", len(dispatched))
         return dispatched
+
+    # ------------------------------------------------------------------
+    # Execution dict builder
+    # ------------------------------------------------------------------
+
+    def _build_execution_dict(self, alert: Alert) -> dict:
+        """Build an execution-ready dict from an Alert for ExecutionEngine.
+
+        Alert.to_dict() (via asdict()) stores expiration/strikes/credit inside
+        legs[], not at the top level.  ExecutionEngine.submit_opportunity()
+        reads top-level keys: expiration, short_strike, long_strike, credit,
+        and type (as spread_type).  This method extracts those fields from legs
+        and promotes them to the top level so execution works correctly.
+        """
+        d = alert.to_dict()
+        legs = d.get("legs", [])
+
+        # --- expiration: take from first leg ---
+        if not d.get("expiration") and legs:
+            d["expiration"] = str(legs[0].get("expiration", "")).split(" ")[0]
+
+        # --- spread_type: map direction → bull_put / bear_call ---
+        # Alert.type is "credit_spread" or "iron_condor"; execution engine needs
+        # "bull_put" / "bear_call" / "iron_condor" to determine option type.
+        alert_type_val = d.get("type", "")
+        if "condor" not in alert_type_val:
+            d["type"] = "bull_put" if alert.direction.value == "bullish" else "bear_call"
+
+        # --- strikes: extract sell leg → short, buy leg → long ---
+        sell_legs = [l for l in legs if l.get("action") == "sell"]
+        buy_legs = [l for l in legs if l.get("action") == "buy"]
+        if sell_legs and not d.get("short_strike"):
+            d["short_strike"] = sell_legs[0].get("strike", 0)
+        if buy_legs and not d.get("long_strike"):
+            d["long_strike"] = buy_legs[0].get("strike", 0)
+
+        # --- credit: entry_price is the credit received ---
+        if not d.get("credit"):
+            d["credit"] = d.get("entry_price", 0)
+
+        # --- iron condor: extract per-wing strikes from legs ---
+        if "condor" in alert_type_val:
+            put_legs = [l for l in legs if l.get("option_type") == "put"]
+            call_legs = [l for l in legs if l.get("option_type") == "call"]
+            ps = next((l for l in put_legs if l.get("action") == "sell"), None)
+            pb = next((l for l in put_legs if l.get("action") == "buy"), None)
+            cs = next((l for l in call_legs if l.get("action") == "sell"), None)
+            cb = next((l for l in call_legs if l.get("action") == "buy"), None)
+            if ps:
+                d["put_short_strike"] = ps["strike"]
+            if pb:
+                d["put_long_strike"] = pb["strike"]
+            if cs:
+                d["call_short_strike"] = cs["strike"]
+            if cb:
+                d["call_long_strike"] = cb["strike"]
+
+        return d
 
     # ------------------------------------------------------------------
     # Dedup persistence helpers (BUG #17 fix)
