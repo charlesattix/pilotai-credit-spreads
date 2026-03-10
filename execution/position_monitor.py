@@ -5,9 +5,9 @@ Runs every 5 minutes during market hours (Mon–Fri 9:30–16:00 ET) and:
   1. Reconciles pending_close positions (polls Alpaca for fill status, records P&L)
   2. Detects externally-closed positions (disappeared from Alpaca) → marks closed_external
   3. Checks open positions for exit conditions:
-       a. DTE management: close when DTE <= manage_dte (default 21)
+       a. DTE management: close when DTE <= manage_dte (default 0 = disabled; matches backtester)
        b. Profit target:  close when P&L >= profit_target_pct% of credit (default 50%)
-       c. Stop loss:      close when spread value >= stop_loss_mult * credit (default 3.5x)
+       c. Stop loss:      close when spread value >= (1 + stop_loss_mult) × credit (default 3.5x)
 
 Supports both 2-leg credit spreads (bull_put / bear_call) and 4-leg iron condors.
 
@@ -163,7 +163,7 @@ class PositionMonitor:
         strategy = config.get("strategy", {})
         self.profit_target_pct = float(risk.get("profit_target", 50))
         self.stop_loss_mult = float(risk.get("stop_loss_multiplier", 3.5))
-        self.manage_dte = int(strategy.get("manage_dte", 21))
+        self.manage_dte = int(strategy.get("manage_dte", 0))  # 0 = disabled (matches backtester: no DTE exit)
         # Tracks consecutive Alpaca API failures for escalation alerting
         self._consecutive_api_failures = 0
 
@@ -172,8 +172,9 @@ class PositionMonitor:
     def start(self):
         """Start the monitoring loop. Blocks until stop() is called."""
         logger.info(
-            "PositionMonitor started | profit_target=%.0f%% | SL=%.1fx | manage_dte=%d",
-            self.profit_target_pct, self.stop_loss_mult, self.manage_dte,
+            "PositionMonitor started | profit_target=%.0f%% | SL=%.1fx | manage_dte=%s",
+            self.profit_target_pct, self.stop_loss_mult,
+            self.manage_dte if self.manage_dte > 0 else "disabled",
         )
         while not self._stop_event.is_set():
             try:
@@ -326,7 +327,7 @@ class PositionMonitor:
                         pos.get("id"), dte,
                     )
                     return "expiration_today"
-                if dte <= self.manage_dte:
+                if self.manage_dte > 0 and dte <= self.manage_dte:
                     logger.info(
                         "PositionMonitor: %s DTE=%d <= %d → closing (dte_management)",
                         pos.get("id"), dte, self.manage_dte,
@@ -361,55 +362,18 @@ class PositionMonitor:
             )
             return "profit_target"
 
-        # 4. Stop loss — two complementary checks:
-        #
-        #   (a) Loss-based (matches backtester semantics):
-        #       Fires when LOSS (current_value - credit) >= stop_loss_mult × credit
-        #       i.e., current_value >= (1 + mult) × credit
-        #       For credit=$1.50, mult=3.5: fires at current_value=$6.75
-        #       On a $5 spread this is unreachable by design — the SL acts as an
-        #       emergency backstop for unusual scenarios (wide spreads, pricing errors).
-        #
-        #   (b) Spread-width cap (safety backstop):
-        #       Fires at 90% of the spread width regardless of credit amount.
-        #       Ensures the SL always fires before absolute max loss, even for narrow
-        #       spreads where the formula-based threshold would never be reached.
-        #       For a $5 spread: fires when current_value >= $4.50.
-        #
-        #   The effective SL threshold is the LOWER of (a) and (b).
-        loss_based_threshold = (1.0 + self.stop_loss_mult) * credit
-
-        spread_width = 0.0
-        try:
-            spread_type = str(pos.get("strategy_type", pos.get("type", ""))).lower()
-            if "condor" in spread_type:
-                # For ICs, use the wider wing
-                put_w = abs(
-                    float(pos.get("put_short_strike") or pos.get("short_strike") or 0)
-                    - float(pos.get("put_long_strike") or pos.get("long_strike") or 0)
-                )
-                call_w = abs(
-                    float(pos.get("call_short_strike") or pos.get("short_strike") or 0)
-                    - float(pos.get("call_long_strike") or pos.get("long_strike") or 0)
-                )
-                spread_width = max(put_w, call_w)
-            else:
-                spread_width = abs(
-                    float(pos.get("short_strike") or 0) - float(pos.get("long_strike") or 0)
-                )
-        except (TypeError, ValueError):
-            pass
-
-        sl_threshold = loss_based_threshold
-        if spread_width > 0:
-            sl_threshold = min(loss_based_threshold, spread_width * 0.90)
+        # 4. Stop loss — matches backtester semantics exactly:
+        #    Fires when LOSS (current_value - credit) >= stop_loss_mult × credit
+        #    i.e., current_value >= (1 + mult) × credit
+        #    For credit=$1.50, mult=3.5: fires at current_value=$6.75
+        sl_threshold = (1.0 + self.stop_loss_mult) * credit
 
         if current_value >= sl_threshold:
             logger.warning(
                 "PositionMonitor: %s stop loss hit: current=%.4f >= threshold=%.4f "
-                "(loss_formula=%.4f spread_width_cap=%.4f) → closing",
+                "(credit=%.4f × (1 + %.1f)) → closing",
                 pos.get("id"), current_value, sl_threshold,
-                loss_based_threshold, spread_width * 0.90 if spread_width > 0 else float("inf"),
+                credit, self.stop_loss_mult,
             )
             return "stop_loss"
 

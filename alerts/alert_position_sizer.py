@@ -179,9 +179,9 @@ class AlertPositionSizer:
         # Spread geometry
         spread_width, credit = self._extract_spread_params(alert)
         if is_ic:
-            # IC max loss = one wing's width minus combined credit.
-            # Both wings cannot lose simultaneously; only one can be ITM at expiry.
-            max_loss_per_spread = max((spread_width - credit) * 100, 1.0)
+            # IC worst case: both wings ITM simultaneously (gap open / flash crash).
+            # max_loss = 2 * spread_width - combined_credit (matches backtester).
+            max_loss_per_spread = max((2 * spread_width - credit) * 100, 1.0)
         else:
             max_loss_per_spread = max((spread_width - credit) * 100, 1.0)
 
@@ -300,9 +300,9 @@ class AlertPositionSizer:
         # Spread geometry
         spread_width, credit = self._extract_spread_params(alert)
         if is_ic:
-            # IC max loss = one wing's width minus combined credit.
-            # Both wings cannot lose simultaneously; only one can be ITM at expiry.
-            max_loss_per_spread = max((spread_width - credit) * 100, 1.0)
+            # IC worst case: both wings ITM simultaneously (gap open / flash crash).
+            # max_loss = 2 * spread_width - combined_credit (matches backtester).
+            max_loss_per_spread = max((2 * spread_width - credit) * 100, 1.0)
         else:
             max_loss_per_spread = max((spread_width - credit) * 100, 1.0)
 
