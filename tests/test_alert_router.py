@@ -235,3 +235,200 @@ class TestFullPipeline:
         assert "AAPL" not in tickers  # filtered (score < 60)
         assert "SPY" in tickers
         assert len(result) <= 5
+
+
+# ---------------------------------------------------------------------------
+# New frequency-control tests (FREQ BUG fix)
+# ---------------------------------------------------------------------------
+
+def _ic_opp(ticker="SPY", score=75, expiration="2026-04-17", short_strike=510.0):
+    """Build a minimal iron_condor opportunity dict."""
+    return {
+        "ticker": ticker,
+        "type": "iron_condor",
+        "expiration": expiration,
+        "short_strike": short_strike,
+        "long_strike": short_strike - 5,
+        "call_short_strike": short_strike + 20,
+        "call_long_strike": short_strike + 25,
+        "credit": 2.50,
+        "stop_loss": 7.50,
+        "profit_target": 1.25,
+        "score": score,
+    }
+
+
+class TestWithinScanDedup:
+    """Fix 1+2: multiple same-ticker/direction alerts in one scan → only 1 dispatched.
+
+    Previously the batch dedup check (Step 2) ran before any alerts were marked,
+    so all same-ticker/direction ICs passed simultaneously.  The within-scan
+    re-check inside the dispatch loop now blocks duplicates.
+    """
+
+    def test_two_spy_ics_same_scan_only_one_dispatched(self):
+        """The original 3-IC bug in miniature: 2 SPY ICs → only 1 should execute."""
+        router = _build_router()
+        # Two SPY iron condors with different expirations (both score 75)
+        opps = [
+            _ic_opp(expiration="2026-04-17", short_strike=510.0),
+            _ic_opp(expiration="2026-04-10", short_strike=512.0),
+        ]
+        with patch("alerts.alert_router.insert_alert"):
+            result = router.route_opportunities(opps, _clean_state())
+        # Only the highest-scored (or first in tie) SPY IC should be dispatched.
+        spy_ic = [a for a in result if a.ticker == "SPY" and a.direction.value == "neutral"]
+        assert len(spy_ic) == 1, (
+            f"Expected 1 SPY IC dispatched per scan, got {len(spy_ic)}"
+        )
+
+    def test_three_spy_ics_same_scan_only_one_dispatched(self):
+        """Exact replication of the original bug: 3 SPY ICs → only 1 dispatched."""
+        router = _build_router()
+        opps = [
+            _ic_opp(expiration="2026-04-17", short_strike=510.0, score=64),
+            _ic_opp(expiration="2026-04-17", short_strike=512.0, score=63),
+            _ic_opp(expiration="2026-04-10", short_strike=513.0, score=62),
+        ]
+        with patch("alerts.alert_router.insert_alert"):
+            result = router.route_opportunities(opps, _clean_state())
+        spy_results = [a for a in result if a.ticker == "SPY"]
+        assert len(spy_results) == 1
+
+    def test_different_tickers_not_blocked(self):
+        """SPY IC and IWM IC in same scan should both be dispatched."""
+        router = _build_router()
+        opps = [
+            _ic_opp(ticker="SPY", expiration="2026-04-17"),
+            _ic_opp(ticker="IWM", expiration="2026-04-17"),
+        ]
+        with patch("alerts.alert_router.insert_alert"):
+            result = router.route_opportunities(opps, _clean_state())
+        tickers = {a.ticker for a in result}
+        assert "SPY" in tickers
+        assert "IWM" in tickers
+        assert len(result) == 2
+
+    def test_different_directions_same_ticker_not_blocked(self):
+        """A bull_put AND a bear_call on same ticker are different direction keys → both allowed."""
+        router = _build_router()
+        opps = [
+            _opp(ticker="SPY", score=75, opp_type="bull_put_spread"),
+            _opp(ticker="SPY", score=73, opp_type="bear_call_spread",
+                 short_strike=600.0, long_strike=605.0),
+        ]
+        with patch("alerts.alert_router.insert_alert"):
+            result = router.route_opportunities(opps, _clean_state())
+        directions = {a.direction.value for a in result if a.ticker == "SPY"}
+        assert "bullish" in directions
+        assert "bearish" in directions
+
+
+class TestMaxPositionsPerTicker:
+    """Fix 3: risk_gate enforces risk.max_positions_per_ticker from config."""
+
+    def _gate_with_limit(self, limit=2):
+        # max_total_exposure_pct=100 so Rule 2 never fires in these tests;
+        # we are specifically testing Rule 5.5 (per-ticker limit).
+        return RiskGate(config={"risk": {"max_positions_per_ticker": limit,
+                                         "max_risk_per_trade": 10.0,
+                                         "max_total_exposure_pct": 100}})
+
+    def _state_with_spy_positions(self, n):
+        return {
+            "account_value": 100_000,
+            "open_positions": [
+                {"ticker": "SPY", "direction": "neutral", "risk_pct": 0.01}
+                for _ in range(n)
+            ],
+            "daily_pnl_pct": 0.0,
+            "weekly_pnl_pct": 0.0,
+            "recent_stops": [],
+        }
+
+    def _spy_alert(self):
+        from alerts.alert_schema import Alert, AlertType, Direction, Leg
+        return Alert(
+            type=AlertType.iron_condor,
+            ticker="SPY",
+            direction=Direction.neutral,
+            legs=[
+                Leg(510.0, "put", "sell", "2026-04-17"),
+                Leg(505.0, "put", "buy",  "2026-04-17"),
+                Leg(530.0, "call", "sell", "2026-04-17"),
+                Leg(535.0, "call", "buy",  "2026-04-17"),
+            ],
+            entry_price=2.50,
+            stop_loss=7.50,
+            profit_target=1.25,
+            risk_pct=0.05,
+        )
+
+    def test_zero_existing_positions_allowed(self):
+        gate = self._gate_with_limit(2)
+        alert = self._spy_alert()
+        passed, _ = gate.check(alert, self._state_with_spy_positions(0))
+        assert passed is True
+
+    def test_one_existing_below_limit_allowed(self):
+        gate = self._gate_with_limit(2)
+        alert = self._spy_alert()
+        passed, _ = gate.check(alert, self._state_with_spy_positions(1))
+        assert passed is True
+
+    def test_at_limit_blocked(self):
+        gate = self._gate_with_limit(2)
+        alert = self._spy_alert()
+        passed, reason = gate.check(alert, self._state_with_spy_positions(2))
+        assert passed is False
+        assert "max 2 per ticker" in reason
+
+    def test_limit_1_blocks_second_position(self):
+        gate = self._gate_with_limit(1)
+        alert = self._spy_alert()
+        passed, _ = gate.check(alert, self._state_with_spy_positions(1))
+        assert passed is False
+
+    def test_no_limit_configured_always_passes(self):
+        """When max_positions_per_ticker is absent, Rule 5.5 is skipped."""
+        gate = RiskGate(config={"risk": {"max_risk_per_trade": 10.0,
+                                          "max_total_exposure_pct": 100}})
+        alert = self._spy_alert()
+        # 2 existing SPY bullish positions — different direction from neutral IC alert,
+        # so Rule 5 (correlated positions) won't fire.  With no max_positions_per_ticker
+        # configured, Rule 5.5 is absent and the check should pass.
+        state = {
+            "account_value": 100_000,
+            "open_positions": [
+                {"ticker": "SPY", "direction": "bullish", "risk_pct": 0.01},
+                {"ticker": "SPY", "direction": "bullish", "risk_pct": 0.01},
+            ],
+            "daily_pnl_pct": 0.0,
+            "weekly_pnl_pct": 0.0,
+            "recent_stops": [],
+        }
+        passed, _ = gate.check(alert, state)
+        assert passed is True
+
+    def test_different_ticker_not_counted(self):
+        """IWM positions do not count toward SPY's per-ticker limit."""
+        gate = self._gate_with_limit(1)
+        from alerts.alert_schema import Alert, AlertType, Direction, Leg
+        iwm_alert = Alert(
+            type=AlertType.iron_condor,
+            ticker="IWM",
+            direction=Direction.neutral,
+            legs=[
+                Leg(200.0, "put", "sell", "2026-04-17"),
+                Leg(195.0, "put", "buy",  "2026-04-17"),
+                Leg(220.0, "call", "sell", "2026-04-17"),
+                Leg(225.0, "call", "buy",  "2026-04-17"),
+            ],
+            entry_price=1.50,
+            stop_loss=4.50,
+            profit_target=0.75,
+            risk_pct=0.05,
+        )
+        state = self._state_with_spy_positions(1)  # 1 SPY, not IWM
+        passed, _ = gate.check(iwm_alert, state)
+        assert passed is True

@@ -150,6 +150,24 @@ class RiskGate:
             logger.warning("RiskGate BLOCKED: %s", reason)
             return (False, reason)
 
+        # 5.5 Per-ticker position limit — mirrors backtester max_positions_per_ticker.
+        #     Prevents the live scanner from opening unlimited positions in one underlying
+        #     across multiple expirations (e.g. 3 SPY iron condors in one scan).
+        #     Config: risk.max_positions_per_ticker (int).  Not enforced if absent.
+        max_per_ticker = self.config.get("risk", {}).get("max_positions_per_ticker")
+        if max_per_ticker is not None:
+            ticker_positions = sum(
+                1 for p in account_state.get("open_positions", [])
+                if p.get("ticker", "").upper() == alert.ticker.upper()
+            )
+            if ticker_positions >= int(max_per_ticker):
+                reason = (
+                    f"{alert.ticker}: already {ticker_positions} open position(s) "
+                    f"— max {max_per_ticker} per ticker"
+                )
+                logger.warning("RiskGate BLOCKED: %s", reason)
+                return (False, reason)
+
         # 6. Cooldown after stop-out on same ticker
         now = datetime.now(timezone.utc)
         for stop in account_state.get("recent_stops", []):

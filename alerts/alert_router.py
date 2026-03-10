@@ -3,14 +3,18 @@ Central alert routing pipeline.
 
 Pipeline stages:
   1. Convert opportunity dicts → Alert objects
-  2. Deduplicate (same ticker+direction within 30 min, persisted across restarts)
+  2. Deduplicate cross-scan (same ticker+direction within 30 min, persisted across restarts)
   3. Position sizing  ← moved before risk gate so risk_pct reflects real sized risk
   4. Update alert.risk_pct from sizing result (BUG #7 fix)
   5. Risk-gate check (now sees real risk_pct)
   6. Prioritize (by type priority, then score)
-  7. Dispatch (Telegram + SQLite persistence)
-  8. Execute (optional — submit orders to Alpaca via ExecutionEngine)
-     Dedup ledger is only marked AFTER successful execution (BUG #15 fix)
+  7. Dispatch loop — each alert checked for within-scan dedup before processing:
+       a. Within-scan dedup re-check (prevents multiple same-ticker/direction orders
+          in one scan when Step 2 ran before any were marked — FREQ BUG fix)
+       b. Telegram alert
+       c. SQLite persistence
+       d. Execute via ExecutionEngine (optional)
+       e. Mark dedup ledger AFTER successful execution (BUG #15 fix)
 """
 
 import logging
@@ -149,6 +153,27 @@ class AlertRouter:
         # 6. Dispatch
         dispatched: List[Alert] = []
         for alert in top:
+            # 7a. Within-scan dedup re-check.
+            #
+            # WHY: Step 2 (batch dedup) checked the ledger before ANY alert in this
+            # scan was dispatched, so multiple same-ticker/direction alerts all saw
+            # an empty ledger and passed simultaneously.  This re-check sees the
+            # ledger as it stands RIGHT NOW — after previous alerts in this loop
+            # have been marked — so the 2nd/3rd SPY iron_condor is caught here.
+            #
+            # This also enforces "max 1 trade per ticker/direction per scan": once
+            # SPY/neutral is dispatched and marked, every subsequent SPY/neutral
+            # alert in the same scan is blocked below.
+            key = (alert.ticker, alert.direction.value)
+            last_routed = self._dedup_ledger.get(key)
+            if last_routed and (now - last_routed).total_seconds() < _DEDUP_WINDOW:
+                logger.info(
+                    "AlertRouter: within-scan dedup blocked %s %s "
+                    "(already dispatched this scan — frequency guard)",
+                    alert.ticker, alert.direction.value,
+                )
+                continue
+
             try:
                 msg = self.formatter.format_entry_alert(alert)
                 self.telegram_bot.send_alert(msg)
