@@ -56,7 +56,8 @@ class CreditSpreadStrategy:
         self.default_spread_width = self.strategy_params.get('spread_width', 10)
 
         # Regime detection mode: 'combo' (v2 rule-based) or 'hmm' (legacy ML)
-        self.regime_mode = self.strategy_params.get('regime_mode', 'hmm')
+        # Default 'combo' matches backtester default (backtester.py line 407).
+        self.regime_mode = self.strategy_params.get('regime_mode', 'combo')
         self._combo_regime_detector = None
         if self.regime_mode == 'combo':
             try:
@@ -185,14 +186,17 @@ class CreditSpreadStrategy:
         Returns:
             True if conditions are favorable
         """
-        # IV must be elevated
-        iv_check = (
-            iv_data.get('iv_rank', 0) >= self.strategy_params['min_iv_rank'] or
-            iv_data.get('iv_percentile', 0) >= self.strategy_params['min_iv_percentile']
-        )
-
-        if not iv_check:
-            return False
+        # IV gate — only applied when config explicitly sets a non-zero floor.
+        # Default 0 = disabled, matching backtester iv_rank_min_entry=0 default.
+        _min_iv_rank = self.strategy_params.get('min_iv_rank', 0)
+        _min_iv_pct = self.strategy_params.get('min_iv_percentile', 0)
+        if _min_iv_rank > 0 or _min_iv_pct > 0:
+            iv_check = (
+                iv_data.get('iv_rank', 0) >= _min_iv_rank or
+                iv_data.get('iv_percentile', 0) >= _min_iv_pct
+            )
+            if not iv_check:
+                return False
 
         # Technical conditions for bull put spreads
         tech_params = self.strategy_params['technical']
@@ -216,14 +220,17 @@ class CreditSpreadStrategy:
         iv_data: Dict
     ) -> bool:
         """Check if conditions favor bear call spreads."""
-        # IV must be elevated
-        iv_check = (
-            iv_data.get('iv_rank', 0) >= self.strategy_params['min_iv_rank'] or
-            iv_data.get('iv_percentile', 0) >= self.strategy_params['min_iv_percentile']
-        )
-
-        if not iv_check:
-            return False
+        # IV gate — only applied when config explicitly sets a non-zero floor.
+        # Default 0 = disabled, matching backtester iv_rank_min_entry=0 default.
+        _min_iv_rank = self.strategy_params.get('min_iv_rank', 0)
+        _min_iv_pct = self.strategy_params.get('min_iv_percentile', 0)
+        if _min_iv_rank > 0 or _min_iv_pct > 0:
+            iv_check = (
+                iv_data.get('iv_rank', 0) >= _min_iv_rank or
+                iv_data.get('iv_percentile', 0) >= _min_iv_pct
+            )
+            if not iv_check:
+                return False
 
         tech_params = self.strategy_params['technical']
 
@@ -301,13 +308,17 @@ class CreditSpreadStrategy:
 
         iv_rank = iv_data.get('iv_rank', 0)
 
-        # Check conditions: IV must meet minimum
-        iv_check = (
-            iv_rank >= self.strategy_params['min_iv_rank'] or
-            iv_data.get('iv_percentile', 0) >= self.strategy_params['min_iv_percentile']
-        )
-        if not iv_check:
-            return []
+        # IV gate — only applied when config explicitly sets a non-zero floor.
+        # Default 0 = disabled, matching backtester iv_rank_min_entry=0 default.
+        _min_iv_rank = self.strategy_params.get('min_iv_rank', 0)
+        _min_iv_pct = self.strategy_params.get('min_iv_percentile', 0)
+        if _min_iv_rank > 0 or _min_iv_pct > 0:
+            iv_check = (
+                iv_rank >= _min_iv_rank or
+                iv_data.get('iv_percentile', 0) >= _min_iv_pct
+            )
+            if not iv_check:
+                return []
 
         # Trend filter for condors:
         # - Low IV (< threshold): allow any trend (condors are the primary strategy)

@@ -90,11 +90,12 @@ class AlertRouter:
         )
         weekly_breach = self.risk_gate.weekly_loss_breach(account_state)
 
-        # 1. Convert — only opportunities with score >= 60
+        # 1. Convert all valid opportunities.
+        # Score gate removed — the backtester has no scoring system; entry is
+        # decided solely by regime + credit floor + momentum filter.  The risk
+        # gate (rules 1-10) enforces all hard exposure limits downstream.
         alerts: List[Alert] = []
         for opp in opportunities:
-            if opp.get("score", 0) < 60:
-                continue
             try:
                 alert = Alert.from_opportunity(opp)
                 alerts.append(alert)
@@ -102,7 +103,7 @@ class AlertRouter:
                 logger.warning("Failed to convert opportunity %s: %s", opp.get("ticker"), e)
 
         if not alerts:
-            logger.info("AlertRouter: no qualifying opportunities (score >= 60)")
+            logger.info("AlertRouter: no qualifying opportunities")
             return []
 
         # 2. Deduplicate
