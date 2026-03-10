@@ -514,7 +514,15 @@ class CreditSpreadStrategy:
             # Calculate credit and risk
             credit = short_leg['bid'] - long_leg['ask']
 
-            # Reject crossed markets (negative credit)
+            # Apply entry slippage — matches backtester _find_real_spread:
+            #   slippage = prices.get("slippage", self.slippage); credit -= slippage
+            # Live reads from backtest.slippage (same config key as backtester).
+            _slippage = float(
+                self.config.get('backtest', {}).get('slippage', 0.0)
+            )
+            credit -= _slippage
+
+            # Reject crossed markets (negative credit after slippage)
             if credit <= 0:
                 continue
 
