@@ -381,13 +381,6 @@ class CreditSpreadStrategy:
 
                     combined_credit = round(bp['credit'] + bc['credit'], 2)
 
-                    # Synthetic pricing can overestimate individual wing credits.
-                    # In reality, combined condor credit is typically 20-50% of
-                    # one wing's width. Cap at 50% so max_loss stays positive.
-                    # Real Polygon prices replace this in the backtester anyway.
-                    if combined_credit > spread_width * 0.50:
-                        combined_credit = round(spread_width * 0.35, 2)
-
                     # Max loss = width of one wing - total credit (only one side can lose)
                     max_loss = round(spread_width - combined_credit, 2)
 
@@ -416,11 +409,11 @@ class CreditSpreadStrategy:
                         # Put side (reuse existing fields)
                         'short_strike': bp['short_strike'],
                         'long_strike': bp['long_strike'],
-                        'put_credit': min(bp['credit'], spread_width * 0.25),
+                        'put_credit': bp['credit'],
                         # Call side
                         'call_short_strike': bc['short_strike'],
                         'call_long_strike': bc['long_strike'],
-                        'call_credit': min(bc['credit'], spread_width * 0.25),
+                        'call_credit': bc['credit'],
                         # Combined
                         'credit': combined_credit,
                         'max_loss': max_loss,
