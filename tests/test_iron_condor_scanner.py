@@ -269,7 +269,7 @@ class TestIronCondorExitMonitor:
         assert len(bot.sent) == 1
 
     def test_stop_loss_triggers(self):
-        trade = self._make_trade(_mock_pnl=-410)  # <= -(2 * 200)
+        trade = self._make_trade(_mock_pnl=-710)  # <= -(3.5 * 200) = -700
         bot = MockTelegramBot()
         monitor = IronCondorExitMonitor(
             MockPaperTrader([trade]), bot, formatter=MockFormatter()
@@ -299,8 +299,8 @@ class TestIronCondorExitMonitor:
         assert len(triggered) == 1
         assert triggered[0]["reason"] == "profit_target"
 
-    def test_exact_2x_stop_triggers(self):
-        trade = self._make_trade(_mock_pnl=-400)  # exactly -2x
+    def test_exact_35x_stop_triggers(self):
+        trade = self._make_trade(_mock_pnl=-700)  # exactly -(3.5 * 200) = -700
         bot = MockTelegramBot()
         monitor = IronCondorExitMonitor(
             MockPaperTrader([trade]), bot, formatter=MockFormatter()
