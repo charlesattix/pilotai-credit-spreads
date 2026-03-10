@@ -596,6 +596,16 @@ class PositionMonitor:
                     "PositionMonitor: close submitted for %s order_id=%s",
                     pos.get("id"), pos["close_order_id"],
                 )
+            elif result.get("status") == "partial_close":
+                # IC close failed after all retries — _submit_ic_close already logged CRITICAL
+                # and set ic_partial_close=True in the DB. Leave position in pending_close
+                # state so it is NOT automatically retried (which would loop indefinitely).
+                # Manual intervention required to close remaining open legs.
+                logger.critical(
+                    "PositionMonitor: IC %s is in PARTIAL_CLOSE state — manual leg-by-leg "
+                    "close required. Position left in pending_close to prevent auto-retry loop.",
+                    pos.get("id"),
+                )
             else:
                 # Close order was rejected by Alpaca (non-submitted result).
                 # Reset status back to "open" so the exit-condition check retries on
@@ -624,7 +634,20 @@ class PositionMonitor:
             )
 
     def _submit_ic_close(self, pos: Dict, contracts: int, expiration_str: str) -> Dict:
-        """Delegate 4-leg iron condor close to AlpacaProvider."""
+        """Delegate 4-leg iron condor close to AlpacaProvider, with retry on failure.
+
+        Retries up to 2 additional times (3 total) with a 5-second delay between
+        attempts to handle transient Alpaca errors (e.g. rate limits, brief outages).
+
+        If all attempts fail, the position is flagged as partial_close in the DB
+        and a CRITICAL alert is logged. Manual intervention is required to close
+        any remaining open legs to avoid unhedged exposure.
+
+        Returns:
+            Dict with status 'submitted', 'error', or 'partial_close'.
+        """
+        import time
+
         ticker = pos.get("ticker", "")
         put_short = pos.get("put_short_strike") or pos.get("short_strike")
         put_long = pos.get("put_long_strike") or pos.get("long_strike")
@@ -634,16 +657,52 @@ class PositionMonitor:
         if not all([put_short, put_long, call_short, call_long]):
             return {"status": "error", "message": "IC missing wing strikes — cannot close"}
 
-        return self.alpaca.close_iron_condor(
-            ticker=ticker,
-            put_short_strike=put_short,
-            put_long_strike=put_long,
-            call_short_strike=call_short,
-            call_long_strike=call_long,
-            expiration=expiration_str,
-            contracts=contracts,
-            limit_price=None,
+        _MAX_ATTEMPTS = 3
+        last_result: Dict = {}
+
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            last_result = self.alpaca.close_iron_condor(
+                ticker=ticker,
+                put_short_strike=put_short,
+                put_long_strike=put_long,
+                call_short_strike=call_short,
+                call_long_strike=call_long,
+                expiration=expiration_str,
+                contracts=contracts,
+                limit_price=None,
+            )
+            if last_result.get("status") == "submitted":
+                return last_result
+
+            logger.warning(
+                "PositionMonitor: IC close attempt %d/%d FAILED for %s (%s): %s",
+                attempt, _MAX_ATTEMPTS, pos.get("id"), ticker,
+                last_result.get("message", last_result),
+            )
+            if attempt < _MAX_ATTEMPTS:
+                time.sleep(5)
+
+        # All attempts exhausted — mark partial_close and escalate
+        logger.critical(
+            "PositionMonitor: IC CLOSE FAILED after %d attempts for %s (%s). "
+            "Position flagged as partial_close. Manual intervention required to "
+            "close all 4 legs and eliminate unhedged exposure.",
+            _MAX_ATTEMPTS, pos.get("id"), ticker,
         )
+        pos["ic_partial_close"] = True
+        try:
+            upsert_trade(pos, source="execution", path=self.db_path)
+        except Exception as db_err:
+            logger.error(
+                "PositionMonitor: failed to persist ic_partial_close flag for %s: %s",
+                pos.get("id"), db_err,
+            )
+
+        return {
+            "status": "partial_close",
+            "message": f"IC close failed after {_MAX_ATTEMPTS} attempts — manual close required",
+            "last_error": last_result.get("message"),
+        }
 
     # ------------------------------------------------------------------
     # Pending-open reconciliation (intra-day fill tracking)
