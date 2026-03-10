@@ -151,16 +151,26 @@ class CreditSpreadStrategy:
             return self.default_spread_width
 
     def _filter_by_dte(self, option_chain: pd.DataFrame, as_of_date: Optional[datetime] = None) -> List[datetime]:
-        """Filter expirations by DTE range.
-        
+        """Filter expirations by DTE range and return the single preferred expiration.
+
+        Matches backtester behavior: _nearest_weekday_expiration selects ONE date
+        closest to target_dte, preferring Fridays.  Returning multiple expirations
+        caused the live scanner to open concurrent positions at different expirations
+        on the same scan, over-trading relative to the backtester.
+
         Args:
             option_chain: Options chain DataFrame
             as_of_date: Date to calculate DTE from. Defaults to now() for live scanning.
                         Pass the simulated date when backtesting historical data.
+
+        Returns:
+            List with at most one expiration — the nearest-to-target, Friday-preferred
+            date within [min_dte, max_dte].  Returns empty list if none qualify.
         """
         today = as_of_date or datetime.now(timezone.utc)
         if not hasattr(today, 'tzinfo') or today.tzinfo is None:
             today = today.replace(tzinfo=timezone.utc)
+        target_dte = int(self.strategy_params.get('target_dte', 35))
         valid_expirations = []
 
         for exp in option_chain['expiration'].unique():
@@ -169,7 +179,18 @@ class CreditSpreadStrategy:
             if self.strategy_params['min_dte'] <= dte <= self.strategy_params['max_dte']:
                 valid_expirations.append(exp)
 
-        return valid_expirations
+        if not valid_expirations:
+            return []
+
+        # Pick ONE expiration matching backtester's _nearest_weekday_expiration:
+        # sort key: (distance from target_dte, not-Friday) so the closest Friday wins.
+        def _pref(exp):
+            exp_aware = exp if hasattr(exp, 'tzinfo') and exp.tzinfo else (exp.replace(tzinfo=timezone.utc) if isinstance(exp, datetime) else exp)
+            dte = (exp_aware - today).days
+            is_not_friday = 0 if exp.weekday() == 4 else 1  # prefer Friday (weekday=4)
+            return (abs(dte - target_dte), is_not_friday)
+
+        return [min(valid_expirations, key=_pref)]
 
     def _check_bullish_conditions(
         self,
