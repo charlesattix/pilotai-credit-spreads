@@ -49,7 +49,7 @@ from alerts.formatters.telegram import TelegramAlertFormatter
 from backtest import Backtester, HistoricalOptionsData, PerformanceMetrics
 from tracker import TradeTracker, PnLDashboard
 from shared.data_cache import DataCache
-from shared.database import insert_alert, get_trades
+from shared.database import insert_alert, get_trades, save_scanner_state, load_scanner_state
 from shared.metrics import metrics
 from shared.provider_protocol import DataProvider  # noqa: F401 – ARCH-PY-06
 
@@ -93,8 +93,15 @@ class CreditSpreadSystem:
             ml_pipeline: Pre-built ML pipeline or None for default.
         """
         self.config = config
-        # Track peak equity across calls for drawdown CB (P2 Fix 8)
-        self._peak_equity = float(self.config.get('risk', {}).get('account_size', 100_000))
+        # Track peak equity across calls for drawdown CB (P2 Fix 8).
+        # Load persisted value from DB so restarts don't reset the high-water mark.
+        starting_capital_init = float(self.config.get('risk', {}).get('account_size', 100_000))
+        try:
+            _db_path = os.environ.get('PILOTAI_DB_PATH')
+            _persisted = load_scanner_state("peak_equity", path=_db_path)
+            self._peak_equity = float(_persisted) if _persisted is not None else starting_capital_init
+        except Exception:
+            self._peak_equity = starting_capital_init
 
         logger.info("=" * 80)
         logger.info("Credit Spread Trading System Starting")
@@ -544,7 +551,13 @@ class CreditSpreadSystem:
                 if t.get('exit_reason') == 'stop_loss' and _days_ago(t, 7)
             ]
 
-            self._peak_equity = max(self._peak_equity, account_value)
+            if account_value > self._peak_equity:
+                self._peak_equity = account_value
+                try:
+                    db_path = os.environ.get('PILOTAI_DB_PATH')
+                    save_scanner_state("peak_equity", str(self._peak_equity), path=db_path)
+                except Exception as _pe_err:
+                    logger.warning("_build_account_state: could not persist peak_equity: %s", _pe_err)
             peak_equity = self._peak_equity
 
             state = {

@@ -266,11 +266,12 @@ class TestDedupPersistence:
             from shared.database import init_db, upsert_dedup_entry, load_dedup_entries
             init_db(db_path)
             now_iso = datetime.now(timezone.utc).isoformat()
-            upsert_dedup_entry("SPY", "bullish", now_iso, path=db_path)
+            upsert_dedup_entry("SPY", "2026-04-17", "P", now_iso, path=db_path)
             entries = load_dedup_entries(window_seconds=1800, path=db_path)
             assert len(entries) == 1
             assert entries[0]["ticker"] == "SPY"
-            assert entries[0]["direction"] == "bullish"
+            assert entries[0]["expiration"] == "2026-04-17"
+            assert entries[0]["strike_type"] == "P"
         finally:
             os.unlink(db_path)
 
@@ -281,7 +282,7 @@ class TestDedupPersistence:
             from shared.database import init_db, upsert_dedup_entry, load_dedup_entries
             init_db(db_path)
             old_iso = "2020-01-01T00:00:00+00:00"  # clearly outside 30-min window
-            upsert_dedup_entry("SPY", "bullish", old_iso, path=db_path)
+            upsert_dedup_entry("SPY", "2026-04-17", "P", old_iso, path=db_path)
             entries = load_dedup_entries(window_seconds=1800, path=db_path)
             assert len(entries) == 0
         finally:
@@ -296,7 +297,7 @@ class TestDedupPersistence:
             from alerts.alert_router import AlertRouter
             init_db(db_path)
             now_iso = datetime.now(timezone.utc).isoformat()
-            upsert_dedup_entry("XLE", "bearish", now_iso, path=db_path)
+            upsert_dedup_entry("XLE", "2026-04-17", "C", now_iso, path=db_path)
 
             with patch.dict(os.environ, {"PILOTAI_DB_PATH": db_path}):
                 router = AlertRouter(
@@ -305,7 +306,7 @@ class TestDedupPersistence:
                     telegram_bot=MagicMock(),
                     formatter=MagicMock(),
                 )
-            assert ("XLE", "bearish") in router._dedup_ledger
+            assert ("XLE", "2026-04-17", "C") in router._dedup_ledger
         finally:
             os.unlink(db_path)
 
