@@ -32,7 +32,7 @@ strategy:
   max_dte: 45
   target_dte: 35
 
-  manage_dte: 21
+  manage_dte: 0    # DISABLED — backtester holds to expiration/stop/PT; live must match
 
   direction: both
 
