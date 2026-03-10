@@ -554,6 +554,13 @@ class CreditSpreadSystem:
                 "weekly_pnl_pct": weekly_pnl_pct,
                 "recent_stops": recent_stops,
             }
+            # Populate current_vix for RiskGate rule 7.5 (vix_max_entry hard block).
+            try:
+                vix_hist = self.data_cache.get_history('^VIX', period='5d')
+                if not vix_hist.empty:
+                    state['current_vix'] = float(vix_hist['Close'].iloc[-1])
+            except Exception as _vix_err:
+                logger.debug("_build_account_state: VIX fetch skipped: %s", _vix_err)
             self._augment_with_compass_state(state)
             return state
 

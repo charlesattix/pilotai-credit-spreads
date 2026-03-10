@@ -213,6 +213,20 @@ class RiskGate:
                     logger.warning("RiskGate BLOCKED: %s", reason)
                     return (False, reason)
 
+        # 7.5. VIX entry gate — hard block when VIX exceeds vix_max_entry.
+        # Mirrors backtester: strategy_params.get('vix_max_entry', 0); 0 = disabled.
+        # current_vix must be present in account_state (populated by _build_account_state).
+        vix_max_entry = self.config.get("strategy", {}).get("vix_max_entry", 0)
+        if vix_max_entry > 0:
+            current_vix = account_state.get("current_vix", 0)
+            if current_vix > vix_max_entry:
+                reason = (
+                    f"VIX {current_vix:.1f} > vix_max_entry {vix_max_entry} "
+                    "— entry blocked"
+                )
+                logger.warning("RiskGate BLOCKED: %s", reason)
+                return (False, reason)
+
         # ── COMPASS extensions (config-driven, default OFF) ──────────────────
 
         # 8. Macro score sizing flags.
