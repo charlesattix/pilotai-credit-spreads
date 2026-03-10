@@ -96,8 +96,14 @@ strategy:
 risk:
   account_size: 100000
 
-  # 5% flat risk per trade
-  max_risk_per_trade: 5.0
+  # Directional spread risk: 5% per trade (exp_154 base param)
+  # IC risk: 12% per trade (strategy.iron_condor.ic_risk_per_trade, read by alert_position_sizer)
+  # max_risk_per_trade is used by BOTH the risk gate cap AND the sizer for regular spreads.
+  # Must be set to the higher IC value (12%) so the risk gate doesn't block IC trades.
+  # Trade-off: live regular spreads are sized at 12% instead of the backtested 5%.
+  # A code change to add a separate directional_risk_per_trade config key would fix this.
+  risk_per_trade: 5.0          # documents intended directional spread risk (not read by any code path yet)
+  max_risk_per_trade: 12.0     # risk gate cap — must be ≥ ic_risk_per_trade (12%) or ICs are blocked
   sizing_mode: flat
 
   # No compounding (exp_154 param)

@@ -53,8 +53,11 @@ strategy:
 
   iron_condor:
     enabled: true
-    min_combined_credit_pct: 12    # exp_059: 12% combined credit floor
+    min_combined_credit_pct: 12    # exp_059: 12% minimum combined credit (quality filter)
     max_wing_width: 10
+    ic_risk_per_trade: 10.0        # exp_059: ICs use same 10% risk as directional spreads
+                                   # Explicit override of alert_position_sizer default (12%);
+                                   # must be ≤ risk.max_risk_per_trade to pass the risk gate
 
   # Technical filters — MA200 trend filter (simple, not combo regime)
   technical:
@@ -77,7 +80,8 @@ strategy:
 risk:
   account_size: 100000
 
-  # 10% flat risk per trade
+  # 10% flat risk per trade — applies to both directional spreads and ICs
+  # (iron_condor.ic_risk_per_trade is also set to 10% to match)
   max_risk_per_trade: 10.0
   sizing_mode: flat
 
