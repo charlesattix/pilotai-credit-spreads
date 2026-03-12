@@ -1,0 +1,212 @@
+{
+  "generated": "2026-03-12T20:15:18.864702",
+  "config": {
+    "tickers": [
+      "SPY"
+    ],
+    "starting_capital": 100000,
+    "cs_base_risk": 0.12,
+    "ss_base_risk": 0.03,
+    "cs_regime_scales": {
+      "regime_scale_bull": 1.0,
+      "regime_scale_bear": 0.3,
+      "regime_scale_high_vol": 0.3,
+      "regime_scale_low_vol": 0.8,
+      "regime_scale_crash": 0.0
+    },
+    "ss_regime_scales": {
+      "regime_scale_bull": 1.5,
+      "regime_scale_bear": 1.5,
+      "regime_scale_high_vol": 2.5,
+      "regime_scale_low_vol": 1.0,
+      "regime_scale_crash": 0.5
+    }
+  },
+  "baseline_summary": {
+    "yearly": {
+      "2020": {
+        "return_pct": 24.07,
+        "max_drawdown": -6.61,
+        "total_trades": 51,
+        "win_rate": 78.43,
+        "sharpe_ratio": 1.93
+      },
+      "2021": {
+        "return_pct": 107.4,
+        "max_drawdown": -3.67,
+        "total_trades": 86,
+        "win_rate": 89.53,
+        "sharpe_ratio": 6.78
+      },
+      "2022": {
+        "return_pct": 8.11,
+        "max_drawdown": -6.96,
+        "total_trades": 39,
+        "win_rate": 74.36,
+        "sharpe_ratio": 0.59
+      },
+      "2023": {
+        "return_pct": 43.18,
+        "max_drawdown": -3.62,
+        "total_trades": 60,
+        "win_rate": 86.67,
+        "sharpe_ratio": 3.94
+      },
+      "2024": {
+        "return_pct": 26.44,
+        "max_drawdown": -6.6,
+        "total_trades": 62,
+        "win_rate": 79.03,
+        "sharpe_ratio": 2.73
+      },
+      "2025": {
+        "return_pct": 34.97,
+        "max_drawdown": -3.56,
+        "total_trades": 55,
+        "win_rate": 90.91,
+        "sharpe_ratio": 3.74
+      }
+    },
+    "avg_return": 40.7,
+    "worst_dd": -6.96,
+    "total_trades": 353
+  },
+  "walk_forward": {
+    "folds": [
+      {
+        "fold": 1,
+        "train_years": [
+          2020,
+          2021,
+          2022
+        ],
+        "test_year": 2023,
+        "train_avg_return": 46.53,
+        "test_return": 43.18,
+        "ratio": 0.928,
+        "test_profitable": true
+      },
+      {
+        "fold": 2,
+        "train_years": [
+          2020,
+          2021,
+          2022,
+          2023
+        ],
+        "test_year": 2024,
+        "train_avg_return": 45.69,
+        "test_return": 26.44,
+        "ratio": 0.579,
+        "test_profitable": true
+      },
+      {
+        "fold": 3,
+        "train_years": [
+          2020,
+          2021,
+          2022,
+          2023,
+          2024
+        ],
+        "test_year": 2025,
+        "train_avg_return": 41.84,
+        "test_return": 34.97,
+        "ratio": 0.836,
+        "test_profitable": true
+      }
+    ],
+    "median_ratio": 0.836,
+    "profitable_folds": 3,
+    "passed": true
+  },
+  "monte_carlo": {
+    "n_paths": 10000,
+    "n_trades": 353,
+    "total_pnl": 247768.86,
+    "max_dd_percentiles": {
+      "p5": -8.26,
+      "p25": -5.93,
+      "p50": -4.71,
+      "p75": -3.8,
+      "p95": -3.02
+    },
+    "passed": true
+  },
+  "slippage": {
+    "total_trades": 353,
+    "total_slippage_usd": 83070.0,
+    "slippage_pct_of_capital": 83.07,
+    "base_pnl": 247768.86,
+    "adjusted_pnl": 164698.86,
+    "base_return_pct": 247.77,
+    "adjusted_return_pct": 164.7,
+    "per_year": {
+      "2020": {
+        "base_return": 24.07,
+        "slippage_pct": 10.62,
+        "adjusted_return": 13.45,
+        "trades": 51
+      },
+      "2021": {
+        "base_return": 107.4,
+        "slippage_pct": 23.4,
+        "adjusted_return": 84.0,
+        "trades": 86
+      },
+      "2022": {
+        "base_return": 8.11,
+        "slippage_pct": 5.88,
+        "adjusted_return": 2.23,
+        "trades": 39
+      },
+      "2023": {
+        "base_return": 43.18,
+        "slippage_pct": 15.3,
+        "adjusted_return": 27.88,
+        "trades": 60
+      },
+      "2024": {
+        "base_return": 26.44,
+        "slippage_pct": 15.27,
+        "adjusted_return": 11.17,
+        "trades": 62
+      },
+      "2025": {
+        "base_return": 34.97,
+        "slippage_pct": 12.6,
+        "adjusted_return": 22.37,
+        "trades": 55
+      }
+    },
+    "passed": true
+  },
+  "tail_risk": {
+    "scenarios": {
+      "COVID Crash": {
+        "period": "2020-02-01 to 2020-03-31",
+        "return_pct": -0.78,
+        "max_drawdown": -2.19,
+        "total_trades": 7,
+        "win_rate": 42.86,
+        "passed": true
+      },
+      "Rate Hike Bear": {
+        "period": "2022-01-01 to 2022-06-30",
+        "return_pct": 9.06,
+        "max_drawdown": -3.07,
+        "total_trades": 18,
+        "win_rate": 77.78,
+        "passed": true
+      }
+    },
+    "passed": true
+  },
+  "sections_passed": {
+    "walk_forward": true,
+    "monte_carlo": true,
+    "slippage": true,
+    "tail_risk": true
+  },
+  "verdict": "PASS"
+}
