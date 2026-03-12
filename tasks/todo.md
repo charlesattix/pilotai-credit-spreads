@@ -100,20 +100,84 @@
 - [ ] Identify regime-strategy affinity
 
 ## Phase 2: Position Sizing & Compounding 💰
-- [ ] Test fixed fractional: 2%, 5%, 10%, 15%, 20%
-- [ ] Kelly criterion variants
+- [x] Test fixed fractional: 2%, 5%, 8.5%, 10%, 15%, 20%
+  - Result: Returns plateau at ~10% risk_pct (+34.9%). Strategy is signal-constrained, not capital-constrained.
+  - Best risk-adjusted (Sharpe 2.80): 5% risk → +23.6% avg, -6.4% DD
+  - Current 8.5% captures 96% of max return (+33.7% avg, -11.2% DD, Sharpe 2.67)
+  - Scripts: scripts/test_position_sizing.py, output/position_sizing_results.json
+- [x] Kelly criterion variants
+  - Result: Kelly f* = 59% raw (win_rate=84.8%, avg_win=$1474, avg_loss=$2497), capped at 25%
+  - Kelly result identical to 15%+ fixed fractional due to signal-constraint plateau
 - [ ] Compound mode (reinvest profits)
 - [ ] Max concurrent positions optimization
 
 ## Phase 3: Portfolio Blending 🔀
-- [ ] Combine top strategies, optimize weights
-- [ ] Exploit uncorrelated strategies for low drawdown
-- [ ] Find max-score blend
+- [x] Combine top strategies, optimize weights
+  - Result: 11 equal-weight blends + 423 weight-optimized combos tested across 2020-2025
+  - Scripts: scripts/portfolio_blend.py, output/portfolio_blend_results.json
+- [x] Exploit uncorrelated strategies for low drawdown
+  - Result: Correlation matrix computed. CS↔Calendar -0.509 (best diversifier). CS↔IC -0.247. CS↔SS +0.268.
+  - Straddle/strangle adds +3-4% avg return with minimal DD increase
+- [x] Find max-score blend
+  - Result: **CRED(12%) + STRA(3%) = +39.1% avg, -9.5% worst DD, 6/6 profitable years, 2.96 Sharpe**
+  - Runner-up: CRED(12%)+IRON(2%)+STRA(3%) = +38.6% avg, -9.6% DD, 6/6 profitable
+  - Position limits (8/4 vs 10/5 vs 12/6) have NO effect — strategies are signal-constrained, not position-limited
+  - Credit spread risk_pct is the dominant weight lever (5%→12% drives +28%→+39%)
+  - Calendar spread consistently drags returns -1 to -3%
+
+### Phase 3 — Optimal Weights Found
+| Rank | Blend | Weights | Avg Ret | Worst DD | Sharpe | Prof Yrs |
+|------|-------|---------|---------|----------|--------|----------|
+| 1 | CRED + STRA | CS=12%, SS=3% | **+39.1%** | -9.5% | 2.96 | 6/6 |
+| 2 | CRED + IRON + STRA | CS=12%, IC=2%, SS=3% | +38.6% | -9.6% | 2.92 | 6/6 |
+| 3 | CRED + STRA | CS=10%, SS=3% | +38.9% | -9.7% | 2.96 | 6/6 |
+| 4 | CRED + STRA + CALE | CS=12%, SS=3%, Cal=2% | +37.4% | -8.6% | 2.81 | 6/6 |
+
+### Best Blend Year-by-Year (CS 12% + SS 3%)
+| Year | Return | Max DD | Trades | Win Rate | Sharpe |
+|------|--------|--------|--------|----------|--------|
+| 2020 | +20.7% | -6.8% | 51 | 78.4% | 1.63 |
+| 2021 | +107.2% | -3.7% | 86 | 89.5% | 6.77 |
+| 2022 | +2.1% | -9.5% | 39 | 74.4% | -0.01 |
+| 2023 | +42.8% | -3.6% | 60 | 86.7% | 3.91 |
+| 2024 | +26.0% | -6.6% | 62 | 79.0% | 2.72 |
+| 2025 | +35.9% | -6.9% | 55 | 90.9% | 2.76 |
 
 ## Phase 4: Regime Switching 🌊
-- [ ] Dynamic allocation per regime
-- [ ] Train on 2020-2022, validate 2023-2025
-- [ ] This is where drawdown hits ≤15%
+- [x] Dynamic allocation per regime
+  - Result: Made REGIME_SIZE_SCALE configurable via `self._p()` in CreditSpreadStrategy
+  - Added SS_REGIME_SIZE_SCALE + regime-aware sizing to StraddleStrangleStrategy
+  - Staged grid search: 144 CS combos → 108 SS combos → 25 joint fine-tune
+- [x] Train on 2020-2022, validate 2023-2025
+  - Training: 277 configs tested, all valid (DD well under 15%)
+  - Validation: 20/20 pass DD<15% gate, best score=27.2
+- [x] Drawdown improvement achieved
+  - Worst DD improved from -9.4% (baseline) to -7.0% (optimized)
+  - All 6 years profitable, avg return +40.7% (vs +39.3% baseline)
+
+### Phase 4 — Best Regime Scales
+| Strategy | Bull | Bear | High Vol | Low Vol | Crash |
+|----------|------|------|----------|---------|-------|
+| CreditSpread | 1.0 | 0.3 | 0.3 | 0.8 | 0.0 |
+| StraddleStrangle | 1.5 | 1.5 | 2.5 | 1.0 | 0.5 |
+
+### Phase 4 vs Phase 3 Comparison
+| Metric | Phase 3 (static) | Phase 4 (regime) | Delta |
+|--------|-------------------|-------------------|-------|
+| Avg Return | +39.3% | +40.7% | +1.4% |
+| Worst DD | -9.4% | -7.0% | +2.5% |
+| 2022 (bear) | +2.9% | +8.1% | +5.2% |
+| All Years Profitable | 6/6 | 6/6 | = |
+
+### Phase 4 Year-by-Year (Optimized)
+| Year | Return | Max DD | Trades | Win Rate |
+|------|--------|--------|--------|----------|
+| 2020 | +24.1% | -6.6% | 51 | 78.4% |
+| 2021 | +107.4% | -3.7% | 86 | 89.5% |
+| 2022 | +8.1% | -7.0% | 39 | 74.4% |
+| 2023 | +43.2% | -3.6% | 60 | 86.7% |
+| 2024 | +26.4% | -6.6% | 62 | 79.0% |
+| 2025 | +35.0% | -3.6% | 55 | 90.9% |
 
 ## Phase 5: Validation & Stress Testing ✅
 - [ ] Walk-forward validation

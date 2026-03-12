@@ -1,0 +1,630 @@
+{
+  "generated": "2026-03-12T18:46:04.987434",
+  "description": "Position sizing variants on champion credit_spread (regime_adaptive)",
+  "base_config": "configs/champion.json \u2192 credit_spread",
+  "tickers": [
+    "SPY"
+  ],
+  "starting_capital": 100000,
+  "years": [
+    2020,
+    2021,
+    2022,
+    2023,
+    2024,
+    2025
+  ],
+  "comparison": [
+    {
+      "sizing_method": "fixed_fractional",
+      "risk_pct": 0.02,
+      "avg_annual_return": 6.88,
+      "max_drawdown": -2.65,
+      "sharpe": 2.68
+    },
+    {
+      "sizing_method": "fixed_fractional",
+      "risk_pct": 0.05,
+      "avg_annual_return": 23.6,
+      "max_drawdown": -6.38,
+      "sharpe": 2.8
+    },
+    {
+      "sizing_method": "fixed_fractional",
+      "risk_pct": 0.085,
+      "avg_annual_return": 33.68,
+      "max_drawdown": -11.18,
+      "sharpe": 2.67
+    },
+    {
+      "sizing_method": "fixed_fractional",
+      "risk_pct": 0.1,
+      "avg_annual_return": 34.88,
+      "max_drawdown": -12.14,
+      "sharpe": 2.64
+    },
+    {
+      "sizing_method": "fixed_fractional",
+      "risk_pct": 0.15,
+      "avg_annual_return": 34.96,
+      "max_drawdown": -12.73,
+      "sharpe": 2.63
+    },
+    {
+      "sizing_method": "fixed_fractional",
+      "risk_pct": 0.2,
+      "avg_annual_return": 34.93,
+      "max_drawdown": -12.73,
+      "sharpe": 2.63
+    },
+    {
+      "sizing_method": "kelly",
+      "risk_pct": 0.25,
+      "avg_annual_return": 34.93,
+      "max_drawdown": -12.73,
+      "sharpe": 2.63
+    }
+  ],
+  "detailed_results": [
+    {
+      "label": "fixed_2.0%",
+      "sizing_method": "fixed_fractional",
+      "risk_pct": 0.02,
+      "avg_annual_return": 6.88,
+      "max_drawdown": -2.65,
+      "sharpe": 2.68,
+      "yearly": {
+        "2020": {
+          "return_pct": 2.86,
+          "max_drawdown": -1.39,
+          "total_trades": 28,
+          "win_rate": 78.57,
+          "sharpe_ratio": 1.14,
+          "avg_win": 280.2811817976017,
+          "avg_loss": 540.6548893426633,
+          "wins": 22,
+          "losses": 6
+        },
+        "2021": {
+          "return_pct": 21.88,
+          "max_drawdown": -0.6,
+          "total_trades": 70,
+          "win_rate": 91.43,
+          "sharpe_ratio": 7.08,
+          "avg_win": 375.35297283658224,
+          "avg_loss": 328.0537892560654,
+          "wins": 64,
+          "losses": 6
+        },
+        "2022": {
+          "return_pct": -0.22,
+          "max_drawdown": -2.65,
+          "total_trades": 20,
+          "win_rate": 60.0,
+          "sharpe_ratio": -0.36,
+          "avg_win": 386.92885318447406,
+          "avg_loss": 601.8660019098008,
+          "wins": 12,
+          "losses": 8
+        },
+        "2023": {
+          "return_pct": 7.38,
+          "max_drawdown": -0.74,
+          "total_trades": 42,
+          "win_rate": 88.1,
+          "sharpe_ratio": 3.58,
+          "avg_win": 257.15400771857827,
+          "avg_loss": 408.35552353644863,
+          "wins": 37,
+          "losses": 5
+        },
+        "2024": {
+          "return_pct": 4.47,
+          "max_drawdown": -0.98,
+          "total_trades": 40,
+          "win_rate": 82.5,
+          "sharpe_ratio": 2.58,
+          "avg_win": 214.9544537641587,
+          "avg_loss": 363.58065372984055,
+          "wins": 33,
+          "losses": 7
+        },
+        "2025": {
+          "return_pct": 4.93,
+          "max_drawdown": -1.49,
+          "total_trades": 36,
+          "win_rate": 88.89,
+          "sharpe_ratio": 2.07,
+          "avg_win": 231.82739792262,
+          "avg_loss": 603.8557076706198,
+          "wins": 32,
+          "losses": 4
+        }
+      },
+      "agg_win_rate": 0.8475,
+      "agg_avg_win": 294.29,
+      "agg_avg_loss": 473.04
+    },
+    {
+      "label": "fixed_5.0%",
+      "sizing_method": "fixed_fractional",
+      "risk_pct": 0.05,
+      "avg_annual_return": 23.6,
+      "max_drawdown": -6.38,
+      "sharpe": 2.8,
+      "yearly": {
+        "2020": {
+          "return_pct": 8.16,
+          "max_drawdown": -3.47,
+          "total_trades": 28,
+          "win_rate": 78.57,
+          "sharpe_ratio": 1.27,
+          "avg_win": 766.1255257062538,
+          "avg_loss": 1420.4921889932248,
+          "wins": 22,
+          "losses": 6
+        },
+        "2021": {
+          "return_pct": 82.82,
+          "max_drawdown": -1.5,
+          "total_trades": 70,
+          "win_rate": 91.43,
+          "sharpe_ratio": 7.18,
+          "avg_win": 1400.5228012030689,
+          "avg_loss": 1028.5837552018074,
+          "wins": 64,
+          "losses": 6
+        },
+        "2022": {
+          "return_pct": -1.82,
+          "max_drawdown": -6.38,
+          "total_trades": 20,
+          "win_rate": 60.0,
+          "sharpe_ratio": -0.53,
+          "avg_win": 1027.4261141672027,
+          "avg_loss": 1753.4590098407573,
+          "wins": 12,
+          "losses": 8
+        },
+        "2023": {
+          "return_pct": 23.27,
+          "max_drawdown": -1.92,
+          "total_trades": 42,
+          "win_rate": 88.1,
+          "sharpe_ratio": 3.74,
+          "avg_win": 797.0947911945719,
+          "avg_loss": 1187.1390254963158,
+          "wins": 37,
+          "losses": 5
+        },
+        "2024": {
+          "return_pct": 13.34,
+          "max_drawdown": -3.25,
+          "total_trades": 40,
+          "win_rate": 82.5,
+          "sharpe_ratio": 2.68,
+          "avg_win": 644.0125206080957,
+          "avg_loss": 1093.3252007406684,
+          "wins": 33,
+          "losses": 7
+        },
+        "2025": {
+          "return_pct": 15.84,
+          "max_drawdown": -3.66,
+          "total_trades": 36,
+          "win_rate": 88.89,
+          "sharpe_ratio": 2.45,
+          "avg_win": 715.6017909822979,
+          "avg_loss": 1705.7701478135832,
+          "wins": 32,
+          "losses": 4
+        }
+      },
+      "agg_win_rate": 0.8475,
+      "agg_avg_win": 962.31,
+      "agg_avg_loss": 1364.84
+    },
+    {
+      "label": "fixed_8.5%",
+      "sizing_method": "fixed_fractional",
+      "risk_pct": 0.085,
+      "avg_annual_return": 33.68,
+      "max_drawdown": -11.18,
+      "sharpe": 2.67,
+      "yearly": {
+        "2020": {
+          "return_pct": 13.8,
+          "max_drawdown": -6.25,
+          "total_trades": 28,
+          "win_rate": 78.57,
+          "sharpe_ratio": 1.18,
+          "avg_win": 1380.3743241072118,
+          "avg_loss": 2708.3091940796144,
+          "wins": 22,
+          "losses": 6
+        },
+        "2021": {
+          "return_pct": 104.19,
+          "max_drawdown": -2.89,
+          "total_trades": 70,
+          "win_rate": 91.43,
+          "sharpe_ratio": 6.83,
+          "avg_win": 1804.4380939604598,
+          "avg_loss": 1735.3447367840047,
+          "wins": 64,
+          "losses": 6
+        },
+        "2022": {
+          "return_pct": -5.02,
+          "max_drawdown": -11.18,
+          "total_trades": 20,
+          "win_rate": 60.0,
+          "sharpe_ratio": -0.66,
+          "avg_win": 1716.2928535060203,
+          "avg_loss": 3174.743297315349,
+          "wins": 12,
+          "losses": 8
+        },
+        "2023": {
+          "return_pct": 37.49,
+          "max_drawdown": -3.31,
+          "total_trades": 42,
+          "win_rate": 88.1,
+          "sharpe_ratio": 3.62,
+          "avg_win": 1319.985237747298,
+          "avg_loss": 2170.392420962996,
+          "wins": 37,
+          "losses": 5
+        },
+        "2024": {
+          "return_pct": 23.16,
+          "max_drawdown": -5.52,
+          "total_trades": 40,
+          "win_rate": 82.5,
+          "sharpe_ratio": 2.67,
+          "avg_win": 1152.6995828511826,
+          "avg_loss": 2057.546348116265,
+          "wins": 33,
+          "losses": 7
+        },
+        "2025": {
+          "return_pct": 28.43,
+          "max_drawdown": -6.45,
+          "total_trades": 36,
+          "win_rate": 88.89,
+          "sharpe_ratio": 2.39,
+          "avg_win": 1295.1523907354133,
+          "avg_loss": 3146.3670500591315,
+          "wins": 32,
+          "losses": 4
+        }
+      },
+      "agg_win_rate": 0.8475,
+      "agg_avg_win": 1473.86,
+      "agg_avg_loss": 2497.23
+    },
+    {
+      "label": "fixed_10.0%",
+      "sizing_method": "fixed_fractional",
+      "risk_pct": 0.1,
+      "avg_annual_return": 34.88,
+      "max_drawdown": -12.14,
+      "sharpe": 2.64,
+      "yearly": {
+        "2020": {
+          "return_pct": 14.54,
+          "max_drawdown": -6.94,
+          "total_trades": 28,
+          "win_rate": 78.57,
+          "sharpe_ratio": 1.15,
+          "avg_win": 1490.7984366883327,
+          "avg_loss": 2985.5116739740183,
+          "wins": 22,
+          "losses": 6
+        },
+        "2021": {
+          "return_pct": 104.67,
+          "max_drawdown": -3.58,
+          "total_trades": 70,
+          "win_rate": 91.43,
+          "sharpe_ratio": 6.6,
+          "avg_win": 1833.7034549423784,
+          "avg_loss": 1962.905028291446,
+          "wins": 64,
+          "losses": 6
+        },
+        "2022": {
+          "return_pct": -4.07,
+          "max_drawdown": -12.14,
+          "total_trades": 20,
+          "win_rate": 60.0,
+          "sharpe_ratio": -0.53,
+          "avg_win": 2094.921549138417,
+          "avg_loss": 3619.707004131211,
+          "wins": 12,
+          "losses": 8
+        },
+        "2023": {
+          "return_pct": 39.41,
+          "max_drawdown": -3.68,
+          "total_trades": 42,
+          "win_rate": 88.1,
+          "sharpe_ratio": 3.58,
+          "avg_win": 1406.2048570777467,
+          "avg_loss": 2416.2057698296653,
+          "wins": 37,
+          "losses": 5
+        },
+        "2024": {
+          "return_pct": 24.25,
+          "max_drawdown": -6.04,
+          "total_trades": 40,
+          "win_rate": 82.5,
+          "sharpe_ratio": 2.67,
+          "avg_win": 1220.2499946400342,
+          "avg_loss": 2214.6346088048676,
+          "wins": 33,
+          "losses": 7
+        },
+        "2025": {
+          "return_pct": 30.51,
+          "max_drawdown": -7.11,
+          "total_trades": 36,
+          "win_rate": 88.89,
+          "sharpe_ratio": 2.36,
+          "avg_win": 1394.3669292073992,
+          "avg_loss": 3411.5402956271664,
+          "wins": 32,
+          "losses": 4
+        }
+      },
+      "agg_win_rate": 0.8475,
+      "agg_avg_win": 1561.06,
+      "agg_avg_loss": 2774.38
+    },
+    {
+      "label": "fixed_15.0%",
+      "sizing_method": "fixed_fractional",
+      "risk_pct": 0.15,
+      "avg_annual_return": 34.96,
+      "max_drawdown": -12.73,
+      "sharpe": 2.63,
+      "yearly": {
+        "2020": {
+          "return_pct": 14.84,
+          "max_drawdown": -6.96,
+          "total_trades": 28,
+          "win_rate": 78.57,
+          "sharpe_ratio": 1.15,
+          "avg_win": 1538.8298225131496,
+          "avg_loss": 3108.730750333389,
+          "wins": 22,
+          "losses": 6
+        },
+        "2021": {
+          "return_pct": 104.75,
+          "max_drawdown": -3.58,
+          "total_trades": 70,
+          "win_rate": 91.43,
+          "sharpe_ratio": 6.61,
+          "avg_win": 1834.9707181923309,
+          "avg_loss": 1962.905028291446,
+          "wins": 64,
+          "losses": 6
+        },
+        "2022": {
+          "return_pct": -4.52,
+          "max_drawdown": -12.73,
+          "total_trades": 20,
+          "win_rate": 60.0,
+          "sharpe_ratio": -0.55,
+          "avg_win": 2134.990869942429,
+          "avg_loss": 3735.3753285908565,
+          "wins": 12,
+          "losses": 8
+        },
+        "2023": {
+          "return_pct": 39.29,
+          "max_drawdown": -3.68,
+          "total_trades": 42,
+          "win_rate": 88.1,
+          "sharpe_ratio": 3.55,
+          "avg_win": 1408.7050441155313,
+          "avg_loss": 2458.133488666699,
+          "wins": 37,
+          "losses": 5
+        },
+        "2024": {
+          "return_pct": 24.5,
+          "max_drawdown": -6.03,
+          "total_trades": 40,
+          "win_rate": 82.5,
+          "sharpe_ratio": 2.67,
+          "avg_win": 1233.8152913263189,
+          "avg_loss": 2242.6188161283985,
+          "wins": 33,
+          "losses": 7
+        },
+        "2025": {
+          "return_pct": 30.88,
+          "max_drawdown": -7.09,
+          "total_trades": 36,
+          "win_rate": 88.89,
+          "sharpe_ratio": 2.37,
+          "avg_win": 1405.9187593426402,
+          "avg_loss": 3411.5402956271664,
+          "wins": 32,
+          "losses": 4
+        }
+      },
+      "agg_win_rate": 0.8475,
+      "agg_avg_win": 1573.7,
+      "agg_avg_loss": 2831.89
+    },
+    {
+      "label": "fixed_20.0%",
+      "sizing_method": "fixed_fractional",
+      "risk_pct": 0.2,
+      "avg_annual_return": 34.93,
+      "max_drawdown": -12.73,
+      "sharpe": 2.63,
+      "yearly": {
+        "2020": {
+          "return_pct": 14.65,
+          "max_drawdown": -6.96,
+          "total_trades": 28,
+          "win_rate": 78.57,
+          "sharpe_ratio": 1.13,
+          "avg_win": 1538.8298225131496,
+          "avg_loss": 3139.7789417742456,
+          "wins": 22,
+          "losses": 6
+        },
+        "2021": {
+          "return_pct": 104.75,
+          "max_drawdown": -3.58,
+          "total_trades": 70,
+          "win_rate": 91.43,
+          "sharpe_ratio": 6.61,
+          "avg_win": 1834.9707181923309,
+          "avg_loss": 1962.905028291446,
+          "wins": 64,
+          "losses": 6
+        },
+        "2022": {
+          "return_pct": -4.52,
+          "max_drawdown": -12.73,
+          "total_trades": 20,
+          "win_rate": 60.0,
+          "sharpe_ratio": -0.55,
+          "avg_win": 2134.990869942429,
+          "avg_loss": 3735.3753285908565,
+          "wins": 12,
+          "losses": 8
+        },
+        "2023": {
+          "return_pct": 39.29,
+          "max_drawdown": -3.68,
+          "total_trades": 42,
+          "win_rate": 88.1,
+          "sharpe_ratio": 3.55,
+          "avg_win": 1408.7050441155313,
+          "avg_loss": 2458.133488666699,
+          "wins": 37,
+          "losses": 5
+        },
+        "2024": {
+          "return_pct": 24.5,
+          "max_drawdown": -6.03,
+          "total_trades": 40,
+          "win_rate": 82.5,
+          "sharpe_ratio": 2.67,
+          "avg_win": 1233.8152913263189,
+          "avg_loss": 2242.6188161283985,
+          "wins": 33,
+          "losses": 7
+        },
+        "2025": {
+          "return_pct": 30.88,
+          "max_drawdown": -7.09,
+          "total_trades": 36,
+          "win_rate": 88.89,
+          "sharpe_ratio": 2.37,
+          "avg_win": 1405.9187593426402,
+          "avg_loss": 3411.5402956271664,
+          "wins": 32,
+          "losses": 4
+        }
+      },
+      "agg_win_rate": 0.8475,
+      "agg_avg_win": 1573.7,
+      "agg_avg_loss": 2837.06
+    },
+    {
+      "label": "kelly_25.0%",
+      "sizing_method": "kelly",
+      "risk_pct": 0.25,
+      "avg_annual_return": 34.93,
+      "max_drawdown": -12.73,
+      "sharpe": 2.63,
+      "yearly": {
+        "2020": {
+          "return_pct": 14.65,
+          "max_drawdown": -6.96,
+          "total_trades": 28,
+          "win_rate": 78.57,
+          "sharpe_ratio": 1.13,
+          "avg_win": 1538.8298225131496,
+          "avg_loss": 3139.7789417742456,
+          "wins": 22,
+          "losses": 6
+        },
+        "2021": {
+          "return_pct": 104.75,
+          "max_drawdown": -3.58,
+          "total_trades": 70,
+          "win_rate": 91.43,
+          "sharpe_ratio": 6.61,
+          "avg_win": 1834.9707181923309,
+          "avg_loss": 1962.905028291446,
+          "wins": 64,
+          "losses": 6
+        },
+        "2022": {
+          "return_pct": -4.52,
+          "max_drawdown": -12.73,
+          "total_trades": 20,
+          "win_rate": 60.0,
+          "sharpe_ratio": -0.55,
+          "avg_win": 2134.990869942429,
+          "avg_loss": 3735.3753285908565,
+          "wins": 12,
+          "losses": 8
+        },
+        "2023": {
+          "return_pct": 39.29,
+          "max_drawdown": -3.68,
+          "total_trades": 42,
+          "win_rate": 88.1,
+          "sharpe_ratio": 3.55,
+          "avg_win": 1408.7050441155313,
+          "avg_loss": 2458.133488666699,
+          "wins": 37,
+          "losses": 5
+        },
+        "2024": {
+          "return_pct": 24.5,
+          "max_drawdown": -6.03,
+          "total_trades": 40,
+          "win_rate": 82.5,
+          "sharpe_ratio": 2.67,
+          "avg_win": 1233.8152913263189,
+          "avg_loss": 2242.6188161283985,
+          "wins": 33,
+          "losses": 7
+        },
+        "2025": {
+          "return_pct": 30.88,
+          "max_drawdown": -7.09,
+          "total_trades": 36,
+          "win_rate": 88.89,
+          "sharpe_ratio": 2.37,
+          "avg_win": 1405.9187593426402,
+          "avg_loss": 3411.5402956271664,
+          "wins": 32,
+          "losses": 4
+        }
+      },
+      "agg_win_rate": 0.8475,
+      "agg_avg_win": 1573.7,
+      "agg_avg_loss": 2837.06,
+      "kelly_inputs": {
+        "win_rate": 0.8475,
+        "avg_win": 1473.86,
+        "avg_loss": 2497.23,
+        "raw_kelly_f": 0.25
+      }
+    }
+  ],
+  "elapsed_seconds": 7.5
+}

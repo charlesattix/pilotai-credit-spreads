@@ -1,0 +1,2316 @@
+{
+  "generated": "2026-03-12T18:23:13.571498",
+  "config": {
+    "tickers": [
+      "SPY"
+    ],
+    "starting_capital": 100000,
+    "cs_base_risk": 0.12,
+    "ss_base_risk": 0.03,
+    "train_years": [
+      2020,
+      2021,
+      2022
+    ],
+    "valid_years": [
+      2023,
+      2024,
+      2025
+    ]
+  },
+  "training_top20": [
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 1.0,
+        "regime_scale_high_vol": 0.3,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 0.5,
+        "regime_scale_crash": 0.5
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 24.07,
+          "max_drawdown": -6.61,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.93
+        },
+        "2021": {
+          "return_pct": 107.4,
+          "max_drawdown": -3.67,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.78
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "avg_return": 46.53,
+      "worst_dd": -6.96
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 1.0,
+        "regime_scale_high_vol": 0.3,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 1.0,
+        "regime_scale_crash": 0.5
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 24.07,
+          "max_drawdown": -6.61,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.93
+        },
+        "2021": {
+          "return_pct": 107.4,
+          "max_drawdown": -3.67,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.78
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "avg_return": 46.53,
+      "worst_dd": -6.96
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 1.0,
+        "regime_scale_high_vol": 0.3,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 1.5,
+        "regime_scale_crash": 0.5
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 24.07,
+          "max_drawdown": -6.61,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.93
+        },
+        "2021": {
+          "return_pct": 107.4,
+          "max_drawdown": -3.67,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.78
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "avg_return": 46.53,
+      "worst_dd": -6.96
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 0.5,
+        "regime_scale_crash": 0.5
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "avg_return": 46.48,
+      "worst_dd": -6.96
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 1.0,
+        "regime_scale_crash": 0.5
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "avg_return": 46.48,
+      "worst_dd": -6.96
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 1.5,
+        "regime_scale_crash": 0.5
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "avg_return": 46.48,
+      "worst_dd": -6.96
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 1.0,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 0.5,
+        "regime_scale_crash": 0.5
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "avg_return": 46.48,
+      "worst_dd": -6.96
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 1.0,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 1.0,
+        "regime_scale_crash": 0.5
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "avg_return": 46.48,
+      "worst_dd": -6.96
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 1.0,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 1.5,
+        "regime_scale_crash": 0.5
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "avg_return": 46.48,
+      "worst_dd": -6.96
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 1.2,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 0.5,
+        "regime_scale_crash": 0.5
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "avg_return": 46.48,
+      "worst_dd": -6.96
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 1.2,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 1.0,
+        "regime_scale_crash": 0.5
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "avg_return": 46.48,
+      "worst_dd": -6.96
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 1.2,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 1.5,
+        "regime_scale_crash": 0.5
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "avg_return": 46.48,
+      "worst_dd": -6.96
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 1.5,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 0.5,
+        "regime_scale_crash": 0.5
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "avg_return": 46.48,
+      "worst_dd": -6.96
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 1.5,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 1.0,
+        "regime_scale_crash": 0.5
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "avg_return": 46.48,
+      "worst_dd": -6.96
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 1.5,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 1.5,
+        "regime_scale_crash": 0.5
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "avg_return": 46.48,
+      "worst_dd": -6.96
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 1.0,
+        "regime_scale_high_vol": 0.3,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.0,
+        "regime_scale_low_vol": 0.5,
+        "regime_scale_crash": 0.5
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 23.96,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.93
+        },
+        "2021": {
+          "return_pct": 107.4,
+          "max_drawdown": -3.67,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.78
+        },
+        "2022": {
+          "return_pct": 7.06,
+          "max_drawdown": -7.01,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.49
+        }
+      },
+      "avg_return": 46.14,
+      "worst_dd": -7.01
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 1.0,
+        "regime_scale_high_vol": 0.3,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.0,
+        "regime_scale_low_vol": 1.0,
+        "regime_scale_crash": 0.5
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 23.96,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.93
+        },
+        "2021": {
+          "return_pct": 107.4,
+          "max_drawdown": -3.67,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.78
+        },
+        "2022": {
+          "return_pct": 7.06,
+          "max_drawdown": -7.01,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.49
+        }
+      },
+      "avg_return": 46.14,
+      "worst_dd": -7.01
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.0,
+        "regime_scale_low_vol": 0.5,
+        "regime_scale_crash": 0.5
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 23.84,
+          "max_drawdown": -6.63,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 7.06,
+          "max_drawdown": -7.01,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.49
+        }
+      },
+      "avg_return": 46.1,
+      "worst_dd": -7.01
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.0,
+        "regime_scale_low_vol": 1.0,
+        "regime_scale_crash": 0.5
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 23.84,
+          "max_drawdown": -6.63,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 7.06,
+          "max_drawdown": -7.01,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.49
+        }
+      },
+      "avg_return": 46.1,
+      "worst_dd": -7.01
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.0,
+        "regime_scale_low_vol": 1.5,
+        "regime_scale_crash": 0.5
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 23.84,
+          "max_drawdown": -6.63,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 7.06,
+          "max_drawdown": -7.01,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.49
+        }
+      },
+      "avg_return": 46.1,
+      "worst_dd": -7.01
+    }
+  ],
+  "validation_results": [
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 1.0,
+        "regime_scale_high_vol": 0.3,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 1.0,
+        "regime_scale_crash": 0.5
+      },
+      "train_avg_return": 46.53,
+      "train_worst_dd": -6.96,
+      "train_yearly": {
+        "2020": {
+          "return_pct": 24.07,
+          "max_drawdown": -6.61,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.93
+        },
+        "2021": {
+          "return_pct": 107.4,
+          "max_drawdown": -3.67,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.78
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "valid_avg_return": 34.86,
+      "valid_worst_dd": -6.6,
+      "valid_yearly": {
+        "2023": {
+          "return_pct": 43.18,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.94
+        },
+        "2024": {
+          "return_pct": 26.44,
+          "max_drawdown": -6.6,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.73
+        },
+        "2025": {
+          "return_pct": 34.97,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74
+        }
+      },
+      "validated_score": 27.19
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 1.0,
+        "regime_scale_high_vol": 0.3,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 1.5,
+        "regime_scale_crash": 0.5
+      },
+      "train_avg_return": 46.53,
+      "train_worst_dd": -6.96,
+      "train_yearly": {
+        "2020": {
+          "return_pct": 24.07,
+          "max_drawdown": -6.61,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.93
+        },
+        "2021": {
+          "return_pct": 107.4,
+          "max_drawdown": -3.67,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.78
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "valid_avg_return": 34.86,
+      "valid_worst_dd": -6.6,
+      "valid_yearly": {
+        "2023": {
+          "return_pct": 43.18,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.94
+        },
+        "2024": {
+          "return_pct": 26.44,
+          "max_drawdown": -6.6,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.73
+        },
+        "2025": {
+          "return_pct": 34.97,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74
+        }
+      },
+      "validated_score": 27.19
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 1.0,
+        "regime_scale_high_vol": 0.3,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.0,
+        "regime_scale_low_vol": 1.0,
+        "regime_scale_crash": 0.5
+      },
+      "train_avg_return": 46.14,
+      "train_worst_dd": -7.01,
+      "train_yearly": {
+        "2020": {
+          "return_pct": 23.96,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.93
+        },
+        "2021": {
+          "return_pct": 107.4,
+          "max_drawdown": -3.67,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.78
+        },
+        "2022": {
+          "return_pct": 7.06,
+          "max_drawdown": -7.01,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.49
+        }
+      },
+      "valid_avg_return": 34.86,
+      "valid_worst_dd": -6.6,
+      "valid_yearly": {
+        "2023": {
+          "return_pct": 43.18,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.94
+        },
+        "2024": {
+          "return_pct": 26.44,
+          "max_drawdown": -6.6,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.73
+        },
+        "2025": {
+          "return_pct": 34.97,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74
+        }
+      },
+      "validated_score": 27.19
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 1.0,
+        "regime_scale_high_vol": 0.3,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 0.5,
+        "regime_scale_crash": 0.5
+      },
+      "train_avg_return": 46.53,
+      "train_worst_dd": -6.96,
+      "train_yearly": {
+        "2020": {
+          "return_pct": 24.07,
+          "max_drawdown": -6.61,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.93
+        },
+        "2021": {
+          "return_pct": 107.4,
+          "max_drawdown": -3.67,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.78
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "valid_avg_return": 34.84,
+      "valid_worst_dd": -6.6,
+      "valid_yearly": {
+        "2023": {
+          "return_pct": 43.18,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.94
+        },
+        "2024": {
+          "return_pct": 26.44,
+          "max_drawdown": -6.6,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.73
+        },
+        "2025": {
+          "return_pct": 34.91,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74
+        }
+      },
+      "validated_score": 27.18
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 1.0,
+        "regime_scale_high_vol": 0.3,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.0,
+        "regime_scale_low_vol": 0.5,
+        "regime_scale_crash": 0.5
+      },
+      "train_avg_return": 46.14,
+      "train_worst_dd": -7.01,
+      "train_yearly": {
+        "2020": {
+          "return_pct": 23.96,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.93
+        },
+        "2021": {
+          "return_pct": 107.4,
+          "max_drawdown": -3.67,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.78
+        },
+        "2022": {
+          "return_pct": 7.06,
+          "max_drawdown": -7.01,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.49
+        }
+      },
+      "valid_avg_return": 34.84,
+      "valid_worst_dd": -6.6,
+      "valid_yearly": {
+        "2023": {
+          "return_pct": 43.18,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.94
+        },
+        "2024": {
+          "return_pct": 26.44,
+          "max_drawdown": -6.6,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.73
+        },
+        "2025": {
+          "return_pct": 34.91,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74
+        }
+      },
+      "validated_score": 27.18
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 1.0,
+        "regime_scale_crash": 0.5
+      },
+      "train_avg_return": 46.48,
+      "train_worst_dd": -6.96,
+      "train_yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "valid_avg_return": 34.66,
+      "valid_worst_dd": -6.62,
+      "valid_yearly": {
+        "2023": {
+          "return_pct": 43.2,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.97
+        },
+        "2024": {
+          "return_pct": 25.82,
+          "max_drawdown": -6.62,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.71
+        },
+        "2025": {
+          "return_pct": 34.97,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74
+        }
+      },
+      "validated_score": 27.01
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 1.5,
+        "regime_scale_crash": 0.5
+      },
+      "train_avg_return": 46.48,
+      "train_worst_dd": -6.96,
+      "train_yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "valid_avg_return": 34.66,
+      "valid_worst_dd": -6.62,
+      "valid_yearly": {
+        "2023": {
+          "return_pct": 43.2,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.97
+        },
+        "2024": {
+          "return_pct": 25.82,
+          "max_drawdown": -6.62,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.71
+        },
+        "2025": {
+          "return_pct": 34.97,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74
+        }
+      },
+      "validated_score": 27.01
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 1.0,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 1.0,
+        "regime_scale_crash": 0.5
+      },
+      "train_avg_return": 46.48,
+      "train_worst_dd": -6.96,
+      "train_yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "valid_avg_return": 34.66,
+      "valid_worst_dd": -6.62,
+      "valid_yearly": {
+        "2023": {
+          "return_pct": 43.2,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.97
+        },
+        "2024": {
+          "return_pct": 25.82,
+          "max_drawdown": -6.62,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.71
+        },
+        "2025": {
+          "return_pct": 34.97,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74
+        }
+      },
+      "validated_score": 27.01
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 1.0,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 1.5,
+        "regime_scale_crash": 0.5
+      },
+      "train_avg_return": 46.48,
+      "train_worst_dd": -6.96,
+      "train_yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "valid_avg_return": 34.66,
+      "valid_worst_dd": -6.62,
+      "valid_yearly": {
+        "2023": {
+          "return_pct": 43.2,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.97
+        },
+        "2024": {
+          "return_pct": 25.82,
+          "max_drawdown": -6.62,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.71
+        },
+        "2025": {
+          "return_pct": 34.97,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74
+        }
+      },
+      "validated_score": 27.01
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 1.2,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 1.0,
+        "regime_scale_crash": 0.5
+      },
+      "train_avg_return": 46.48,
+      "train_worst_dd": -6.96,
+      "train_yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "valid_avg_return": 34.66,
+      "valid_worst_dd": -6.62,
+      "valid_yearly": {
+        "2023": {
+          "return_pct": 43.2,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.97
+        },
+        "2024": {
+          "return_pct": 25.82,
+          "max_drawdown": -6.62,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.71
+        },
+        "2025": {
+          "return_pct": 34.97,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74
+        }
+      },
+      "validated_score": 27.01
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 1.2,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 1.5,
+        "regime_scale_crash": 0.5
+      },
+      "train_avg_return": 46.48,
+      "train_worst_dd": -6.96,
+      "train_yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "valid_avg_return": 34.66,
+      "valid_worst_dd": -6.62,
+      "valid_yearly": {
+        "2023": {
+          "return_pct": 43.2,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.97
+        },
+        "2024": {
+          "return_pct": 25.82,
+          "max_drawdown": -6.62,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.71
+        },
+        "2025": {
+          "return_pct": 34.97,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74
+        }
+      },
+      "validated_score": 27.01
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 1.5,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 1.0,
+        "regime_scale_crash": 0.5
+      },
+      "train_avg_return": 46.48,
+      "train_worst_dd": -6.96,
+      "train_yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "valid_avg_return": 34.66,
+      "valid_worst_dd": -6.62,
+      "valid_yearly": {
+        "2023": {
+          "return_pct": 43.2,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.97
+        },
+        "2024": {
+          "return_pct": 25.82,
+          "max_drawdown": -6.62,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.71
+        },
+        "2025": {
+          "return_pct": 34.97,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74
+        }
+      },
+      "validated_score": 27.01
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 1.5,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 1.5,
+        "regime_scale_crash": 0.5
+      },
+      "train_avg_return": 46.48,
+      "train_worst_dd": -6.96,
+      "train_yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "valid_avg_return": 34.66,
+      "valid_worst_dd": -6.62,
+      "valid_yearly": {
+        "2023": {
+          "return_pct": 43.2,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.97
+        },
+        "2024": {
+          "return_pct": 25.82,
+          "max_drawdown": -6.62,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.71
+        },
+        "2025": {
+          "return_pct": 34.97,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74
+        }
+      },
+      "validated_score": 27.01
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.0,
+        "regime_scale_low_vol": 1.0,
+        "regime_scale_crash": 0.5
+      },
+      "train_avg_return": 46.1,
+      "train_worst_dd": -7.01,
+      "train_yearly": {
+        "2020": {
+          "return_pct": 23.84,
+          "max_drawdown": -6.63,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 7.06,
+          "max_drawdown": -7.01,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.49
+        }
+      },
+      "valid_avg_return": 34.66,
+      "valid_worst_dd": -6.62,
+      "valid_yearly": {
+        "2023": {
+          "return_pct": 43.2,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.97
+        },
+        "2024": {
+          "return_pct": 25.82,
+          "max_drawdown": -6.62,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.71
+        },
+        "2025": {
+          "return_pct": 34.97,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74
+        }
+      },
+      "validated_score": 27.01
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.0,
+        "regime_scale_low_vol": 1.5,
+        "regime_scale_crash": 0.5
+      },
+      "train_avg_return": 46.1,
+      "train_worst_dd": -7.01,
+      "train_yearly": {
+        "2020": {
+          "return_pct": 23.84,
+          "max_drawdown": -6.63,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 7.06,
+          "max_drawdown": -7.01,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.49
+        }
+      },
+      "valid_avg_return": 34.66,
+      "valid_worst_dd": -6.62,
+      "valid_yearly": {
+        "2023": {
+          "return_pct": 43.2,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.97
+        },
+        "2024": {
+          "return_pct": 25.82,
+          "max_drawdown": -6.62,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.71
+        },
+        "2025": {
+          "return_pct": 34.97,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74
+        }
+      },
+      "validated_score": 27.01
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 0.5,
+        "regime_scale_crash": 0.5
+      },
+      "train_avg_return": 46.48,
+      "train_worst_dd": -6.96,
+      "train_yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "valid_avg_return": 34.64,
+      "valid_worst_dd": -6.62,
+      "valid_yearly": {
+        "2023": {
+          "return_pct": 43.2,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.97
+        },
+        "2024": {
+          "return_pct": 25.82,
+          "max_drawdown": -6.62,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.71
+        },
+        "2025": {
+          "return_pct": 34.91,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74
+        }
+      },
+      "validated_score": 27.0
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 1.0,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 0.5,
+        "regime_scale_crash": 0.5
+      },
+      "train_avg_return": 46.48,
+      "train_worst_dd": -6.96,
+      "train_yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "valid_avg_return": 34.64,
+      "valid_worst_dd": -6.62,
+      "valid_yearly": {
+        "2023": {
+          "return_pct": 43.2,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.97
+        },
+        "2024": {
+          "return_pct": 25.82,
+          "max_drawdown": -6.62,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.71
+        },
+        "2025": {
+          "return_pct": 34.91,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74
+        }
+      },
+      "validated_score": 27.0
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 1.2,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 0.5,
+        "regime_scale_crash": 0.5
+      },
+      "train_avg_return": 46.48,
+      "train_worst_dd": -6.96,
+      "train_yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "valid_avg_return": 34.64,
+      "valid_worst_dd": -6.62,
+      "valid_yearly": {
+        "2023": {
+          "return_pct": 43.2,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.97
+        },
+        "2024": {
+          "return_pct": 25.82,
+          "max_drawdown": -6.62,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.71
+        },
+        "2025": {
+          "return_pct": 34.91,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74
+        }
+      },
+      "validated_score": 27.0
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 1.5,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.5,
+        "regime_scale_low_vol": 0.5,
+        "regime_scale_crash": 0.5
+      },
+      "train_avg_return": 46.48,
+      "train_worst_dd": -6.96,
+      "train_yearly": {
+        "2020": {
+          "return_pct": 23.95,
+          "max_drawdown": -6.62,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        }
+      },
+      "valid_avg_return": 34.64,
+      "valid_worst_dd": -6.62,
+      "valid_yearly": {
+        "2023": {
+          "return_pct": 43.2,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.97
+        },
+        "2024": {
+          "return_pct": 25.82,
+          "max_drawdown": -6.62,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.71
+        },
+        "2025": {
+          "return_pct": 34.91,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74
+        }
+      },
+      "validated_score": 27.0
+    },
+    {
+      "cs_regime": {
+        "regime_scale_bear": 0.3,
+        "regime_scale_bull": 0.8,
+        "regime_scale_high_vol": 0.8,
+        "regime_scale_low_vol": 0.8,
+        "regime_scale_crash": 0.0
+      },
+      "ss_regime": {
+        "regime_scale_bear": 1.5,
+        "regime_scale_bull": 1.5,
+        "regime_scale_high_vol": 2.0,
+        "regime_scale_low_vol": 0.5,
+        "regime_scale_crash": 0.5
+      },
+      "train_avg_return": 46.1,
+      "train_worst_dd": -7.01,
+      "train_yearly": {
+        "2020": {
+          "return_pct": 23.84,
+          "max_drawdown": -6.63,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.88
+        },
+        "2021": {
+          "return_pct": 107.39,
+          "max_drawdown": -3.66,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.85
+        },
+        "2022": {
+          "return_pct": 7.06,
+          "max_drawdown": -7.01,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.49
+        }
+      },
+      "valid_avg_return": 34.64,
+      "valid_worst_dd": -6.62,
+      "valid_yearly": {
+        "2023": {
+          "return_pct": 43.2,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.97
+        },
+        "2024": {
+          "return_pct": 25.82,
+          "max_drawdown": -6.62,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.71
+        },
+        "2025": {
+          "return_pct": 34.91,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74
+        }
+      },
+      "validated_score": 27.0
+    }
+  ],
+  "best_config": {
+    "cs_regime_scales": {
+      "regime_scale_bear": 0.3,
+      "regime_scale_bull": 1.0,
+      "regime_scale_high_vol": 0.3,
+      "regime_scale_low_vol": 0.8,
+      "regime_scale_crash": 0.0
+    },
+    "ss_regime_scales": {
+      "regime_scale_bear": 1.5,
+      "regime_scale_bull": 1.5,
+      "regime_scale_high_vol": 2.5,
+      "regime_scale_low_vol": 1.0,
+      "regime_scale_crash": 0.5
+    },
+    "validated_score": 27.19
+  },
+  "confirmation": {
+    "optimized": {
+      "yearly": {
+        "2020": {
+          "return_pct": 24.07,
+          "max_drawdown": -6.61,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.93
+        },
+        "2021": {
+          "return_pct": 107.4,
+          "max_drawdown": -3.67,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.78
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59
+        },
+        "2023": {
+          "return_pct": 43.18,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.94
+        },
+        "2024": {
+          "return_pct": 26.44,
+          "max_drawdown": -6.6,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.73
+        },
+        "2025": {
+          "return_pct": 34.97,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74
+        }
+      },
+      "avg_return": 40.7,
+      "worst_dd": -6.96
+    },
+    "baseline": {
+      "yearly": {
+        "2020": {
+          "return_pct": 21.36,
+          "max_drawdown": -6.75,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.68
+        },
+        "2021": {
+          "return_pct": 107.16,
+          "max_drawdown": -3.67,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.77
+        },
+        "2022": {
+          "return_pct": 2.89,
+          "max_drawdown": -9.41,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.05
+        },
+        "2023": {
+          "return_pct": 42.78,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.91
+        },
+        "2024": {
+          "return_pct": 25.99,
+          "max_drawdown": -6.6,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.72
+        },
+        "2025": {
+          "return_pct": 35.62,
+          "max_drawdown": -6.93,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 2.74
+        }
+      },
+      "avg_return": 39.3,
+      "worst_dd": -9.41
+    },
+    "cs_regime_scales": {
+      "regime_scale_bear": 0.3,
+      "regime_scale_bull": 1.0,
+      "regime_scale_high_vol": 0.3,
+      "regime_scale_low_vol": 0.8,
+      "regime_scale_crash": 0.0
+    },
+    "ss_regime_scales": {
+      "regime_scale_bear": 1.5,
+      "regime_scale_bull": 1.5,
+      "regime_scale_high_vol": 2.5,
+      "regime_scale_low_vol": 1.0,
+      "regime_scale_crash": 0.5
+    },
+    "delta_return": 1.4,
+    "delta_dd": 2.45
+  }
+}
