@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Paper Trading Proposal — PilotAI</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 1000px; margin: 40px auto; padding: 0 24px; background: white; color: #1a1a1a; line-height: 1.7; }
+h1 { color: #1a1a1a; border-bottom: 3px solid #2c3e50; padding-bottom: 12px; font-size: 1.8em; }
+h2 { color: #2c3e50; margin-top: 2.5em; border-left: 4px solid #3498db; padding-left: 14px; }
+h3 { color: #34495e; margin-top: 1.5em; }
+table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 0.95em; }
+th, td { border: 1px solid #ddd; padding: 10px 14px; text-align: left; }
+th { background: #2c3e50; color: white; text-align: center; }
+td:first-child { font-weight: 600; }
+tr:nth-child(even) { background: #f9f9f9; }
+.r { color: #e74c3c; font-weight: bold; }
+.g { color: #27ae60; font-weight: bold; }
+.y { color: #e67e22; font-weight: bold; }
+.box { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 18px; margin: 18px 0; }
+.warn { background: #fff3cd; border-color: #ffc107; }
+.danger { background: #f8d7da; border-color: #dc3545; }
+.ok { background: #d4edda; border-color: #28a745; }
+code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Consolas, monospace; }
+pre { background: #1e1e1e; color: #d4d4d4; padding: 18px; border-radius: 8px; overflow-x: auto; font-size: 0.88em; }
+.meta { color: #666; font-size: 0.9em; }
+hr { border: none; border-top: 1px solid #eee; margin: 2em 0; }
+.hero { background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); color: white; border-radius: 12px; padding: 30px; margin: 24px 0; text-align: center; }
+.hero h2 { color: white; border: none; margin: 0; padding: 0; }
+.hero p { color: #bdc3c7; margin: 8px 0 0; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+@media (max-width: 700px) { .grid, .grid3 { grid-template-columns: 1fr; } }
+.stat { text-align: center; }
+.stat .num { font-size: 2em; font-weight: bold; }
+.phase { background: #eaf2f8; border-left: 4px solid #3498db; padding: 16px; margin: 16px 0; border-radius: 0 8px 8px 0; }
+.checklist { list-style: none; padding: 0; }
+.checklist li { padding: 6px 0; }
+.checklist li:before { content: "☐ "; color: #7f8c8d; font-size: 1.1em; }
+ul { padding-left: 1.5em; }
+li { margin-bottom: 0.4em; }
+</style></head><body>
+
+<h1>🛡️ Paper Trading Proposal — Operation Crack The Code</h1>
+<p class="meta"><strong>Prepared by:</strong> Maximus Cruz &nbsp;|&nbsp; <strong>Date:</strong> March 12, 2026 &nbsp;|&nbsp; <strong>For:</strong> Carlos Cruz, Commander</p>
+
+<div class="hero">
+<h2>What We're Paper Trading</h2>
+<p>The Regime-Adaptive Champion — our most validated strategy with 0.870 ROBUST score</p>
+</div>
+
+<hr>
+
+<h2>1. Executive Summary</h2>
+<p>We have a backtested, validated strategy ready for live paper trading through Alpaca. This proposal covers <strong>what</strong> to trade, <strong>how</strong> to deploy it, <strong>what to expect</strong>, and <strong>when to pull the plug</strong>.</p>
+
+<div class="grid3">
+<div class="box ok stat">
+<div class="num" style="color:#27ae60">32.7%</div>
+<strong>Avg Annual Return</strong><br>(backtested 2020-2025)
+</div>
+<div class="box stat">
+<div class="num">0.870</div>
+<strong>ROBUST Score</strong><br>All hard gates passed
+</div>
+<div class="box stat">
+<div class="num" style="color:#e74c3c">-12.1%</div>
+<strong>Max Drawdown</strong><br>Well under 30% limit
+</div>
+</div>
+
+<hr>
+
+<h2>2. The Strategy: Regime-Adaptive Credit Spreads + Iron Condors</h2>
+
+<h3>How It Works (Plain English)</h3>
+<p>The system reads the market's "mood" (bull, bear, or sideways) using an 80-day moving average, then picks the right play:</p>
+<ul>
+<li><strong>Bull market →</strong> Sell bull put credit spreads (bet the market won't crash)</li>
+<li><strong>Bear market →</strong> Sell bear call credit spreads (bet the market won't rally)</li>
+<li><strong>Sideways / high IV →</strong> Sell iron condors (bet the market stays in a range)</li>
+</ul>
+
+<h3>Strategy Parameters</h3>
+<div class="grid">
+<div class="box">
+<h3 style="margin-top:0">Credit Spread</h3>
+<table>
+<tr><td>Direction</td><td>Regime-adaptive</td></tr>
+<tr><td>Trend MA</td><td>80-day</td></tr>
+<tr><td>Target DTE</td><td>15 days</td></tr>
+<tr><td>OTM %</td><td>2%</td></tr>
+<tr><td>Spread Width</td><td>$12</td></tr>
+<tr><td>Profit Target</td><td>55%</td></tr>
+<tr><td>Stop Loss</td><td>1.25×</td></tr>
+<tr><td>Max Risk/Trade</td><td>8.5%</td></tr>
+</table>
+</div>
+<div class="box">
+<h3 style="margin-top:0">Iron Condor</h3>
+<table>
+<tr><td>RSI Range</td><td>35-60</td></tr>
+<tr><td>Min IV Rank</td><td>45</td></tr>
+<tr><td>Target DTE</td><td>30 days</td></tr>
+<tr><td>Put OTM</td><td>4%</td></tr>
+<tr><td>Call OTM</td><td>3%</td></tr>
+<tr><td>Spread Width</td><td>$12</td></tr>
+<tr><td>Profit Target</td><td>30%</td></tr>
+<tr><td>Stop Loss</td><td>2.5×</td></tr>
+<tr><td>Max Risk/Trade</td><td>3.5%</td></tr>
+</table>
+</div>
+</div>
+
+<h3>Backtested Year-by-Year Performance</h3>
+<table>
+<tr><th>Year</th><th>Return</th><th>Trades</th><th>Win Rate</th><th>Max DD</th><th>Sharpe</th></tr>
+<tr><td>2020</td><td>+8.9%</td><td>30</td><td>73%</td><td>-10.4%</td><td>0.72</td></tr>
+<tr><td>2021</td><td class="g">+101.5%</td><td>71</td><td>90%</td><td>-2.9%</td><td>6.62</td></tr>
+<tr><td>2022</td><td class="r">-1.9%</td><td>28</td><td>64%</td><td>-12.1%</td><td>-0.34</td></tr>
+<tr><td>2023</td><td class="g">+37.5%</td><td>42</td><td>88%</td><td>-3.3%</td><td>3.62</td></tr>
+<tr><td>2024</td><td class="g">+23.8%</td><td>41</td><td>83%</td><td>-5.5%</td><td>2.74</td></tr>
+<tr><td>2025</td><td class="g">+26.5%</td><td>37</td><td>86%</td><td>-8.1%</td><td>2.19</td></tr>
+<tr style="background:#eaf2f8; font-weight:bold"><td>Average</td><td class="g">+32.7%</td><td>41.5</td><td>81%</td><td>-12.1%</td><td>2.59</td></tr>
+</table>
+
+<div class="box warn">
+<strong>⚠️ Reality Check:</strong> 2021's +101.5% is an outlier driven by the post-COVID bull run. Excluding it, the average is ~19%. The walk-forward out-of-sample average is +9.5%. <strong>Expect paper trading returns closer to 15-25% annualized</strong>, not 32.7%. The backtest includes heuristic pricing for some years — real fills will be different.
+</div>
+
+<hr>
+
+<h2>3. Deployment Plan</h2>
+
+<h3>Infrastructure</h3>
+<table>
+<tr><td><strong>Broker</strong></td><td>Alpaca Paper Trading</td></tr>
+<tr><td><strong>Starting Capital</strong></td><td>$100,000 (paper)</td></tr>
+<tr><td><strong>Ticker</strong></td><td>SPY</td></tr>
+<tr><td><strong>Config File</strong></td><td><code>configs/champion.json</code> (via strategy adapter)</td></tr>
+<tr><td><strong>Database</strong></td><td>Isolated DB per experiment</td></tr>
+<tr><td><strong>Alerts</strong></td><td>Telegram (entry, exit, daily summary)</td></tr>
+<tr><td><strong>Scheduling</strong></td><td>Cron-based: pre-market scan, intraday monitoring, daily report</td></tr>
+</table>
+
+<h3>Launch Command</h3>
+<pre>python main.py scheduler --config configs/paper_champion.yaml \
+                         --env-file .env.paper_champion</pre>
+
+<h3>Required Environment Variables</h3>
+<pre>APCA_PAPER_API_KEY=&lt;your-alpaca-paper-key&gt;
+APCA_PAPER_SECRET_KEY=&lt;your-alpaca-paper-secret&gt;
+TELEGRAM_BOT_TOKEN=&lt;bot-token&gt;
+TELEGRAM_CHAT_ID=&lt;chat-id&gt;
+POLYGON_API_KEY=&lt;polygon-key&gt;</pre>
+
+<h3>Pre-Launch Checklist</h3>
+<ul class="checklist">
+<li>Merge fix/alignment-patches PR into main</li>
+<li>Create <code>configs/paper_champion.yaml</code> — new config using champion.json params with paper safety flags</li>
+<li>Create <code>.env.paper_champion</code> with API keys</li>
+<li>Verify Alpaca paper account has $100K balance</li>
+<li>Run smoke test: <code>python main.py scan --config configs/paper_champion.yaml --dry-run</code></li>
+<li>Verify Telegram alerts are reaching Carlos</li>
+<li>Start scheduler and confirm first pre-market scan executes</li>
+</ul>
+
+<hr>
+
+<h2>4. Safety Infrastructure (Already Built)</h2>
+<p>The paper trader has extensive safety rails. These are <strong>not being changed</strong>:</p>
+
+<div class="grid">
+<div class="box">
+<h3 style="margin-top:0">🛑 Kill Switch</h3>
+<p>Instant halt of all trading via Telegram command or DB flag. No new trades opened, existing positions monitored only.</p>
+</div>
+<div class="box">
+<h3 style="margin-top:0">📉 Drawdown Circuit Breaker</h3>
+<p>If portfolio drawdown exceeds 40% peak-to-trough, all new entries are blocked. Auto-resets when equity recovers above threshold.</p>
+</div>
+<div class="box">
+<h3 style="margin-top:0">🔥 Portfolio Heat Cap</h3>
+<p>Maximum 60% of portfolio at risk simultaneously. Prevents over-concentration in correlated positions.</p>
+</div>
+<div class="box">
+<h3 style="margin-top:0">📝 Write-Ahead Logging</h3>
+<p>Every trade intent is logged before execution. Crash recovery reconstructs state from log.</p>
+</div>
+</div>
+
+<div class="box ok">
+<strong>NEW in fix/alignment-patches:</strong> Drawdown CB persistence across restarts, IC partial close retry with CRITICAL escalation, paper_mode validation (blocks live API URLs).
+</div>
+
+<hr>
+
+<h2>5. What to Watch For</h2>
+
+<h3>Daily Monitoring (via Telegram Alerts)</h3>
+<ul>
+<li><strong>Entry alerts:</strong> Each new trade with strike, expiry, credit, risk</li>
+<li><strong>Exit alerts:</strong> Each closed trade with P&L, exit reason (profit target / stop loss / expiry)</li>
+<li><strong>Daily summary:</strong> End-of-day report with open positions, day P&L, cumulative P&L, drawdown</li>
+</ul>
+
+<h3>Weekly Review Metrics</h3>
+<table>
+<tr><th>Metric</th><th>Backtest Expectation</th><th>🟢 Healthy</th><th>🟡 Watch</th><th>🔴 Alarm</th></tr>
+<tr><td>Win Rate</td><td>81%</td><td>&gt;70%</td><td>60-70%</td><td>&lt;60%</td></tr>
+<tr><td>Trades/Week</td><td>~0.8</td><td>0.5-1.5</td><td>0.2-0.5 or 1.5-3</td><td>&lt;0.2 or &gt;3</td></tr>
+<tr><td>Avg Win / Avg Loss</td><td>~0.4</td><td>&gt;0.3</td><td>0.2-0.3</td><td>&lt;0.2</td></tr>
+<tr><td>Max Drawdown</td><td>-12.1%</td><td>&lt;15%</td><td>15-25%</td><td>&gt;25%</td></tr>
+<tr><td>Fills vs Backtest</td><td>Aligned</td><td>±20%</td><td>±20-40%</td><td>&gt;40% divergence</td></tr>
+</table>
+
+<h3>Key Divergence Signals (Paper vs Backtest)</h3>
+<p>These are the things that will tell us if the backtest was honest:</p>
+<ol>
+<li><strong>Fill quality:</strong> Are we getting the credits the backtester assumed? If real credits are 20%+ lower, the backtest was optimistic.</li>
+<li><strong>Trade frequency:</strong> Backtest averages ~41 trades/year (~3.4/month). If paper trading generates significantly more or fewer, the signal logic diverges.</li>
+<li><strong>Regime detection:</strong> Does the live regime detector agree with what the backtester would have said? Log both for comparison.</li>
+<li><strong>Slippage impact:</strong> The backtester added slippage estimates. Real slippage may differ.</li>
+</ol>
+
+<hr>
+
+<h2>6. Kill Criteria — When to Stop</h2>
+
+<div class="box danger">
+<h3 style="margin-top:0">🔴 HARD STOP — Immediately halt paper trading if:</h3>
+<ul>
+<li>Drawdown exceeds <strong>30%</strong> (circuit breaker should catch at 40%, but manual override at 30%)</li>
+<li>More than <strong>5 consecutive losses</strong> (backtest max streak was 3)</li>
+<li>Fill prices consistently <strong>40%+ worse</strong> than backtest assumptions</li>
+<li>System enters trades the <strong>backtest wouldn't have</strong> (regime mismatch)</li>
+<li>Any <strong>execution error</strong> that places unintended orders</li>
+</ul>
+</div>
+
+<div class="box warn">
+<h3 style="margin-top:0">🟡 PAUSE & REVIEW — If after 4 weeks:</h3>
+<ul>
+<li>Win rate below <strong>60%</strong> (vs 81% expected)</li>
+<li>Annualized return tracking below <strong>10%</strong> (vs 32.7% expected — accounting for walk-forward discount)</li>
+<li>Trade count is <strong>50%+ off</strong> from backtest expectations</li>
+<li>Significant unexplained divergence between paper and backtest results</li>
+</ul>
+</div>
+
+<div class="box ok">
+<h3 style="margin-top:0">🟢 SUCCESS CRITERIA — After 8 weeks:</h3>
+<ul>
+<li>Win rate <strong>&gt;70%</strong></li>
+<li>Positive cumulative P&L</li>
+<li>Max drawdown <strong>&lt;20%</strong></li>
+<li>Trade execution aligns with backtest expectations (±30%)</li>
+<li>No system errors or unintended behavior</li>
+<li>→ <strong>Ready to discuss live trading with real capital</strong></li>
+</ul>
+</div>
+
+<hr>
+
+<h2>7. Timeline</h2>
+
+<div class="phase">
+<strong>Week 0 (Now):</strong> Merge PR → Create paper_champion.yaml config → Set up env vars → Smoke test → Deploy
+</div>
+<div class="phase">
+<strong>Week 1-2:</strong> Observation mode. Daily Telegram alerts. Track fills vs expectations. Log everything. No changes.
+</div>
+<div class="phase">
+<strong>Week 3-4:</strong> First review checkpoint. Compare paper results to backtest. Identify any divergences. Adjust if needed.
+</div>
+<div class="phase">
+<strong>Week 5-8:</strong> Steady state. Accumulate enough trades for statistical significance (~25-30 trades). Build confidence.
+</div>
+<div class="phase">
+<strong>Week 8+ (if passing):</strong> Live trading discussion. Start with 10% of intended capital. Scale up over 4-8 weeks.
+</div>
+
+<hr>
+
+<h2>8. What I Need From You</h2>
+<ol>
+<li><strong>Alpaca paper trading API keys</strong> — or confirm they're already in an .env file</li>
+<li><strong>Confirm $100K paper balance</strong> on Alpaca</li>
+<li><strong>Polygon API key</strong> — for live options chain data during scans</li>
+<li><strong>Green light</strong> to create the paper_champion.yaml config and deploy</li>
+</ol>
+
+<hr>
+
+<h2>9. Parallel Workstreams (Continue While Paper Trading)</h2>
+<p>Paper trading doesn't block optimization. While the champion runs live:</p>
+<ul>
+<li><strong>cc1:</strong> Finishes position sizing experiments → feeds into v2 config</li>
+<li><strong>cc2:</strong> Finishes portfolio blending → identifies multi-strategy blend for next paper experiment</li>
+<li><strong>Deviation tracker:</strong> New module (in PR) compares paper fills to backtest expectations in real-time</li>
+</ul>
+<p>If Phase 2+3 produce a better blend, we paper trade that as a <strong>second experiment</strong> alongside the champion.</p>
+
+<hr>
+
+<div style="text-align:center; margin:3em 0;">
+<p style="font-size:1.3em; color:#2c3e50;"><strong>Bottom line: One strategy, one ticker, full safety rails, 8-week validation.<br>Simple. Measurable. Trustworthy.</strong></p>
+<p class="meta">Prepared by Maximus Cruz — March 12, 2026 🛡️</p>
+</div>
+
+</body></html>

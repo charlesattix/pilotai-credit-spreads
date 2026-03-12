@@ -1,0 +1,609 @@
+{
+  "config": "regime_adaptive_champion",
+  "timestamp": "2026-03-12T03:46:16.095225",
+  "baseline_results": {
+    "2020": {
+      "return_pct": 8.86,
+      "total_trades": 30,
+      "win_rate": 73.33,
+      "max_drawdown": -10.45,
+      "sharpe_ratio": 0.72,
+      "starting_capital": 100000,
+      "ending_capital": 108859.26,
+      "max_loss_streak": 3,
+      "monthly_pnl": {
+        "2020-03": {
+          "pnl": -3038.7950435868142,
+          "trades": 1,
+          "wins": 0
+        },
+        "2020-05": {
+          "pnl": -2806.291044804155,
+          "trades": 2,
+          "wins": 0
+        },
+        "2020-06": {
+          "pnl": -4533.589794902955,
+          "trades": 2,
+          "wins": 1
+        },
+        "2020-07": {
+          "pnl": 5356.479128609125,
+          "trades": 4,
+          "wins": 4
+        },
+        "2020-08": {
+          "pnl": 8401.262546761787,
+          "trades": 7,
+          "wins": 7
+        },
+        "2020-09": {
+          "pnl": -3744.9782359168366,
+          "trades": 4,
+          "wins": 1
+        },
+        "2020-10": {
+          "pnl": 195.66331850573442,
+          "trades": 3,
+          "wins": 2
+        },
+        "2020-11": {
+          "pnl": 4656.405675120699,
+          "trades": 3,
+          "wins": 3
+        },
+        "2020-12": {
+          "pnl": 4703.305989591774,
+          "trades": 4,
+          "wins": 4
+        }
+      },
+      "year": 2020
+    },
+    "2021": {
+      "return_pct": 101.45,
+      "total_trades": 71,
+      "win_rate": 90.14,
+      "max_drawdown": -2.89,
+      "sharpe_ratio": 6.62,
+      "starting_capital": 100000,
+      "ending_capital": 201446.13,
+      "max_loss_streak": 2,
+      "monthly_pnl": {
+        "2021-03": {
+          "pnl": 613.0631993276511,
+          "trades": 3,
+          "wins": 2
+        },
+        "2021-04": {
+          "pnl": 6973.781326854809,
+          "trades": 6,
+          "wins": 6
+        },
+        "2021-05": {
+          "pnl": -1394.9680964718975,
+          "trades": 4,
+          "wins": 2
+        },
+        "2021-06": {
+          "pnl": 16357.865653872881,
+          "trades": 9,
+          "wins": 9
+        },
+        "2021-07": {
+          "pnl": 12737.243116330483,
+          "trades": 8,
+          "wins": 7
+        },
+        "2021-08": {
+          "pnl": 27182.335336974033,
+          "trades": 14,
+          "wins": 14
+        },
+        "2021-09": {
+          "pnl": 12536.76209647604,
+          "trades": 9,
+          "wins": 7
+        },
+        "2021-10": {
+          "pnl": 5357.146588118945,
+          "trades": 4,
+          "wins": 4
+        },
+        "2021-11": {
+          "pnl": 16105.00378065275,
+          "trades": 9,
+          "wins": 9
+        },
+        "2021-12": {
+          "pnl": 5874.892191496623,
+          "trades": 5,
+          "wins": 4
+        }
+      },
+      "year": 2021
+    },
+    "2022": {
+      "return_pct": -1.89,
+      "total_trades": 28,
+      "win_rate": 64.29,
+      "max_drawdown": -12.06,
+      "sharpe_ratio": -0.34,
+      "starting_capital": 100000,
+      "ending_capital": 98107.43,
+      "max_loss_streak": 2,
+      "monthly_pnl": {
+        "2022-02": {
+          "pnl": 1536.6971784500802,
+          "trades": 1,
+          "wins": 1
+        },
+        "2022-03": {
+          "pnl": -1524.4489037273288,
+          "trades": 3,
+          "wins": 2
+        },
+        "2022-04": {
+          "pnl": -1652.6013395274022,
+          "trades": 1,
+          "wins": 0
+        },
+        "2022-05": {
+          "pnl": 3101.875168441455,
+          "trades": 2,
+          "wins": 2
+        },
+        "2022-06": {
+          "pnl": 7050.40881233772,
+          "trades": 3,
+          "wins": 3
+        },
+        "2022-07": {
+          "pnl": -1876.9771040986798,
+          "trades": 4,
+          "wins": 2
+        },
+        "2022-08": {
+          "pnl": -1684.099427559332,
+          "trades": 5,
+          "wins": 3
+        },
+        "2022-09": {
+          "pnl": -7145.24697858165,
+          "trades": 2,
+          "wins": 0
+        },
+        "2022-10": {
+          "pnl": 3170.743925617017,
+          "trades": 2,
+          "wins": 2
+        },
+        "2022-11": {
+          "pnl": -1802.598344446528,
+          "trades": 3,
+          "wins": 2
+        },
+        "2022-12": {
+          "pnl": -707.520530883573,
+          "trades": 2,
+          "wins": 1
+        }
+      },
+      "year": 2022
+    },
+    "2023": {
+      "return_pct": 37.49,
+      "total_trades": 42,
+      "win_rate": 88.1,
+      "max_drawdown": -3.31,
+      "sharpe_ratio": 3.62,
+      "starting_capital": 100000,
+      "ending_capital": 137490.9,
+      "max_loss_streak": 2,
+      "monthly_pnl": {
+        "2023-03": {
+          "pnl": -1857.5677440382533,
+          "trades": 2,
+          "wins": 1
+        },
+        "2023-04": {
+          "pnl": 3725.104867142211,
+          "trades": 3,
+          "wins": 3
+        },
+        "2023-05": {
+          "pnl": 1685.3003765343115,
+          "trades": 5,
+          "wins": 4
+        },
+        "2023-06": {
+          "pnl": 4193.402119605702,
+          "trades": 5,
+          "wins": 5
+        },
+        "2023-07": {
+          "pnl": 11883.165388932563,
+          "trades": 8,
+          "wins": 8
+        },
+        "2023-08": {
+          "pnl": -2685.2186603040095,
+          "trades": 3,
+          "wins": 1
+        },
+        "2023-09": {
+          "pnl": -1006.0708077226757,
+          "trades": 2,
+          "wins": 1
+        },
+        "2023-10": {
+          "pnl": 901.2872449279846,
+          "trades": 1,
+          "wins": 1
+        },
+        "2023-11": {
+          "pnl": 3830.623067350649,
+          "trades": 3,
+          "wins": 3
+        },
+        "2023-12": {
+          "pnl": 17317.478653893522,
+          "trades": 10,
+          "wins": 10
+        }
+      },
+      "year": 2023
+    },
+    "2024": {
+      "return_pct": 23.8,
+      "total_trades": 41,
+      "win_rate": 82.93,
+      "max_drawdown": -5.54,
+      "sharpe_ratio": 2.74,
+      "starting_capital": 100000,
+      "ending_capital": 123796.44,
+      "max_loss_streak": 3,
+      "monthly_pnl": {
+        "2024-03": {
+          "pnl": 2933.10978829847,
+          "trades": 4,
+          "wins": 4
+        },
+        "2024-04": {
+          "pnl": -919.0048582555548,
+          "trades": 2,
+          "wins": 1
+        },
+        "2024-05": {
+          "pnl": 5741.467914870529,
+          "trades": 5,
+          "wins": 5
+        },
+        "2024-06": {
+          "pnl": 2690.0934025353704,
+          "trades": 4,
+          "wins": 4
+        },
+        "2024-07": {
+          "pnl": 378.5980365480125,
+          "trades": 6,
+          "wins": 4
+        },
+        "2024-08": {
+          "pnl": 1967.6765569996112,
+          "trades": 4,
+          "wins": 3
+        },
+        "2024-09": {
+          "pnl": 3246.0396084262266,
+          "trades": 2,
+          "wins": 2
+        },
+        "2024-10": {
+          "pnl": 2022.8894198855398,
+          "trades": 4,
+          "wins": 3
+        },
+        "2024-11": {
+          "pnl": 2023.2134346431092,
+          "trades": 5,
+          "wins": 4
+        },
+        "2024-12": {
+          "pnl": 4198.5522090174945,
+          "trades": 5,
+          "wins": 4
+        }
+      },
+      "year": 2024
+    },
+    "2025": {
+      "return_pct": 26.46,
+      "total_trades": 37,
+      "win_rate": 86.49,
+      "max_drawdown": -8.06,
+      "sharpe_ratio": 2.19,
+      "starting_capital": 100000,
+      "ending_capital": 126460.41,
+      "max_loss_streak": 2,
+      "monthly_pnl": {
+        "2025-03": {
+          "pnl": 2957.2675735879143,
+          "trades": 1,
+          "wins": 1
+        },
+        "2025-04": {
+          "pnl": 1650.3163792311605,
+          "trades": 1,
+          "wins": 1
+        },
+        "2025-05": {
+          "pnl": -5190.339507063277,
+          "trades": 3,
+          "wins": 1
+        },
+        "2025-06": {
+          "pnl": 5727.646431198201,
+          "trades": 5,
+          "wins": 5
+        },
+        "2025-07": {
+          "pnl": 7516.777835837713,
+          "trades": 6,
+          "wins": 6
+        },
+        "2025-08": {
+          "pnl": 1099.3178883695546,
+          "trades": 4,
+          "wins": 3
+        },
+        "2025-09": {
+          "pnl": 3147.327956523816,
+          "trades": 4,
+          "wins": 4
+        },
+        "2025-10": {
+          "pnl": 3236.097026918206,
+          "trades": 6,
+          "wins": 5
+        },
+        "2025-11": {
+          "pnl": 232.9424264937786,
+          "trades": 3,
+          "wins": 2
+        },
+        "2025-12": {
+          "pnl": 6522.459361054229,
+          "trades": 4,
+          "wins": 4
+        }
+      },
+      "year": 2025
+    }
+  },
+  "checks": {
+    "A_consistency": {
+      "check": "A_consistency",
+      "years_profitable": 5,
+      "years_total": 6,
+      "score": 0.833,
+      "passed": true,
+      "note": "5/6 years profitable"
+    },
+    "B_walkforward": {
+      "check": "B_walkforward",
+      "folds": [
+        {
+          "train_years": [
+            "2020",
+            "2021",
+            "2022"
+          ],
+          "test_year": "2023",
+          "train_avg": 36.14,
+          "test_return": 37.49,
+          "ratio": 1.0,
+          "passed": true
+        },
+        {
+          "train_years": [
+            "2020",
+            "2021",
+            "2022",
+            "2023"
+          ],
+          "test_year": "2024",
+          "train_avg": 36.48,
+          "test_return": 23.8,
+          "ratio": 0.652,
+          "passed": true
+        },
+        {
+          "train_years": [
+            "2020",
+            "2021",
+            "2022",
+            "2023",
+            "2024"
+          ],
+          "test_year": "2025",
+          "train_avg": 33.94,
+          "test_return": 26.46,
+          "ratio": 0.78,
+          "passed": true
+        }
+      ],
+      "folds_passed": 3,
+      "folds_total": 3,
+      "median_ratio": 0.78,
+      "score": 0.78,
+      "passed": true
+    },
+    "C_sensitivity": {
+      "check": "C_sensitivity",
+      "base_avg_return": 32.7,
+      "jitter_avg_return": 32.15,
+      "score": 0.983,
+      "passed": true,
+      "cliff_params": [],
+      "jitter_runs": [
+        {
+          "param": "otm_pct",
+          "delta_pct": -0.1,
+          "base_val": 0.02,
+          "new_val": 0.018000000000000002,
+          "avg_return": 23.27,
+          "total_trades": 228
+        },
+        {
+          "param": "otm_pct",
+          "delta_pct": 0.1,
+          "base_val": 0.02,
+          "new_val": 0.022000000000000002,
+          "avg_return": 42.61,
+          "total_trades": 278
+        },
+        {
+          "param": "spread_width",
+          "delta_pct": -0.1,
+          "base_val": 12.0,
+          "new_val": 10.8,
+          "avg_return": 23.17,
+          "total_trades": 229
+        },
+        {
+          "param": "spread_width",
+          "delta_pct": 0.1,
+          "base_val": 12.0,
+          "new_val": 13.200000000000001,
+          "avg_return": 39.21,
+          "total_trades": 259
+        },
+        {
+          "param": "stop_loss_multiplier",
+          "delta_pct": -0.1,
+          "base_val": 1.25,
+          "new_val": 1.125,
+          "avg_return": 32.24,
+          "total_trades": 259
+        },
+        {
+          "param": "stop_loss_multiplier",
+          "delta_pct": 0.1,
+          "base_val": 1.25,
+          "new_val": 1.375,
+          "avg_return": 32.49,
+          "total_trades": 245
+        },
+        {
+          "param": "profit_target_pct",
+          "delta_pct": -0.1,
+          "base_val": 0.55,
+          "new_val": 0.49500000000000005,
+          "avg_return": 30.15,
+          "total_trades": 267
+        },
+        {
+          "param": "profit_target_pct",
+          "delta_pct": 0.1,
+          "base_val": 0.55,
+          "new_val": 0.6050000000000001,
+          "avg_return": 34.43,
+          "total_trades": 238
+        },
+        {
+          "param": "max_risk_pct",
+          "delta_pct": -0.1,
+          "base_val": 0.085,
+          "new_val": 0.07650000000000001,
+          "avg_return": 31.51,
+          "total_trades": 249
+        },
+        {
+          "param": "max_risk_pct",
+          "delta_pct": 0.1,
+          "base_val": 0.085,
+          "new_val": 0.09350000000000001,
+          "avg_return": 33.06,
+          "total_trades": 249
+        },
+        {
+          "param": "trend_ma_period",
+          "delta_pct": -0.1,
+          "base_val": 80,
+          "new_val": 72,
+          "avg_return": 31.47,
+          "total_trades": 260
+        },
+        {
+          "param": "trend_ma_period",
+          "delta_pct": 0.1,
+          "base_val": 80,
+          "new_val": 88,
+          "avg_return": 32.24,
+          "total_trades": 246
+        }
+      ]
+    },
+    "D_trade_count": {
+      "check": "D_trade_count",
+      "per_year": {
+        "2020": {
+          "trades": 30,
+          "passed": true
+        },
+        "2021": {
+          "trades": 71,
+          "passed": true
+        },
+        "2022": {
+          "trades": 28,
+          "passed": false
+        },
+        "2023": {
+          "trades": 42,
+          "passed": true
+        },
+        "2024": {
+          "trades": 41,
+          "passed": true
+        },
+        "2025": {
+          "trades": 37,
+          "passed": true
+        }
+      },
+      "score": 0.833,
+      "passed": false,
+      "low_trade_years": [
+        "2022"
+      ]
+    },
+    "E_regime_diversity": {
+      "check": "E_regime_diversity",
+      "per_year": {
+        "2020": 0.9,
+        "2021": 1.0,
+        "2022": 1.0,
+        "2023": 1.0,
+        "2024": 1.0,
+        "2025": 1.0
+      },
+      "score": 0.983,
+      "passed": false,
+      "concentration_flags": [
+        "2020"
+      ]
+    },
+    "F_drawdown": {
+      "check": "F_drawdown",
+      "dd_violations": [],
+      "streak_violations": [],
+      "score": 1.0,
+      "passed": true
+    }
+  },
+  "composite_score": 0.87,
+  "verdict": "ROBUST",
+  "gates_failed": []
+}

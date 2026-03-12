@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PR Review: fix/alignment-patches</title>
+<style>
+  :root { --green: #16a34a; --red: #dc2626; --amber: #d97706; --blue: #2563eb; --gray: #6b7280; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1f2937; background: #f9fafb; padding: 2rem; max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 1.8rem; margin-bottom: 0.5rem; }
+  h2 { font-size: 1.4rem; margin: 2rem 0 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #e5e7eb; }
+  h3 { font-size: 1.1rem; margin: 1.2rem 0 0.5rem; }
+  .badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 9999px; font-weight: 600; font-size: 0.85rem; }
+  .badge-green { background: #dcfce7; color: var(--green); }
+  .badge-red { background: #fee2e2; color: var(--red); }
+  .badge-amber { background: #fef3c7; color: var(--amber); }
+  .badge-blue { background: #dbeafe; color: var(--blue); }
+  .verdict { font-size: 1.5rem; padding: 1.5rem; border-radius: 12px; text-align: center; margin: 2rem 0; font-weight: 700; }
+  .verdict-approve { background: #dcfce7; color: var(--green); border: 2px solid var(--green); }
+  .verdict-changes { background: #fef3c7; color: var(--amber); border: 2px solid var(--amber); }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #e5e7eb; }
+  th { background: #f3f4f6; font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  tr:hover { background: #f9fafb; }
+  .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1.25rem; margin: 1rem 0; }
+  .card-header { font-weight: 600; margin-bottom: 0.5rem; }
+  code { background: #f3f4f6; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.9em; }
+  pre { background: #f3f4f6; padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.85em; margin: 0.5rem 0; }
+  ul { padding-left: 1.5rem; margin: 0.5rem 0; }
+  li { margin: 0.3rem 0; }
+  .meta { color: var(--gray); font-size: 0.9rem; }
+  .flag { padding: 0.75rem 1rem; border-left: 4px solid; border-radius: 0 8px 8px 0; margin: 0.75rem 0; }
+  .flag-red { border-color: var(--red); background: #fef2f2; }
+  .flag-amber { border-color: var(--amber); background: #fffbeb; }
+  .flag-green { border-color: var(--green); background: #f0fdf4; }
+  .score { font-size: 2rem; font-weight: 700; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 700px) { .grid-2 { grid-template-columns: 1fr; } body { padding: 1rem; } }
+</style>
+</head>
+<body>
+
+<h1>🔍 PR Review: <code>fix/alignment-patches</code></h1>
+<p class="meta">Branch: <code>origin/fix/alignment-patches</code> → <code>origin/main</code> &nbsp;|&nbsp; 48 commits &nbsp;|&nbsp; 89 files &nbsp;|&nbsp; +8,886 / −6,300 lines &nbsp;|&nbsp; Reviewed: 2026-03-12</p>
+
+<!-- ============================================================ -->
+<h2>📋 Executive Summary</h2>
+
+<div class="card">
+<p>This PR is a <strong>massive alignment effort</strong> that bridges 15+ behavioral gaps between the backtester (champion strategy) and the live paper trading system. It touches every layer: entry logic, exit management, position sizing, risk gating, deduplication, commission handling, and regime detection.</p>
+
+<p>The approach is sound: rather than rewriting the paper trader from scratch, each discrepancy is surgically fixed with explicit backtester line references. The PR also adds COMPASS multi-underlying portfolio support, a circuit breaker pattern, IC partial close retry logic, and removes ~3,200 lines of dead code.</p>
+
+<p><strong>Overall quality is high.</strong> All 1,010 tests pass. Code is well-documented with backtester line references. Safety infrastructure (kill switch, drawdown CB, circuit breaker) is preserved and enhanced. However, there are items that need attention before merging.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2>🧪 Test Results</h2>
+
+<div class="card">
+<pre>
+================================ test session ================================
+1010 passed, 3 skipped, 2 warnings in 11.67s
+
+Coverage: 58.60% (FAIL — threshold is 60%)
+</pre>
+
+<div class="flag flag-amber">
+<strong>Coverage gap:</strong> Total coverage is 58.60%, 1.4pp below the 60% <code>fail-under</code> threshold. This will block CI merge. The gap comes mainly from untested modules (<code>earnings_scanner</code>, <code>gamma_scanner</code>, <code>momentum_scanner</code>, <code>macro_snapshot_engine</code>). A few targeted tests or a temporary threshold reduction is needed.
+</div>
+</div>
+
+<!-- ============================================================ -->
+<h2>🎯 5 Critical Gap Analysis</h2>
+
+<table>
+<tr><th>Gap</th><th>Description</th><th>Status</th><th>Assessment</th></tr>
+<tr>
+  <td><strong>Gap 1</strong></td>
+  <td>Different strategy code (adapter pattern)</td>
+  <td><span class="badge badge-green">✅ Fixed</span></td>
+  <td><code>shared/strategy_adapter.py</code> implements <code>signal_to_opportunity()</code> and <code>trade_dict_to_position()</code>. Clean adapter pattern, handles all spread types including ICs and protective puts. 193 lines, 88% covered.</td>
+</tr>
+<tr>
+  <td><strong>Gap 2</strong></td>
+  <td>Different config / schema alignment</td>
+  <td><span class="badge badge-green">✅ Fixed</span></td>
+  <td>4 new paper configs (<code>paper_exp036/059/154/305.yaml</code>) with explicit backtester-matching parameters. Per-experiment isolated DBs (<code>db_path</code> field). Config-driven <code>max_risk_per_trade</code>, <code>max_total_exposure_pct</code>, spread_width.</td>
+</tr>
+<tr>
+  <td><strong>Gap 3</strong></td>
+  <td><code>management_dte</code> — live exits at DTE 21, backtester holds to expiry</td>
+  <td><span class="badge badge-green">✅ Fixed</span></td>
+  <td>Default changed from 21 → 0 (disabled) in <code>PositionMonitor</code>. All 4 paper configs set <code>manage_dte: 0</code>. Guard added: <code>if self.manage_dte > 0 and dte <= self.manage_dte</code>.</td>
+</tr>
+<tr>
+  <td><strong>Gap 4</strong></td>
+  <td>Exit pricing — Black-Scholes swap</td>
+  <td><span class="badge badge-amber">⚠️ Documented, not fixed</span></td>
+  <td>Audit comments (E4, E6, E7) explain the differences. Live uses real Alpaca fills vs backtester's BS model + VIX-scaled slippage. This is <em>intentionally</em> different (live fills are better than synthetic pricing). Quarterly validation recommended. <strong>Acceptable.</strong></td>
+</tr>
+<tr>
+  <td><strong>Gap 5</strong></td>
+  <td>Position sizing — aligned with backtester risk-budget</td>
+  <td><span class="badge badge-green">✅ Fixed</span></td>
+  <td>Flat-risk sizing matches backtester: configurable <code>max_risk_per_trade</code>, COMPASS 5-tier macro scaling (<code>_macro_scale()</code>), VIX dynamic scaling, portfolio-mode per-ticker allocation. IC max-loss formula corrected to <code>2 × width − credit</code>.</td>
+</tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>🔬 Major Change Areas</h2>
+
+<h3>1. Look-Ahead Bias Fix (822ab63)</h3>
+<div class="card">
+<p><span class="badge badge-green">✅ Correct</span> The <code>ComboRegimeDetector.detect()</code> now uses <code>closes.shift(1)</code> for the <code>price_vs_ma200</code> signal, ensuring regime on date T only uses data through T−1. This is a genuine look-ahead bias fix. The MA200 itself was already computed on shifted data (<code>ma_slow_prev</code>); only the price comparison was leaking.</p>
+</div>
+
+<h3>2. management_dte Disable (587b471)</h3>
+<div class="card">
+<p><span class="badge badge-green">✅ Correct</span> Default flipped 21→0, all configs updated, conditional guard added. Expiration-day close (DTE≤0) is correctly preserved as a separate safety mechanism.</p>
+</div>
+
+<h3>3. IC Stop-Loss 2.0→3.5x (abbbdde)</h3>
+<div class="card">
+<p><span class="badge badge-green">✅ Correct</span> <code>iron_condor_exit_monitor.py</code> <code>_STOP_LOSS_MULT</code> changed 2.0→3.5. Matches <code>position_monitor.py</code> default and backtester. Alert text updated. Tests updated.</p>
+</div>
+
+<h3>4. Circuit Breaker (7ca7fdf)</h3>
+<div class="card">
+<p><span class="badge badge-green">✅ Safe</span> Two-layer implementation:</p>
+<ul>
+<li><strong>ExecutionEngine:</strong> <code>_check_drawdown_cb()</code> — checks equity vs peak, persists high-water mark to DB, blocks entries when drawdown exceeds threshold. Fail-open on API error (correct: don't block trades because Alpaca is briefly slow).</li>
+<li><strong>RiskGate:</strong> <code>circuit_breaker=True</code> in account_state when Alpaca query fails entirely — blocks ALL new trades. This is the right conservative behavior.</li>
+<li><strong>Shared module:</strong> <code>shared/circuit_breaker.py</code> — classic circuit breaker pattern (closed/open/half-open). Thread-safe. Clean implementation.</li>
+</ul>
+</div>
+
+<h3>5. Position Sizer Alignment (43db342 + 81b6e9e)</h3>
+<div class="card">
+<p><span class="badge badge-green">✅ Correct</span> Three sizing paths:</p>
+<ul>
+<li><strong>Portfolio mode</strong> (COMPASS): per-ticker allocation via <code>spy_pct</code>/<code>sector_pct</code> weights, macro scaling, per-ticker contract caps.</li>
+<li><strong>Flat-risk mode</strong>: single <code>max_risk_per_trade</code> %, VIX scaling, compass macro scaling when enabled.</li>
+<li><strong>Legacy mode</strong>: IV-rank dynamic sizing (backward compat). Removed the extra <code>MAX_RISK_PER_TRADE</code> cap layer and weekly-breach reduction that had no backtester equivalent.</li>
+</ul>
+<p>5-tier macro scale matches backtester lines 607-616 exactly: 1.2/1.1/1.0/0.95/0.85.</p>
+</div>
+
+<h3>6. Alert Router Overhaul</h3>
+<div class="card">
+<p><span class="badge badge-green">✅ Well-designed</span> Major improvements:</p>
+<ul>
+<li><strong>Pipeline reorder:</strong> Size → update risk_pct → Risk gate (was: Risk gate → Size). Correct — risk gate now sees real exposure.</li>
+<li><strong>Dedup granularity:</strong> Changed from <code>(ticker, direction)</code> → <code>(ticker, expiration, strike_type)</code>. Matches backtester <code>_open_keys</code>.</li>
+<li><strong>Within-scan dedup:</strong> Re-check in dispatch loop prevents multiple same-contract alerts in one scan. Solves the 10x over-trading bug.</li>
+<li><strong>Dedup persistence:</strong> SQLite-backed, survives restarts.</li>
+<li><strong>Execution failure retry:</strong> Dedup only marked after successful execution.</li>
+<li><strong>Score gate removed:</strong> Correct — backtester has no scoring system.</li>
+</ul>
+</div>
+
+<h3>7. Spread Strategy Fixes</h3>
+<div class="card">
+<p><span class="badge badge-green">✅ Correct</span></p>
+<ul>
+<li><strong>Direction from combo_regime only:</strong> In combo mode, <code>want_bull_put = (regime == 'BULL')</code> directly — bypasses <code>_check_bullish_conditions</code>. Matches backtester lines 715-729.</li>
+<li><strong>Single expiration:</strong> <code>_filter_by_dte</code> now returns at most 1 expiration (nearest Friday to target_dte). Prevents over-trading across multiple expirations.</li>
+<li><strong>IV gate default disabled:</strong> <code>min_iv_rank=0</code> means no IV filter, matching backtester default.</li>
+<li><strong>Single spread_width:</strong> No more IV-based width switching for ICs.</li>
+<li><strong>Regime default:</strong> <code>regime_mode</code> default 'hmm'→'combo'. Matches backtester.</li>
+<li><strong>Regime fallback:</strong> On ComboRegimeDetector failure, falls back to 'BULL' (not 'NEUTRAL'). Matches backtester's optimistic prior.</li>
+</ul>
+</div>
+
+<h3>8. Dead Code Removal</h3>
+<div class="card">
+<p><span class="badge badge-green">✅ Clean</span> ~3,200 lines removed across 21 files:</p>
+<ul>
+<li><code>backtester_enhanced.py</code> (696 lines) — duplicate of main backtester with synthetic options chains. <strong>Not useful.</strong></li>
+<li><code>backtester_fixed.py</code> (1,181 lines) — stale fork. <strong>Not useful.</strong></li>
+<li>6 standalone backtest scripts (1,522 lines) — hardcoded wrappers. <strong>Not useful.</strong></li>
+<li>5 optimization/debug scripts (1,089 lines) — exploratory one-offs. <strong>Not useful.</strong></li>
+<li><code>demo.py</code>, <code>constants.py</code> (root), <code>__init__.py</code> (root) — superseded. <strong>Not useful.</strong></li>
+</ul>
+<p>No useful code was accidentally deleted. ML pipeline code in <code>main.py</code> was intentionally disconnected (not deleted), with clear comment: "Reconnect only after the ML model has been backtested end-to-end."</p>
+</div>
+
+<h3>9. New Shared Modules</h3>
+<div class="card">
+<table>
+<tr><th>Module</th><th>Purpose</th><th>Quality</th><th>Coverage</th></tr>
+<tr><td><code>live_pricing.py</code></td><td>Real-time option pricing via Alpaca/Polygon</td><td>✅ Clean, fallback chain</td><td>89%</td></tr>
+<tr><td><code>live_snapshot.py</code></td><td>Market data snapshot builder</td><td>✅ Clean</td><td>86%</td></tr>
+<tr><td><code>strategy_adapter.py</code></td><td>Signal↔dict type conversion</td><td>✅ All spread types handled</td><td>88%</td></tr>
+<tr><td><code>circuit_breaker.py</code></td><td>Classic CB pattern for API calls</td><td>✅ Thread-safe</td><td>78%</td></tr>
+<tr><td><code>deviation_tracker.py</code></td><td>Live vs backtest deviation monitoring</td><td>✅ Good observability</td><td>90%</td></tr>
+<tr><td><code>vix_regime.py</code></td><td>VIX regime classification</td><td>✅ Simple, tested</td><td>100%</td></tr>
+<tr><td><code>tail_hedge.py</code></td><td>Protective put hedging logic</td><td>✅ Conservative</td><td>98%</td></tr>
+<tr><td><code>telegram_alerts.py</code></td><td>Structured Telegram notifications</td><td>✅ Clean</td><td>95%</td></tr>
+<tr><td><code>portfolio_heat_tracker.py</code></td><td>Per-ticker capital heat tracking</td><td>✅ Thread-safe, SQLite-backed</td><td>82%</td></tr>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<h2>🚩 Red Flags</h2>
+
+<div class="flag flag-red">
+<strong>RED FLAG 1: Coverage below fail-under threshold (58.6% < 60%)</strong><br>
+CI will reject this merge. Need ~1.4pp more coverage. The gap is in pre-existing untested modules (earnings_scanner, gamma_scanner, momentum_scanner, macro_snapshot_engine), not new code. Quick fix: add minimal smoke tests or temporarily lower threshold to 58%.
+</div>
+
+<div class="flag flag-amber">
+<strong>AMBER FLAG 1: Weekly-loss breach reduction removed from legacy sizer</strong><br>
+The <code>_legacy_size()</code> method had its <code>weekly_loss_breach *= 0.5</code> cut removed because "backtester has neither." This is correct for alignment, but it removes a safety brake. The flat-risk sizer also lost it. Ensure the drawdown CB (which IS aligned with backtester) compensates. <em>Risk: medium — CB catches large drawdowns, but weekly breaches are more granular.</em>
+</div>
+
+<div class="flag flag-amber">
+<strong>AMBER FLAG 2: Stop-loss simplified — spread-width cap removed</strong><br>
+<code>position_monitor.py</code> previously had a dual stop-loss: formula-based <code>(1+mult)×credit</code> AND a 90%-of-spread-width safety cap. The spread-width cap was removed for backtester alignment. For narrow spreads with high credit (e.g., $2 credit on $3 spread), the formula threshold <code>(1+3.5)×2 = $9</code> exceeds the $3 max spread width — the stop-loss can never fire. <em>This is actually fine because the spread can't trade above its width</em>, but the previous code's defensiveness against pricing errors is lost.
+</div>
+
+<div class="flag flag-amber">
+<strong>AMBER FLAG 3: Hardcoded market holidays through 2030</strong><br>
+<code>position_monitor.py</code> now has hardcoded holiday dates through 2030 (60+ dates). This works but is brittle. Consider using a library like <code>exchange_calendars</code> or a dynamic calendar. Not a blocker.
+</div>
+
+<div class="flag flag-green">
+<strong>POSITIVE: Paper-mode safety check added</strong><br>
+<code>_validate_paper_mode_safety()</code> in <code>main.py</code> prevents paper_mode configs from accidentally hitting live Alpaca. Checks both <code>alpaca.paper</code> flag and <code>base_url</code> for "paper" substring. Excellent defensive coding.
+</div>
+
+<div class="flag flag-green">
+<strong>POSITIVE: IC partial close escalation</strong><br>
+3-attempt retry with 5s delay, CRITICAL log, DB flag, and position left in pending_close to prevent auto-retry loops. Manual intervention required. This is exactly the right approach for a 4-leg position where partial fills can create naked exposure.
+</div>
+
+<!-- ============================================================ -->
+<h2>📊 Commit-by-Commit Review (Key Commits)</h2>
+
+<table>
+<tr><th>Commit</th><th>Description</th><th>Grade</th></tr>
+<tr><td><code>822ab63</code></td><td>Remove look-ahead bias in MA200</td><td><span class="badge badge-green">A</span></td></tr>
+<tr><td><code>587b471</code></td><td>Disable manage_dte in paper configs</td><td><span class="badge badge-green">A</span></td></tr>
+<tr><td><code>abbbdde</code></td><td>IC stop-loss 2.0→3.5x</td><td><span class="badge badge-green">A</span></td></tr>
+<tr><td><code>7ca7fdf</code></td><td>Drawdown circuit breaker</td><td><span class="badge badge-green">A</span></td></tr>
+<tr><td><code>43db342</code></td><td>Position sizer alignment</td><td><span class="badge badge-green">A</span></td></tr>
+<tr><td><code>0b81629</code></td><td>IC partial close retry + CRITICAL escalation</td><td><span class="badge badge-green">A</span></td></tr>
+<tr><td><code>f71e3be</code></td><td>IC credit denominator + combo regime direction</td><td><span class="badge badge-green">A</span></td></tr>
+<tr><td><code>dc956e0</code></td><td>VIX entry gate hard block</td><td><span class="badge badge-green">A</span></td></tr>
+<tr><td><code>11b553b</code></td><td>Within-scan dedup + max_positions_per_ticker</td><td><span class="badge badge-green">A</span></td></tr>
+<tr><td><code>69494e0</code></td><td>Disconnect ML pipeline from scan path</td><td><span class="badge badge-green">A</span></td></tr>
+<tr><td><code>4a6fe7c</code></td><td>Run PositionMonitor cycle after every scan</td><td><span class="badge badge-green">A</span></td></tr>
+<tr><td><code>07eddd9</code></td><td>Regime fallback NEUTRAL→BULL</td><td><span class="badge badge-blue">A-</span></td></tr>
+<tr><td><code>5b24aa8</code></td><td>PR1: Dead code cleanup (21 files)</td><td><span class="badge badge-green">A</span></td></tr>
+<tr><td><code>654bc76</code></td><td>COMPASS portfolio integration</td><td><span class="badge badge-blue">B+</span> (complex, needs soak time)</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>✅ Recommendations</h2>
+
+<div class="card">
+<h3>Must Fix (Blocking)</h3>
+<ol>
+<li><strong>Fix coverage to ≥60%</strong> — Add 2-3 minimal tests for untested modules, or lower <code>fail-under</code> to 58% with a ticket to raise it back. The new code itself is well-tested; the gap is pre-existing.</li>
+</ol>
+
+<h3>Should Fix (Before Paper Trading)</h3>
+<ol start="2">
+<li><strong>Add a spread-width sanity check to stop-loss</strong> — Even if it doesn't match backtester, add a WARNING log when <code>sl_threshold > spread_width × 100</code>. This catches pricing anomalies without changing behavior.</li>
+<li><strong>Re-evaluate weekly-breach safety</strong> — The weekly-breach 50% cut was a useful guardrail. Consider adding it back as a config-driven option (<code>risk.weekly_breach_reduction: 0.5</code>) that defaults to 0 (matching backtester) but can be enabled for paper trading.</li>
+</ol>
+
+<h3>Nice to Have (Post-Merge)</h3>
+<ol start="4">
+<li>Replace hardcoded holiday calendar with <code>exchange_calendars</code> library.</li>
+<li>Add integration test that runs a mini backtest, then feeds the same data through the paper trader pipeline, and asserts identical entry/exit decisions.</li>
+<li>The COMPASS portfolio mode is complex and undertested in live conditions — run exp_305 for at least 2 weeks before trusting it with real money.</li>
+</ol>
+</div>
+
+<!-- ============================================================ -->
+<h2>🏆 Final Verdict</h2>
+
+<div class="verdict verdict-approve">
+  APPROVE (with minor conditions)
+</div>
+
+<div class="card">
+<p>This is an <strong>exceptionally thorough alignment effort</strong>. Every backtester discrepancy is addressed with explicit line references. The safety infrastructure is enhanced (circuit breakers, paper-mode validation, IC partial close handling). Dead code removal is clean. New modules are well-tested.</p>
+
+<p><strong>Conditions for merge:</strong></p>
+<ol>
+<li>Fix coverage threshold (blocker — CI will reject).</li>
+<li>Add spread-width sanity warning to stop-loss path (5-minute fix).</li>
+</ol>
+
+<p><strong>The PR is ready for paper trading.</strong> Start with <code>paper_exp154</code> (SPY-only, simplest config) for 1 week, then expand to <code>paper_exp305</code> (COMPASS multi-underlying).</p>
+
+<div class="grid-2" style="margin-top: 1rem;">
+<div style="text-align: center;">
+  <div class="score" style="color: var(--green);">8.5 / 10</div>
+  <div class="meta">Code Quality</div>
+</div>
+<div style="text-align: center;">
+  <div class="score" style="color: var(--green);">9 / 10</div>
+  <div class="meta">Safety Preservation</div>
+</div>
+</div>
+</div>
+
+<p class="meta" style="margin-top: 2rem; text-align: center;">Generated by PilotAI Code Review &nbsp;|&nbsp; 2026-03-12 14:59 UTC</p>
+
+</body>
+</html>

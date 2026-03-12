@@ -1,0 +1,271 @@
+{
+  "audit_date": "2026-02-27",
+  "environment": {
+    "polygon_api_key": "not_set",
+    "tradier_api_key": "not_set",
+    "options_cache_db": "missing",
+    "data_directory": "missing",
+    "yfinance_available": true,
+    "yfinance_version": "1.2.0",
+    "notes": "No data/ directory exists. Previous backtest runs were on a different machine/volume. Options cache must be rebuilt from scratch."
+  },
+  "tickers": {
+    "SPY": {
+      "ohlcv": {
+        "source": "yfinance",
+        "start": "2020-01-02",
+        "end": "2025-12-30",
+        "rows": 1507,
+        "gaps": [],
+        "null_close_pct": 0.0,
+        "columns": ["Open", "High", "Low", "Close", "Volume", "Dividends", "Stock Splits", "Capital Gains"],
+        "status": "complete"
+      },
+      "options_cache": {
+        "status": "missing",
+        "daily_rows": 0,
+        "intraday_rows": 0,
+        "contracts": 0,
+        "note": "SQLite cache (data/options_cache.db) does not exist. Requires Polygon API key to build."
+      }
+    },
+    "QQQ": {
+      "ohlcv": {
+        "source": "yfinance",
+        "start": "2020-01-02",
+        "end": "2025-12-30",
+        "rows": 1507,
+        "gaps": [],
+        "null_close_pct": 0.0,
+        "columns": ["Open", "High", "Low", "Close", "Volume", "Dividends", "Stock Splits", "Capital Gains"],
+        "status": "complete"
+      },
+      "options_cache": {
+        "status": "missing",
+        "note": "Never cached — Polygon API needed"
+      }
+    },
+    "IWM": {
+      "ohlcv": {
+        "source": "yfinance",
+        "start": "2020-01-02",
+        "end": "2025-12-30",
+        "rows": 1507,
+        "gaps": [],
+        "null_close_pct": 0.0,
+        "columns": ["Open", "High", "Low", "Close", "Volume", "Dividends", "Stock Splits", "Capital Gains"],
+        "status": "complete"
+      },
+      "options_cache": {
+        "status": "missing",
+        "note": "Never cached — Polygon API needed"
+      }
+    },
+    "VIX": {
+      "ohlcv": {
+        "source": "yfinance",
+        "ticker_symbol": "^VIX",
+        "start": "2020-01-02",
+        "end": "2025-12-30",
+        "rows": 1507,
+        "gaps": [],
+        "null_close_pct": 0.0,
+        "columns": ["Open", "High", "Low", "Close", "Volume", "Dividends", "Stock Splits"],
+        "status": "complete"
+      },
+      "options_cache": {
+        "status": "not_applicable",
+        "note": "VIX is an index, not directly traded. VIX options exist but are not currently targeted."
+      }
+    },
+    "TLT": {
+      "ohlcv": {
+        "source": "yfinance",
+        "start": "2020-01-02",
+        "end": "2025-12-30",
+        "rows": 1507,
+        "gaps": [],
+        "null_close_pct": 0.0,
+        "columns": ["Open", "High", "Low", "Close", "Volume", "Dividends", "Stock Splits", "Capital Gains"],
+        "status": "complete"
+      },
+      "options_cache": {
+        "status": "not_targeted",
+        "note": "TLT useful as regime detection signal (risk-on/off), no options trading planned"
+      }
+    }
+  },
+  "economic_calendar": {
+    "fomc": {
+      "source": "shared/constants.py (FOMC_DATES)",
+      "dates_available": 59,
+      "coverage": "2020-2026",
+      "dates_per_year": {
+        "2020": 10,
+        "2021": 8,
+        "2022": 8,
+        "2023": 8,
+        "2024": 8,
+        "2025": 8,
+        "2026": 9
+      },
+      "gap": "none — full coverage including 3 COVID emergency meetings (2020-03-03, 2020-03-15, 2020-03-23)",
+      "status": "COMPLETE"
+    },
+    "cpi": {
+      "source": "shared/economic_calendar.py (algorithmic)",
+      "coverage": "current_year + next_year only (2026-2027)",
+      "method": "Computed as 2nd Wednesday of each month",
+      "accuracy": "approximate (real CPI dates vary by 1-2 days)",
+      "gap": "Cannot generate historical dates for backtesting (uses datetime.now() at init)",
+      "fix": "Either hardcode exact BLS release dates 2020-2025 or modify EconomicCalendar to accept year range parameter"
+    },
+    "ppi": {
+      "source": "shared/economic_calendar.py (algorithmic)",
+      "coverage": "current_year + next_year only",
+      "method": "Computed as 2nd Thursday of each month",
+      "gap": "Same limitation as CPI"
+    },
+    "jobs_nfp": {
+      "source": "shared/economic_calendar.py (algorithmic)",
+      "coverage": "current_year + next_year only",
+      "method": "First Friday of each month",
+      "accuracy": "high (NFP is consistently first Friday)",
+      "gap": "Same limitation — no historical dates"
+    },
+    "gdp": {
+      "source": "shared/economic_calendar.py (algorithmic)",
+      "coverage": "current_year + next_year only",
+      "method": "Last Thursday of Jan/Apr/Jul/Oct",
+      "gap": "Same limitation — no historical dates"
+    }
+  },
+  "missing_data": [
+    {
+      "data": "QQQ/IWM option prices",
+      "why_needed": "Multi-ticker backtesting — credit spreads on QQQ/IWM in addition to SPY",
+      "how_to_get": "Polygon API (same flow as SPY, just not cached yet)",
+      "priority": "high",
+      "blocking": "Phase 0.2 multi-ticker strategy modules"
+    },
+    {
+      "data": "FOMC dates 2020-2024",
+      "status": "RESOLVED — 42 dates backfilled into shared/constants.py (includes 3 COVID emergency meetings)",
+      "priority": "done"
+    },
+    {
+      "data": "Historical CPI/PPI/NFP exact dates 2020-2025",
+      "why_needed": "Event-driven strategy backtesting accuracy",
+      "how_to_get": "Hardcode from BLS release calendar, or modify EconomicCalendar to accept arbitrary year range",
+      "priority": "medium",
+      "blocking": "Phase 0.2 event-driven strategies"
+    },
+    {
+      "data": "Historical IV surface per day",
+      "why_needed": "IV-regime strategies, calendar spread pricing, accurate Greeks",
+      "how_to_get": "Polygon options snapshot API (expensive in API calls) or compute from option prices",
+      "priority": "medium",
+      "blocking": "Phase 0.2 calendar_spread.py, accurate delta-based sizing"
+    },
+    {
+      "data": "Options cache (data/options_cache.db)",
+      "why_needed": "All options strategies need strike/premium/Greeks data",
+      "how_to_get": "Set POLYGON_API_KEY and run cache builder. DB schema already exists in codebase.",
+      "priority": "critical",
+      "blocking": "Phase 0.2 all options strategy modules"
+    },
+    {
+      "data": "Underlying intraday bars (5-min, 15-min)",
+      "why_needed": "Intraday momentum strategies, 0DTE entry timing",
+      "how_to_get": "Polygon aggregates API or yfinance (limited to last 60 days for intraday)",
+      "priority": "low",
+      "blocking": "Phase 0.2 momentum_swing.py intraday mode"
+    },
+    {
+      "data": "Put/call ratio history",
+      "why_needed": "Sentiment indicator for regime detection",
+      "how_to_get": "Polygon options aggregates or CBOE data",
+      "priority": "low",
+      "blocking": "Phase 0.5 regime detection enrichment"
+    },
+    {
+      "data": "Earnings dates 2020-2025 for SPY constituents",
+      "why_needed": "Earnings play backtesting (straddle/strangle around earnings)",
+      "how_to_get": "yfinance .earnings_dates (limited history) or hardcode key ticker dates",
+      "priority": "low",
+      "blocking": "Phase 0.2 straddle_strangle.py earnings mode"
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": 1,
+      "action": "Set POLYGON_API_KEY environment variable",
+      "rationale": "Critical dependency — all options strategies require option chain data from Polygon",
+      "effort": "trivial"
+    },
+    {
+      "priority": 2,
+      "action": "Run options cache builder to populate data/options_cache.db",
+      "rationale": "SPY options data (strikes, premiums, Greeks) needed for every strategy module",
+      "effort": "medium (API rate limits, may take hours)"
+    },
+    {
+      "priority": 3,
+      "action": "Hardcode FOMC dates 2020-2024 into shared/constants.py",
+      "rationale": "Only 40 dates, publicly available, unlocks gamma lotto backtesting for full 6-year period",
+      "effort": "trivial",
+      "status": "DONE — 42 dates added (2020: 10 incl. 3 emergency, 2021-2024: 8 each)"
+    },
+    {
+      "priority": 4,
+      "action": "Modify EconomicCalendar to support arbitrary year ranges",
+      "rationale": "Current implementation only generates dates for current+next year, useless for backtesting 2020-2024",
+      "effort": "small"
+    },
+    {
+      "priority": 5,
+      "action": "Add TLT to regime detection pipeline",
+      "rationale": "TLT data is freely available via yfinance, adds bond market signal for risk-on/off regime detection",
+      "effort": "small"
+    },
+    {
+      "priority": 6,
+      "action": "Cache QQQ/IWM option chains when Polygon API is available",
+      "rationale": "Multi-ticker diversification is key path to 200% target — uncorrelated strategies across tickers",
+      "effort": "medium"
+    }
+  ],
+  "backfill_needed": [
+    {
+      "item": "FOMC dates 2020-2024",
+      "method": "hardcode",
+      "status": "DONE — 42 dates added to shared/constants.py",
+      "source": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+    },
+    {
+      "item": "CPI/PPI/NFP exact dates 2020-2025",
+      "method": "hardcode or extend EconomicCalendar",
+      "estimated_dates": 180,
+      "source": "BLS release schedule archives"
+    },
+    {
+      "item": "SPY options cache",
+      "method": "Polygon API → SQLite",
+      "dependency": "POLYGON_API_KEY must be set",
+      "estimated_api_calls": "~50k (6 years × ~250 days × ~30 contracts/day)"
+    },
+    {
+      "item": "QQQ/IWM options cache",
+      "method": "Polygon API → SQLite",
+      "dependency": "POLYGON_API_KEY must be set + SPY cache working first",
+      "estimated_api_calls": "~100k"
+    }
+  ],
+  "summary": {
+    "ohlcv_status": "COMPLETE — all 5 tickers (SPY, QQQ, IWM, VIX, TLT) have gap-free daily OHLCV from 2020-01-02 to 2025-12-30 via yfinance (1507 rows each)",
+    "options_status": "BLOCKED — no Polygon API key set, no options_cache.db exists, data/ directory missing",
+    "economic_calendar_status": "PARTIAL — FOMC covers 2025-2026 only, algorithmic calendar covers current+next year only, no historical coverage for backtesting",
+    "critical_blocker": "POLYGON_API_KEY not set → cannot build options cache → cannot backtest any options strategy",
+    "can_proceed_without_polygon": "Yes — Phase 0.2 strategy architecture can be built with synthetic/estimated option prices using Black-Scholes from OHLCV + VIX data. Accuracy will be lower but functional for parameter space exploration."
+  }
+}
