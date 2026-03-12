@@ -127,10 +127,14 @@ class ComboRegimeDetector:
         n_signals = len(self.signals)
         bear_required = n_signals if self.bear_unanimous else 2
 
+        # closes_prev: yesterday's close — used for price_vs_ma200 to keep the comparison
+        # look-ahead-free (regime on date T must only use data available through T-1).
+        closes_prev = closes.shift(1)
+
         result: Dict[pd.Timestamp, str] = {}
 
         for idx, ts in enumerate(price_data.index):
-            price = float(closes.loc[ts])
+            price = float(closes_prev.loc[ts])  # yesterday's close (no look-ahead)
             ma_s = ma_slow_prev.loc[ts]
             ma_f = ma_fast_prev.loc[ts] if ma_fast_prev is not None else float('nan')
             rsi = rsi_prev.loc[ts]
