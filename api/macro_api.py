@@ -60,6 +60,16 @@ logger = logging.getLogger(__name__)
 API_VERSION = "1.0.0"
 DEFAULT_PORT = 8420
 
+# Path to the dedicated price-history cache used by the /regime endpoint.
+# Separate from options_cache.db (which stores option contract data).
+# Tests check .exists() to decide whether to skip cache-dependent assertions.
+# Populated by: scripts/fetch_macro_cache.py (run once before live trading).
+MACRO_CACHE_DB: Path = PROJECT_ROOT / "data" / "macro_cache.db"
+
+# Tickers for which the /regime endpoint can compute a live regime signal.
+# Requires daily price history in options_cache.db (or a dedicated price cache).
+REGIME_SUPPORTED_UNDERLYINGS: frozenset = frozenset({"SPY"})
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Auth + rate limiting
@@ -596,6 +606,85 @@ def get_eligible(
         event_scaling=scaling,
         as_of_date=latest,
     )
+
+
+class RegimeResponse(BaseModel):
+    underlying:  str
+    regime:      str
+    signals:     Dict[str, Any]
+    as_of_date:  Optional[str]
+
+
+@app.get(
+    "/api/v1/macro/regime",
+    response_model=RegimeResponse,
+    tags=["Trading"],
+    summary="Live ComboRegimeDetector signal for a supported underlying",
+)
+def get_regime(
+    underlying: str = Query("SPY", description="Ticker symbol — see REGIME_SUPPORTED_UNDERLYINGS"),
+    _key: str = Depends(require_api_key),
+) -> RegimeResponse:
+    """
+    Returns the current ComboRegimeDetector regime (BULL / NEUTRAL / BEAR) for
+    the requested underlying, computed from daily price history in the local cache.
+
+    Only tickers in `REGIME_SUPPORTED_UNDERLYINGS` are accepted (currently: SPY).
+    Returns 503 if the price cache (options_cache.db) is unavailable.
+    """
+    ticker = underlying.upper()
+    if ticker not in REGIME_SUPPORTED_UNDERLYINGS:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Unsupported underlying '{ticker}'. "
+                f"Supported: {sorted(REGIME_SUPPORTED_UNDERLYINGS)}"
+            ),
+        )
+
+    if not MACRO_CACHE_DB.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="Price cache unavailable — run backtest data fetch first.",
+        )
+
+    try:
+        import pandas as pd
+        from ml.combo_regime_detector import ComboRegimeDetector
+
+        conn = sqlite3.connect(str(MACRO_CACHE_DB))
+        try:
+            rows = conn.execute(
+                "SELECT date, close FROM option_daily WHERE ticker=? ORDER BY date ASC",
+                (ticker,),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        if not rows:
+            raise HTTPException(status_code=503, detail=f"No price data for {ticker} in cache.")
+
+        prices = pd.Series(
+            {r[0]: float(r[1]) for r in rows},
+            dtype=float,
+        )
+        prices.index = pd.to_datetime(prices.index)
+
+        detector = ComboRegimeDetector()
+        regime_result = detector.get_regime(prices)
+        as_of = str(prices.index[-1].date()) if len(prices) > 0 else None
+
+        return RegimeResponse(
+            underlying=ticker,
+            regime=regime_result.get("regime", "NEUTRAL"),
+            signals=regime_result,
+            as_of_date=as_of,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Regime computation failed for %s", ticker)
+        raise HTTPException(status_code=503, detail=f"Regime computation error: {exc}")
 
 
 @app.get(

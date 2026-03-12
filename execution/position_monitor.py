@@ -378,6 +378,16 @@ class PositionMonitor:
         #    For credit=$1.50, mult=3.5: fires at current_value=$6.75
         sl_threshold = (1.0 + self.stop_loss_mult) * credit
 
+        # Sanity: sl_threshold must not exceed the spread's max possible value per contract.
+        # Fires when credit is in wrong units (e.g., per-contract instead of per-share).
+        _sw = abs(float(pos.get("short_strike") or 0) - float(pos.get("long_strike") or 0))
+        if _sw > 0 and sl_threshold > _sw * 100:
+            logger.warning(
+                "PositionMonitor: %s sl_threshold=%.2f exceeds spread_width*100=%.2f "
+                "(credit=%.4f × (1+%.1f), width=%.0f) — verify credit field units",
+                pos.get("id"), sl_threshold, _sw * 100, credit, self.stop_loss_mult, _sw,
+            )
+
         if current_value >= sl_threshold:
             logger.warning(
                 "PositionMonitor: %s stop loss hit: current=%.4f >= threshold=%.4f "
