@@ -263,7 +263,7 @@ class TestIronCondorExitMonitor:
         monitor = IronCondorExitMonitor(
             MockPaperTrader([trade]), bot, formatter=MockFormatter()
         )
-        triggered = monitor.check_and_alert({"SPY": 550.0})
+        triggered = monitor.check_and_alert({"SPY": 550.0}, now_et=_make_monday())
         assert len(triggered) == 1
         assert triggered[0]["reason"] == "profit_target"
         assert len(bot.sent) == 1
@@ -274,7 +274,7 @@ class TestIronCondorExitMonitor:
         monitor = IronCondorExitMonitor(
             MockPaperTrader([trade]), bot, formatter=MockFormatter()
         )
-        triggered = monitor.check_and_alert({"SPY": 550.0})
+        triggered = monitor.check_and_alert({"SPY": 550.0}, now_et=_make_monday())
         assert len(triggered) == 1
         assert triggered[0]["reason"] == "stop_loss"
 
@@ -295,7 +295,7 @@ class TestIronCondorExitMonitor:
         monitor = IronCondorExitMonitor(
             MockPaperTrader([trade]), bot, formatter=MockFormatter()
         )
-        triggered = monitor.check_and_alert({"SPY": 550.0})
+        triggered = monitor.check_and_alert({"SPY": 550.0}, now_et=_make_monday())
         assert len(triggered) == 1
         assert triggered[0]["reason"] == "profit_target"
 
@@ -305,7 +305,7 @@ class TestIronCondorExitMonitor:
         monitor = IronCondorExitMonitor(
             MockPaperTrader([trade]), bot, formatter=MockFormatter()
         )
-        triggered = monitor.check_and_alert({"SPY": 550.0})
+        triggered = monitor.check_and_alert({"SPY": 550.0}, now_et=_make_monday())
         assert len(triggered) == 1
         assert triggered[0]["reason"] == "stop_loss"
 
