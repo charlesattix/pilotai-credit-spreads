@@ -1,0 +1,118 @@
+{
+  "name": "Champion Config \u2014 Walk-Forward Validated",
+  "run_id": "endless_20260305_053514_ae5c",
+  "selected_date": "2026-03-05",
+  "validation": {
+    "base_avg_return": 12.6,
+    "base_worst_dd": -10.4,
+    "jitter_mean_return": 8.97,
+    "jitter_stability_ratio": 0.712,
+    "robustness_score": 0.772,
+    "wf_ratio": 0.631,
+    "wf_avg_oos_return": 9.48,
+    "wf_folds_profitable": "3/3",
+    "wf_fold_details": [
+      {
+        "fold": 1,
+        "train": "2020-2022",
+        "test": "2023",
+        "oos_return": 4.6,
+        "oos_dd": -7.3
+      },
+      {
+        "fold": 2,
+        "train": "2020-2023",
+        "test": "2024",
+        "oos_return": 4.5,
+        "oos_dd": -7.0
+      },
+      {
+        "fold": 3,
+        "train": "2020-2024",
+        "test": "2025",
+        "oos_return": 19.3,
+        "oos_dd": -6.7
+      }
+    ]
+  },
+  "strategies": [
+    "credit_spread",
+    "iron_condor",
+    "momentum_swing",
+    "debit_spread",
+    "zero_dte_spread"
+  ],
+  "strategy_params": {
+    "credit_spread": {
+      "direction": "regime_adaptive",
+      "trend_ma_period": 80,
+      "target_dte": 15,
+      "min_dte": 15,
+      "otm_pct": 0.02,
+      "spread_width": 12.0,
+      "profit_target_pct": 0.55,
+      "stop_loss_multiplier": 1.25,
+      "momentum_filter_pct": 2.0,
+      "scan_weekday": "any",
+      "max_risk_pct": 0.085
+    },
+    "iron_condor": {
+      "rsi_min": 35,
+      "rsi_max": 60,
+      "min_iv_rank": 45.0,
+      "target_dte": 30,
+      "min_dte": 20,
+      "otm_pct_put": 0.04,
+      "otm_pct_call": 0.03,
+      "spread_width": 12.0,
+      "min_combined_credit_pct": 0.25,
+      "profit_target_pct": 0.3,
+      "stop_loss_multiplier": 2.5,
+      "max_risk_pct": 0.035
+    },
+    "momentum_swing": {
+      "mode": "itm_debit_spread",
+      "ema_fast": 9,
+      "ema_slow": 34,
+      "min_adx": 28.0,
+      "rsi_period": 15,
+      "breakout_lookback": 35,
+      "trailing_stop_pct": 0.055,
+      "max_hold_days": 15,
+      "profit_target_pct": 0.13,
+      "max_risk_pct": 0.07,
+      "use_breakout": false,
+      "use_ema_cross": true
+    },
+    "debit_spread": {
+      "direction": "trend_following",
+      "trend_ma_period": 34,
+      "momentum_lookback": 12,
+      "min_momentum_pct": 1.5,
+      "target_dte": 12,
+      "spread_width": 3.0,
+      "profit_target_pct": 1.2,
+      "stop_loss_pct": 0.35,
+      "min_dte_exit": 1,
+      "max_risk_pct": 0.04
+    },
+    "zero_dte_spread": {
+      "ema_period": 20,
+      "otm_pct": 0.004,
+      "spread_width": 4.0,
+      "profit_target_pct": 0.50,
+      "stop_loss_multiplier": 2.0,
+      "min_credit": 0.15,
+      "min_vix": 12.0,
+      "max_vix_skip": 45.0,
+      "vix_reduce_threshold": 30.0,
+      "ic_vix_threshold": 20.0,
+      "rsi_min_ic": 40,
+      "rsi_max_ic": 60,
+      "gamma_breach_buffer_pct": 0.002,
+      "max_risk_pct": 0.02,
+      "max_zero_dte_exposure_pct": 0.10,
+      "max_gap_pct": 0.01
+    }
+  }
+}
