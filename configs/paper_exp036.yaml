@@ -1,0 +1,199 @@
+# ============================================================================
+# paper_exp036.yaml — SPY-only Compound Paper Trading Config
+# ============================================================================
+# Experiment: exp_036 (compound sizing, 10% risk, both directions, MA200)
+# Base strategy: exp_036_compound_risk10_both_ma200.json
+# Capital: SPY only, no sector ETFs, no COMPASS portfolio mode
+#
+# Usage:
+#   python main.py scheduler --config configs/paper_exp036.yaml \
+#                            --env-file .env.exp036
+#
+# Required env vars:
+#   ALPACA_API_KEY         — Alpaca paper trading API key
+#   ALPACA_API_SECRET      — Alpaca paper trading API secret
+#   POLYGON_API_KEY
+# ============================================================================
+
+# --- Paper trading safety flags ---
+paper_mode: true          # SAFETY: blocks live API URLs when true
+db_path: "data/pilotai_exp036.db"   # Isolated DB — prevents cross-contamination with other experiments
+
+# Tickers: SPY only
+tickers:
+  - SPY
+
+# ============================================================================
+# Strategy (exp_036 params: 10% flat risk, both directions, MA200)
+# ============================================================================
+strategy:
+  min_dte: 25
+  max_dte: 45
+  target_dte: 35
+
+  manage_dte: 0    # disabled — matches backtester (holds to expiration)
+
+  # Direction: both (bull put + bear call, gated by MA200 regime)
+  direction: both
+
+  # OTM percentage for strike selection (exp_036: 3% OTM)
+  otm_pct: 0.03
+
+  # Delta-based strike selection disabled (uses OTM pct)
+  use_delta_selection: false
+  target_delta: 0.12
+  min_delta: 0.20
+  max_delta: 0.30
+
+  # Spread width: $5 wide
+  spread_width: 5
+  spread_width_high_iv: 10
+  spread_width_low_iv: 5
+
+  # IV Rank filters (exp_036: no IV floor)
+  min_iv_rank: 0
+  min_iv_percentile: 0
+
+  # Iron condor — disabled (exp_036 is directional-only, pre-IC baseline)
+  iron_condor:
+    enabled: false
+
+  # Technical filters
+  technical:
+    use_trend_filter: true
+    use_rsi_filter: false     # exp_036: no RSI filter
+    use_support_resistance: false
+    fast_ma: 50
+    slow_ma: 200              # MA200 direction filter
+    rsi_period: 14
+    rsi_oversold: 30
+    rsi_overbought: 70
+
+  # Regime detection: combo (mandatory per Carlos; MA200 signal via slow_ma=200)
+  regime_mode: combo
+  regime_config:
+    signals:
+      - price_vs_ma200
+      - rsi_momentum
+      - vix_structure
+    ma_slow_period: 200
+    ma200_neutral_band_pct: 0.5
+    rsi_period: 14
+    rsi_bull_threshold: 55.0
+    rsi_bear_threshold: 45.0
+    vix_structure_bull: 0.95
+    vix_structure_bear: 1.05
+    bear_requires_unanimous: true
+    cooldown_days: 3
+    vix_extreme: 40.0
+  neutral_band: 0.5
+
+# ============================================================================
+# Risk Management (exp_036 params)
+# ============================================================================
+risk:
+  account_size: 100000
+
+  # 10% risk per trade (exp_036 key param)
+  max_risk_per_trade: 10.0
+
+  # Sizing mode: flat = uses starting_capital as base (exp_036)
+  sizing_mode: flat
+
+  # Compound: true — equity compounds for DD tracking
+  compound: true
+
+  # Contract limits
+  min_contracts: 1
+  max_contracts: 25
+
+  # Position limits
+  max_positions: 10
+  max_positions_per_ticker: 2
+
+  scan_days: [0, 1, 2, 3, 4]
+
+  # Profit target: 50% of credit (exp_036)
+  profit_target: 50
+
+  # Stop loss: 2.5x credit (exp_036)
+  stop_loss_multiplier: 2.5
+  stop_loss_pct_of_width: 90
+
+  delta_threshold: 0.30
+
+  # Minimum credit: 8% of spread width (exp_036)
+  min_credit_pct: 8
+
+  # Portfolio-level risk limits
+  portfolio_risk:
+    max_portfolio_risk_pct: 40
+    max_single_ticker_pct: 40
+    max_same_expiration: 4
+
+  # Drawdown circuit breaker: exp_036 uses 40%
+  drawdown_cb_pct: 40
+
+  # Cooldown: 3 bars after CB fires before re-entry
+  cooldown_bars: 3
+
+  # No rolling
+  enable_rolling: false
+  max_rolls_per_position: 0
+  min_roll_credit: 0.30
+
+# ============================================================================
+# Alpaca Paper Trading
+# ============================================================================
+alpaca:
+  enabled: true
+  paper: true                          # MUST be true for paper_mode config
+  base_url: "https://paper-api.alpaca.markets"
+  api_key: "${ALPACA_API_KEY}"
+  api_secret: "${ALPACA_API_SECRET}"
+
+# ============================================================================
+# Alert Settings
+# ============================================================================
+alerts:
+  output_json: true
+  output_text: true
+  output_csv: true
+  json_file: "alerts_exp036.json"
+  text_file: "alerts_exp036.txt"
+  csv_file: "alerts_exp036.csv"
+
+  telegram:
+    enabled: false    # exp_036 monitoring via log only; enable when needed
+
+# ============================================================================
+# Data Settings
+# ============================================================================
+data:
+  provider: "polygon"
+  polygon:
+    api_key: "${POLYGON_API_KEY}"
+    sandbox: false
+  backtest_lookback: 365
+  use_cache: true
+  cache_expiry_minutes: 15
+
+# ============================================================================
+# Logging
+# ============================================================================
+logging:
+  level: "INFO"
+  file: "logs/paper_exp036.log"
+  console: true
+
+# ============================================================================
+# Backtesting (exp_036 validated params)
+# ============================================================================
+backtest:
+  starting_capital: 100000
+  commission_per_contract: 0.65
+  slippage: 0.05
+  exit_slippage: 0.10
+  score_threshold: 25
+  generate_reports: true
+  report_dir: "output/backtest_reports"
