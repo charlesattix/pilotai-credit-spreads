@@ -44,6 +44,8 @@ strategy:
   otm_pct: 0.02            # 2% OTM
   use_delta_selection: false
   target_delta: 0.12
+  min_delta: 0.08
+  max_delta: 0.18
 
   # --- Spread construction ---
   spread_width: 12          # $12 wide spreads
@@ -160,6 +162,14 @@ alerts:
   telegram:
     enabled: true
     # Uses TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID from env
+
+# ============================================================================
+# Logging
+# ============================================================================
+logging:
+  level: "INFO"
+  file: "logs/paper_champion.log"
+  console: true
 
 # ============================================================================
 # Data
