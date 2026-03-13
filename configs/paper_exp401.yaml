@@ -20,6 +20,7 @@
 # --- Paper trading safety flags ---
 paper_mode: true
 db_path: "data/pilotai_exp401.db"
+experiment_id: "EXP-401"  # Prefix for Telegram alerts
 
 # Tickers
 tickers:
