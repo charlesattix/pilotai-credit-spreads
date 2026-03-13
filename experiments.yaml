@@ -1,0 +1,11 @@
+exp400:
+  config_file: configs/paper_champion.yaml
+  env_file: .env.champion
+  tmux_session: pilotai-exp400
+  db_path: data/pilotai_champion.db
+
+exp401:
+  config_file: configs/paper_exp401.yaml
+  env_file: .env.exp401
+  tmux_session: pilotai-exp401
+  db_path: data/pilotai_exp401.db
