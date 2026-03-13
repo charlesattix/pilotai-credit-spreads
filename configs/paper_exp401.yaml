@@ -43,6 +43,8 @@ strategy:
   otm_pct: 0.02
   use_delta_selection: false
   target_delta: 0.12
+  min_delta: 0.08
+  max_delta: 0.18
 
   # --- Spread construction ---
   spread_width: 12
@@ -134,6 +136,12 @@ risk:
   stop_loss_multiplier: 1.25
   stop_loss_pct_of_width: 90
 
+  # Delta threshold for position exit
+  delta_threshold: 0.30
+
+  # Minimum credit: 5% of spread width
+  min_credit_pct: 5
+
   # Momentum filter
   momentum_filter_pct: 2.0
 
@@ -189,6 +197,14 @@ alerts:
 
   telegram:
     enabled: true
+
+# ============================================================================
+# Logging
+# ============================================================================
+logging:
+  level: "INFO"
+  file: "logs/paper_exp401.log"
+  console: true
 
 # ============================================================================
 # Data

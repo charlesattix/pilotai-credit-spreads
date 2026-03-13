@@ -718,6 +718,13 @@ def create_system(config_file: str = 'config.yaml', env_file: str = None) -> Cre
     config = load_config(config_file, env_file=env_file)
     validate_config(config)
     _validate_paper_mode_safety(config)
+
+    # Bug #1 fix: honour YAML db_path for experiment isolation.
+    # CLI arg (--db-path) takes priority → already in env.  YAML is next.
+    if not os.environ.get('PILOTAI_DB_PATH') and config.get('db_path'):
+        os.environ['PILOTAI_DB_PATH'] = config['db_path']
+        logger.info("Using db_path from config: %s", config['db_path'])
+
     setup_logging(config)
 
     system = CreditSpreadSystem(config=config)

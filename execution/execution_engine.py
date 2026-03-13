@@ -13,7 +13,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, Optional
 
-from shared.database import upsert_trade, init_db
+from shared.database import upsert_trade, init_db, get_trade_by_id
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +79,20 @@ class ExecutionEngine:
         # Build deterministic client_order_id (hash of key fields for idempotency)
         raw_id = f"{ticker}-{spread_type}-{expiration}-{short_strike}-{long_strike}"
         client_id = "cs-" + hashlib.sha256(raw_id.encode()).hexdigest()[:16]
+
+        # Bug #3 fix: defense-in-depth duplicate check before submitting.
+        # If dedup layer fails (Bug #2) the same opportunity can arrive again.
+        try:
+            existing = get_trade_by_id(client_id, path=self.db_path)
+            if existing and existing.get("status") not in ("rejected", "cancelled"):
+                logger.info(
+                    "ExecutionEngine: trade %s already exists (status=%s), skipping duplicate",
+                    client_id, existing.get("status"),
+                )
+                return {"status": "duplicate", "client_order_id": client_id,
+                        "message": f"trade already exists with status={existing.get('status')}"}
+        except Exception as e:
+            logger.debug("ExecutionEngine: duplicate check failed (non-fatal): %s", e)
 
         # Write to DB FIRST in pending_open state before touching Alpaca
         trade_record = {
