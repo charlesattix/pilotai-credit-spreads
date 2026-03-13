@@ -18,6 +18,16 @@ from shared.constants import DEFAULT_RISK_FREE_RATE
 
 logger = logging.getLogger(__name__)
 
+# Position sizing multipliers per regime for straddle/strangle.
+# high_vol=1.5 because vol crush after events is richest when IV is elevated.
+SS_REGIME_SIZE_SCALE = {
+    "bull": 1.0,
+    "bear": 0.8,
+    "high_vol": 1.5,
+    "low_vol": 1.0,
+    "crash": 0.5,
+}
+
 
 class StraddleStrangleStrategy(BaseStrategy):
     """Long or short vol around economic events."""
@@ -54,14 +64,16 @@ class StraddleStrangleStrategy(BaseStrategy):
             # Long pre-event: use upcoming events
             if mode in ("long_pre_event", "both"):
                 for event in upcoming:
-                    sig = self._build_long(ticker, price, iv, market_data.date, event)
+                    sig = self._build_long(ticker, price, iv, market_data.date, event,
+                                           regime=market_data.regime)
                     if sig:
                         signals.append(sig)
 
             # Short post-event: use recent (just-passed) events
             if mode in ("short_post_event", "both"):
                 for event in recent:
-                    sig = self._build_short(ticker, price, iv, market_data.date, event)
+                    sig = self._build_short(ticker, price, iv, market_data.date, event,
+                                            regime=market_data.regime)
                     if sig:
                         signals.append(sig)
 
@@ -69,7 +81,7 @@ class StraddleStrangleStrategy(BaseStrategy):
 
     def _build_long(
         self, ticker: str, price: float, iv: float,
-        date, event: Dict,
+        date, event: Dict, regime: str | None = None,
     ) -> Signal | None:
         """Buy straddle/strangle before event."""
         target_dte = self._p("target_dte", 7)
@@ -116,12 +128,13 @@ class StraddleStrangleStrategy(BaseStrategy):
                 "trade_type": "long_straddle" if otm_pct == 0 else "long_strangle",
                 "event_type": event.get("event_type", ""),
                 "event_date": str(event.get("date", "")),
+                "regime": regime,
             },
         )
 
     def _build_short(
         self, ticker: str, price: float, iv: float,
-        date, event: Dict,
+        date, event: Dict, regime: str | None = None,
     ) -> Signal | None:
         """Sell straddle/strangle after event (IV crush).
 
@@ -176,6 +189,7 @@ class StraddleStrangleStrategy(BaseStrategy):
                 "event_type": event.get("event_type", ""),
                 "iv_at_entry": iv,
                 "expected_crushed_iv": crushed_iv,
+                "regime": regime,
             },
         )
 
@@ -219,6 +233,16 @@ class StraddleStrangleStrategy(BaseStrategy):
     ) -> int:
         max_risk_pct = self._p("max_risk_pct", 0.02)
         risk_budget = portfolio_state.equity * max_risk_pct
+
+        # Regime-based sizing adjustment
+        regime = signal.metadata.get("regime") if signal.metadata else None
+        if regime:
+            key = f"regime_scale_{regime.lower()}"
+            scale = self._p(key, SS_REGIME_SIZE_SCALE.get(regime.lower(), 1.0))
+            if scale <= 0:
+                return 0
+            risk_budget *= scale
+
         risk_per_unit = signal.max_loss * 100
         if risk_per_unit <= 0:
             return 0

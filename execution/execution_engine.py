@@ -96,11 +96,16 @@ class ExecutionEngine:
         }
         # For iron condors, preserve per-wing strikes in metadata so PositionMonitor
         # can build OCC symbols for all 4 legs when pricing and closing.
-        if "condor" in spread_type.lower():
+        spread_lower = spread_type.lower()
+        if "condor" in spread_lower:
             trade_record["put_short_strike"] = opp.get("put_short_strike", short_strike)
             trade_record["put_long_strike"] = opp.get("put_long_strike", long_strike)
             trade_record["call_short_strike"] = opp.get("call_short_strike", short_strike)
             trade_record["call_long_strike"] = opp.get("call_long_strike", long_strike)
+        elif "straddle" in spread_lower or "strangle" in spread_lower:
+            trade_record["call_strike"] = opp.get("call_strike", 0)
+            trade_record["put_strike"] = opp.get("put_strike", 0)
+            trade_record["is_debit"] = opp.get("is_debit", False)
         try:
             upsert_trade(trade_record, source="execution", path=self.db_path)
         except Exception as e:
@@ -135,6 +140,8 @@ class ExecutionEngine:
         try:
             if "condor" in spread_type.lower():
                 result = self._submit_iron_condor(opp, contracts, credit, client_id)
+            elif "straddle" in spread_type.lower() or "strangle" in spread_type.lower():
+                result = self._submit_straddle(opp, contracts, credit, client_id)
             else:
                 result = self.alpaca.submit_credit_spread(
                     ticker=ticker,
@@ -226,4 +233,80 @@ class ExecutionEngine:
             "status": "submitted",
             "order_id": put_result.get("order_id"),
             "call_order_id": call_result.get("order_id"),
+        }
+
+    def _submit_straddle(self, opp: Dict, contracts: int, credit: float, client_id: str) -> Dict:
+        """Submit straddle/strangle as two single-leg orders (call + put).
+
+        For long positions: buy-to-open both legs.
+        For short positions: sell-to-open both legs.
+        Same rollback pattern as IC: if second leg fails, cancel first.
+        """
+        ticker = opp.get("ticker", "UNK")
+        expiration = str(opp.get("expiration", "")).split(" ")[0]
+        spread_type = opp.get("type", "short_straddle")
+        call_strike = opp.get("call_strike", 0)
+        put_strike = opp.get("put_strike", 0)
+        is_long = spread_type.startswith("long_")
+
+        # Determine order sides
+        if is_long:
+            call_side, put_side = "buy", "buy"
+        else:
+            call_side, put_side = "sell", "sell"
+
+        # Submit call leg
+        call_result = self.alpaca.submit_single_leg(
+            ticker=ticker,
+            strike=call_strike,
+            expiration=expiration,
+            option_type="call",
+            side=call_side,
+            contracts=contracts,
+            limit_price=abs(credit / 2) if credit else None,
+            client_order_id=client_id + "-call",
+        )
+
+        if call_result.get("status") != "submitted":
+            logger.error(
+                "ExecutionEngine: call leg failed for straddle %s: %s",
+                client_id, call_result,
+            )
+            return {"status": "partial_error", "call_result": call_result, "put_result": None}
+
+        # Submit put leg
+        put_result = self.alpaca.submit_single_leg(
+            ticker=ticker,
+            strike=put_strike,
+            expiration=expiration,
+            option_type="put",
+            side=put_side,
+            contracts=contracts,
+            limit_price=abs(credit / 2) if credit else None,
+            client_order_id=client_id + "-put",
+        )
+
+        if put_result.get("status") != "submitted":
+            call_order_id = call_result.get("order_id")
+            logger.error(
+                "ExecutionEngine: put leg failed for straddle %s — "
+                "attempting to cancel call leg order_id=%s: %s",
+                client_id, call_order_id, put_result,
+            )
+            if call_order_id:
+                try:
+                    self.alpaca.cancel_order(call_order_id)
+                    logger.info("ExecutionEngine: call leg cancel requested for order_id=%s", call_order_id)
+                except Exception as cancel_err:
+                    logger.error(
+                        "ExecutionEngine: CRITICAL — call leg cancel FAILED for order_id=%s: %s. "
+                        "Manual intervention required.",
+                        call_order_id, cancel_err,
+                    )
+            return {"status": "partial_error", "call_result": call_result, "put_result": put_result}
+
+        return {
+            "status": "submitted",
+            "order_id": call_result.get("order_id"),
+            "put_order_id": put_result.get("order_id"),
         }

@@ -26,6 +26,11 @@ class IronCondorStrategy(BaseStrategy):
 
     def generate_signals(self, market_data: MarketSnapshot) -> List[Signal]:
         signals = []
+
+        # Skip crash regime entirely
+        if market_data.regime and market_data.regime.lower() == "crash":
+            return []
+
         weekday = market_data.date.weekday()
         if weekday not in (0, 1):  # Mon/Tue only
             return []
@@ -136,6 +141,7 @@ class IronCondorStrategy(BaseStrategy):
                 "call_credit": call_credit,
                 "put_short": put_short,
                 "call_short": call_short,
+                "regime": market_data.regime,
             },
         )
 
@@ -167,6 +173,13 @@ class IronCondorStrategy(BaseStrategy):
     ) -> int:
         max_risk_pct = self._p("max_risk_pct", 0.02)
         risk_budget = portfolio_state.equity * max_risk_pct
+
+        # Reduce sizing in high-vol regime
+        regime = signal.metadata.get("regime") if signal.metadata else None
+        if regime and regime.lower() == "high_vol":
+            high_vol_scale = self._p("high_vol_size_scale", 0.5)
+            risk_budget *= high_vol_scale
+
         risk_per_unit = signal.max_loss * 100
         if risk_per_unit <= 0:
             return 0
