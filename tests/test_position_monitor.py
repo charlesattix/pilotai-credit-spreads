@@ -45,7 +45,7 @@ def _make_alpaca(positions: List[Dict] = None, order_status: Dict = None):
     # Mirror _build_occ_symbol from real provider
     def _build_occ(ticker, expiration, strike, opt_type):
         cp = "C" if opt_type.lower().startswith("c") else "P"
-        strike_int = int(float(strike) * 1000)
+        strike_int = int(round(float(strike) * 1000))
         # simplify: just ticker+cp+strike for test readability
         return f"{ticker.upper()}{cp}{strike_int:08d}"
     mock._build_occ_symbol.side_effect = _build_occ

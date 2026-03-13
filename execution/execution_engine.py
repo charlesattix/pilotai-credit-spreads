@@ -71,8 +71,8 @@ class ExecutionEngine:
         ticker = opp.get("ticker", "UNK")
         spread_type = opp.get("type", opp.get("strategy_type", "unknown"))
         expiration = opp.get("expiration", "")
-        short_strike = opp.get("short_strike", 0)
-        long_strike = opp.get("long_strike", 0)
+        short_strike = round(float(opp.get("short_strike", 0) or 0), 2)
+        long_strike = round(float(opp.get("long_strike", 0) or 0), 2)
         credit = float(opp.get("credit", opp.get("credit_per_spread", 0)) or 0)
         contracts = int(opp.get("contracts", 1))
 
@@ -112,13 +112,13 @@ class ExecutionEngine:
         # can build OCC symbols for all 4 legs when pricing and closing.
         spread_lower = spread_type.lower()
         if "condor" in spread_lower:
-            trade_record["put_short_strike"] = opp.get("put_short_strike", short_strike)
-            trade_record["put_long_strike"] = opp.get("put_long_strike", long_strike)
-            trade_record["call_short_strike"] = opp.get("call_short_strike", short_strike)
-            trade_record["call_long_strike"] = opp.get("call_long_strike", long_strike)
+            trade_record["put_short_strike"] = round(float(opp.get("put_short_strike", short_strike) or short_strike), 2)
+            trade_record["put_long_strike"] = round(float(opp.get("put_long_strike", long_strike) or long_strike), 2)
+            trade_record["call_short_strike"] = round(float(opp.get("call_short_strike", short_strike) or short_strike), 2)
+            trade_record["call_long_strike"] = round(float(opp.get("call_long_strike", long_strike) or long_strike), 2)
         elif "straddle" in spread_lower or "strangle" in spread_lower:
-            trade_record["call_strike"] = opp.get("call_strike", 0)
-            trade_record["put_strike"] = opp.get("put_strike", 0)
+            trade_record["call_strike"] = round(float(opp.get("call_strike", 0) or 0), 2)
+            trade_record["put_strike"] = round(float(opp.get("put_strike", 0) or 0), 2)
             trade_record["is_debit"] = opp.get("is_debit", False)
         try:
             upsert_trade(trade_record, source="execution", path=self.db_path)
@@ -195,10 +195,10 @@ class ExecutionEngine:
         ticker = opp.get("ticker", "UNK")
         expiration = str(opp.get("expiration", "")).split(" ")[0]
 
-        put_short = opp.get("put_short_strike") or opp.get("short_strike", 0)
-        put_long = opp.get("put_long_strike") or opp.get("long_strike", 0)
-        call_short = opp.get("call_short_strike") or opp.get("short_strike", 0)
-        call_long = opp.get("call_long_strike") or opp.get("long_strike", 0)
+        put_short = round(float(opp.get("put_short_strike") or opp.get("short_strike", 0)), 2)
+        put_long = round(float(opp.get("put_long_strike") or opp.get("long_strike", 0)), 2)
+        call_short = round(float(opp.get("call_short_strike") or opp.get("short_strike", 0)), 2)
+        call_long = round(float(opp.get("call_long_strike") or opp.get("long_strike", 0)), 2)
 
         # Split credit approximately 50/50 between wings
         put_credit = credit / 2 if credit > 0 else None
@@ -259,8 +259,8 @@ class ExecutionEngine:
         ticker = opp.get("ticker", "UNK")
         expiration = str(opp.get("expiration", "")).split(" ")[0]
         spread_type = opp.get("type", "short_straddle")
-        call_strike = opp.get("call_strike", 0)
-        put_strike = opp.get("put_strike", 0)
+        call_strike = round(float(opp.get("call_strike", 0) or 0), 2)
+        put_strike = round(float(opp.get("put_strike", 0) or 0), 2)
         is_long = spread_type.startswith("long_")
 
         # Determine order sides

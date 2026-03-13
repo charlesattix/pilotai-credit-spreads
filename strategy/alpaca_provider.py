@@ -193,7 +193,7 @@ class AlpacaProvider:
 
         date_str = exp_dt.strftime("%y%m%d")
         cp = "C" if option_type.lower().startswith("c") else "P"
-        strike_int = int(strike * 1000)
+        strike_int = int(round(strike * 1000))
         return f"{ticker.upper():<6}{date_str}{cp}{strike_int:08d}".replace(" ", "")
 
     def find_option_symbol(self, ticker: str, expiration: str, strike: float, option_type: str) -> Optional[str]:
@@ -201,6 +201,9 @@ class AlpacaProvider:
         Look up the actual Alpaca option contract symbol via the API.
         Falls back to OCC symbol construction if lookup fails.
         """
+        # Round strike to avoid floating-point imprecision in API query
+        # (e.g. 682.9999... → "682.9999..." instead of "683.0")
+        strike = round(float(strike), 2)
         try:
             ct = ContractType.CALL if option_type.lower().startswith("c") else ContractType.PUT
             req = GetOptionContractsRequest(

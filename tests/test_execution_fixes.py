@@ -845,3 +845,129 @@ class TestVixFallbackNeutral:
         system.strategy._combo_regime_detector = None
         system._analyze_ticker("SPY")
         assert "combo_regime" not in signals
+
+
+# ---------------------------------------------------------------------------
+# Strike price preservation tests
+# ---------------------------------------------------------------------------
+
+class TestStrikePricePreservation:
+    """Verify strike prices are preserved exactly through the execution pipeline.
+
+    Regression test for the $1 call-strike shift bug: iron condor call strikes
+    were recorded as $682/$694 when they should have been $683/$695, causing
+    reconciler orphans.
+
+    Root cause: int(strike * 1000) in OCC symbol builder truncates instead of
+    rounding, so any floating-point imprecision (e.g. 682.999...) silently
+    shifts the strike by $1.
+    """
+
+    def test_occ_symbol_rounds_not_truncates(self):
+        """_build_occ_symbol must use round() so FP imprecision doesn't shift strikes."""
+        from strategy.alpaca_provider import AlpacaProvider
+
+        # Monkey-patch __init__ so we don't need real API credentials
+        original_init = AlpacaProvider.__init__
+        try:
+            AlpacaProvider.__init__ = lambda self, *a, **kw: None
+            provider = AlpacaProvider.__new__(AlpacaProvider)
+
+            # Exact value — should always work
+            sym = provider._build_occ_symbol("SPY", "2026-04-15", 683.0, "call")
+            assert "00683000" in sym
+
+            # Simulate FP imprecision: 682.9999999999 should round to 683, not truncate to 682
+            sym_imprecise = provider._build_occ_symbol("SPY", "2026-04-15", 682.9999999999, "call")
+            assert "00683000" in sym_imprecise, (
+                f"Expected strike 683000 but got {sym_imprecise} — "
+                "int() truncation bug (should use round())"
+            )
+
+            # Same for the long strike
+            sym_long = provider._build_occ_symbol("SPY", "2026-04-15", 694.9999999999, "call")
+            assert "00695000" in sym_long
+        finally:
+            AlpacaProvider.__init__ = original_init
+
+    def test_execution_engine_rounds_ic_strikes(self):
+        """ExecutionEngine must round per-wing IC strikes before storing in trade record."""
+        from execution.execution_engine import ExecutionEngine
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test.db")
+            engine = ExecutionEngine(alpaca_provider=None, db_path=db_path)
+
+            opp = {
+                "ticker": "SPY",
+                "type": "iron_condor",
+                "expiration": "2026-04-15",
+                # Exact put side
+                "short_strike": 650.0,
+                "long_strike": 638.0,
+                "put_short_strike": 650.0,
+                "put_long_strike": 638.0,
+                # Imprecise call side (simulates FP drift)
+                "call_short_strike": 682.9999999999,
+                "call_long_strike": 694.9999999999,
+                "credit": 3.50,
+                "contracts": 1,
+            }
+
+            result = engine.submit_opportunity(opp)
+            assert result["status"] == "dry_run"
+
+            # Read back from DB and verify strikes
+            from shared.database import get_trade_by_id
+            trade = get_trade_by_id(result["client_order_id"], path=db_path)
+            assert trade is not None
+
+            # Call strikes must be rounded to exact values, not truncated
+            assert trade["call_short_strike"] == 683.0, (
+                f"Expected 683.0 but got {trade['call_short_strike']} — "
+                "strike not rounded before DB storage"
+            )
+            assert trade["call_long_strike"] == 695.0, (
+                f"Expected 695.0 but got {trade['call_long_strike']} — "
+                "strike not rounded before DB storage"
+            )
+            # Put side should also be exact
+            assert trade["put_short_strike"] == 650.0
+            assert trade["put_long_strike"] == 638.0
+
+    def test_alert_legs_preserve_strikes_through_pipeline(self):
+        """Strike prices must survive: opportunity → Alert → execution dict unchanged."""
+        from alerts.alert_schema import Alert
+        from alerts.alert_router import AlertRouter
+
+        opp = {
+            "ticker": "SPY",
+            "type": "iron_condor",
+            "expiration": "2026-04-15",
+            "short_strike": 650.0,
+            "long_strike": 638.0,
+            "call_short_strike": 683.0,
+            "call_long_strike": 695.0,
+            "credit": 3.50,
+            "stop_loss": 7.00,
+            "profit_target": 1.75,
+            "score": 75,
+            "pop": 80,
+            "dte": 30,
+            "risk_reward": 0.5,
+            "spread_width": 12,
+        }
+
+        # Step 1: Convert to Alert
+        alert = Alert.from_opportunity(opp)
+        assert len(alert.legs) == 4
+
+        # Step 2: Build execution dict (same as AlertRouter._build_execution_dict)
+        router = AlertRouter.__new__(AlertRouter)
+        exec_dict = router._build_execution_dict(alert)
+
+        # Verify all 4 strikes survive exactly
+        assert exec_dict["put_short_strike"] == 650.0
+        assert exec_dict["put_long_strike"] == 638.0
+        assert exec_dict["call_short_strike"] == 683.0
+        assert exec_dict["call_long_strike"] == 695.0

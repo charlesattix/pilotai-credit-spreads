@@ -52,7 +52,7 @@ def _make_alpaca(
 
     def _build_occ(ticker, expiration, strike, opt_type):
         cp = "C" if opt_type.lower().startswith("c") else "P"
-        strike_int = int(float(strike) * 1000)
+        strike_int = int(round(float(strike) * 1000))
         return f"{ticker.upper()}{cp}{strike_int:08d}"
 
     mock._build_occ_symbol.side_effect = _build_occ
