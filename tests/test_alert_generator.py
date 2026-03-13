@@ -57,9 +57,9 @@ class TestAlertGenerator:
         assert gen.generate_alerts([]) == {}
 
     def test_generate_alerts_filters_low_score(self):
-        """Only opportunities with score >= 60 should produce alerts."""
+        """Opportunities below min_alert_score (default 28) should produce no alerts."""
         gen = AlertGenerator(_make_config())
-        opps = [_make_opportunity(score=30)]
+        opps = [_make_opportunity(score=20)]
         assert gen.generate_alerts(opps) == {}
 
     def test_generate_alerts_produces_outputs(self):
