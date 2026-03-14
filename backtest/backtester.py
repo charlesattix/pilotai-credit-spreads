@@ -1346,7 +1346,6 @@ class Backtester:
             return None
 
         stop_loss_multiplier = self.risk_params['stop_loss_multiplier']
-        commission_cost = self.commission * 4  # 4 legs (entry)
         # P0-C fix: worst case is BOTH wings simultaneously ITM (gap open / flash crash).
         # One-wing assumption leads to ~2x oversizing and miscalibrated stop thresholds.
         max_loss = (2 * spread_width) - combined_credit
@@ -1409,6 +1408,7 @@ class Backtester:
         slippage_applied = (
             put_leg.get('slippage_applied', 0.0) + call_leg.get('slippage_applied', 0.0)
         )
+        commission_cost = self.commission * 4 * contracts  # 4 legs × contracts
 
         position = {
             'ticker': ticker,
@@ -1593,8 +1593,6 @@ class Backtester:
         if credit <= 0:
             return None
 
-        commission_cost = self.commission * 2  # Two legs
-
         max_loss = spread_width - credit
 
         risk_per_spread = max_loss * 100
@@ -1698,6 +1696,8 @@ class Backtester:
                 self._volume_skipped += 1
                 return None
 
+        commission_cost = self.commission * 2 * contracts  # Two legs × contracts
+
         position = {
             'ticker': ticker,
             'type': spread_type,
@@ -1752,7 +1752,6 @@ class Backtester:
 
         credit = spread_width * BACKTEST_CREDIT_FRACTION
         credit -= self.slippage
-        commission_cost = self.commission * 2
 
         max_loss = spread_width - credit
 
@@ -1762,6 +1761,7 @@ class Backtester:
         max_risk = account_base * (self.risk_params['max_risk_per_trade'] / 100)
         max_contracts_cap = self.risk_params.get('max_contracts', 999)
         contracts = max(1, min(max_contracts_cap, int(max_risk / risk_per_spread)))
+        commission_cost = self.commission * 2 * contracts  # Two legs × contracts
 
         position = {
             'ticker': ticker,

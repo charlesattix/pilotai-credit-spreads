@@ -1746,8 +1746,8 @@ class TestIronCondorExpiration:
         assert result['contracts'] == expected   # 12
         assert result['contracts'] == 12         # explicit sanity check
 
-        # IC entry deducts commission for 4 legs (2 per wing, no per-contract scaling).
-        ic_commission = bt.commission * 4  # = 0.65 * 4 = 2.60
+        # IC entry deducts commission for 4 legs × contract count.
+        ic_commission = bt.commission * 4 * result['contracts']  # = 0.65 * 4 * 12 = 31.20
         assert bt.capital == pytest.approx(100_000 - ic_commission, rel=1e-6)
 
     def test_ic_intraday_exit_applies_double_slippage(self):
