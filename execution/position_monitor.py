@@ -1232,3 +1232,16 @@ class PositionMonitor:
             fl.log_outcome(pos_id, outcome, pnl_pct, hold_days)
         except Exception as e_ml:
             logger.warning("PositionMonitor: feature outcome logging failed for %s (non-fatal): %s", pos_id, e_ml)
+
+        # INF-5: Record per-trade deviation (paper vs backtest expectations)
+        try:
+            from shared.deviation_tracker import record_deviation
+            record_deviation(
+                trade=pos,
+                pnl=pnl,
+                fill_price=fill_price,
+                db_path=self.db_path,
+                config=self.config,
+            )
+        except Exception as e_dev:
+            logger.warning("PositionMonitor: deviation tracking failed for %s (non-fatal): %s", pos_id, e_dev)

@@ -113,6 +113,21 @@ def init_db(path: Optional[str] = None) -> None:
                 details JSON,
                 created_at TEXT DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS trade_deviations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id TEXT UNIQUE NOT NULL,
+                paper_credit REAL,
+                expected_credit REAL,
+                paper_pnl_pct REAL,
+                expected_pnl_pct REAL,
+                paper_hold_days REAL,
+                expected_hold_days REAL,
+                paper_outcome TEXT,
+                expected_outcome TEXT,
+                deviation_score REAL,
+                timestamp TEXT DEFAULT (datetime('now'))
+            );
         """)
         conn.commit()
 
