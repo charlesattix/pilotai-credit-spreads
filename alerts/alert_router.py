@@ -106,14 +106,14 @@ class AlertRouter:
             logger.info("AlertRouter: no qualifying opportunities (score >= 60)")
             return []
 
-        # 2. Deduplicate
+        # 2. Deduplicate — key includes type so IC and straddle don't conflict
         now = datetime.now(timezone.utc)
         deduped: List[Alert] = []
         for alert in alerts:
-            key = (alert.ticker, alert.direction.value)
+            key = (alert.ticker, alert.direction.value, alert.type.value)
             last_routed = self._dedup_ledger.get(key)
             if last_routed and (now - last_routed).total_seconds() < _DEDUP_WINDOW:
-                logger.debug("AlertRouter: dedup skip %s %s", alert.ticker, alert.direction.value)
+                logger.debug("AlertRouter: dedup skip %s %s %s", alert.ticker, alert.direction.value, alert.type.value)
                 continue
             deduped.append(alert)
 
@@ -162,16 +162,16 @@ class AlertRouter:
             # ledger as it stands RIGHT NOW — after previous alerts in this loop
             # have been marked — so the 2nd/3rd SPY iron_condor is caught here.
             #
-            # This also enforces "max 1 trade per ticker/direction per scan": once
-            # SPY/neutral is dispatched and marked, every subsequent SPY/neutral
-            # alert in the same scan is blocked below.
-            key = (alert.ticker, alert.direction.value)
+            # This also enforces "max 1 trade per ticker/direction/type per scan": once
+            # SPY/neutral/iron_condor is dispatched and marked, every subsequent
+            # SPY/neutral/iron_condor alert in the same scan is blocked below.
+            key = (alert.ticker, alert.direction.value, alert.type.value)
             last_routed = self._dedup_ledger.get(key)
             if last_routed and (now - last_routed).total_seconds() < _DEDUP_WINDOW:
                 logger.info(
-                    "AlertRouter: within-scan dedup blocked %s %s "
+                    "AlertRouter: within-scan dedup blocked %s %s %s "
                     "(already dispatched this scan — frequency guard)",
-                    alert.ticker, alert.direction.value,
+                    alert.ticker, alert.direction.value, alert.type.value,
                 )
                 continue
 
@@ -197,7 +197,7 @@ class AlertRouter:
                         alert.ticker, dte_reason,
                     )
                     # DTE-blocked: mark dedup (alert was valid, DTE is deterministic)
-                    self._mark_dedup(alert.ticker, alert.direction.value, now)
+                    self._mark_dedup(alert.ticker, alert.direction.value, now, alert.type.value)
                     dispatched.append(alert)
                     continue
                 try:
@@ -219,7 +219,7 @@ class AlertRouter:
 
             # Only mark dedup when execution actually succeeded (or no engine configured)
             if execution_succeeded:
-                self._mark_dedup(alert.ticker, alert.direction.value, now)
+                self._mark_dedup(alert.ticker, alert.direction.value, now, alert.type.value)
             else:
                 logger.info(
                     "AlertRouter: skipping dedup mark for %s — execution failed, will retry next scan",
@@ -309,7 +309,7 @@ class AlertRouter:
             delete_old_dedup_entries(window_seconds=_DEDUP_WINDOW, path=db_path)
             entries = load_dedup_entries(window_seconds=_DEDUP_WINDOW, path=db_path)
             for entry in entries:
-                key = (entry["ticker"], entry["direction"])
+                key = (entry["ticker"], entry["direction"], entry.get("alert_type", "credit_spread"))
                 try:
                     ts = datetime.fromisoformat(entry["last_routed_at"])
                     if ts.tzinfo is None:
@@ -322,9 +322,9 @@ class AlertRouter:
         except Exception as e:
             logger.warning("AlertRouter: could not load dedup entries from DB (non-fatal): %s", e)
 
-    def _mark_dedup(self, ticker: str, direction: str, ts: datetime) -> None:
-        """Mark a (ticker, direction) pair as recently routed in memory and DB."""
-        key = (ticker, direction)
+    def _mark_dedup(self, ticker: str, direction: str, ts: datetime, alert_type: str = "credit_spread") -> None:
+        """Mark a (ticker, direction, type) triple as recently routed in memory and DB."""
+        key = (ticker, direction, alert_type)
         self._dedup_ledger[key] = ts
         try:
             db_path = os.environ.get("PILOTAI_DB_PATH")

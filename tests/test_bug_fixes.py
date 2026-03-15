@@ -303,7 +303,7 @@ class TestDedupPersistence:
                     telegram_bot=MagicMock(),
                     formatter=MagicMock(),
                 )
-            assert ("XLE", "bearish") in router._dedup_ledger
+            assert ("XLE", "bearish", "credit_spread") in router._dedup_ledger
         finally:
             os.unlink(db_path)
 
