@@ -720,6 +720,9 @@ class PositionMonitor:
                 # can poll for fills and detect stale (unfilled) close orders.
                 pos["close_order_id"] = result.get("order_id")
                 pos["close_order_submitted_at"] = datetime.now(timezone.utc).isoformat()
+                # Straddle/strangle closes have a second order for the put leg
+                if result.get("put_order_id"):
+                    pos["close_put_order_id"] = result.get("put_order_id")
                 try:
                     upsert_trade(pos, source="execution", path=self.db_path)
                 except Exception as e:
@@ -728,8 +731,9 @@ class PositionMonitor:
                         pos.get("id"), e,
                     )
                 logger.info(
-                    "PositionMonitor: close submitted for %s order_id=%s",
+                    "PositionMonitor: close submitted for %s order_id=%s%s",
                     pos.get("id"), pos["close_order_id"],
+                    f" put_order_id={pos.get('close_put_order_id')}" if pos.get("close_put_order_id") else "",
                 )
             elif result.get("status") == "partial_close":
                 # IC close failed after all retries — _submit_ic_close already logged CRITICAL
@@ -1030,7 +1034,12 @@ class PositionMonitor:
     # ------------------------------------------------------------------
 
     def _reconcile_pending_closes(self) -> None:
-        """Poll Alpaca for fill status of pending_close orders; record P&L when filled."""
+        """Poll Alpaca for fill status of pending_close orders; record P&L when filled.
+
+        Straddle/strangle positions have dual close orders (call + put).
+        Both must fill before P&L is recorded. If one fills and the other fails,
+        the position stays pending_close and logs a warning.
+        """
         pending = get_trades(status="pending_close", source="execution", path=self.db_path)
         if not pending:
             return
@@ -1042,6 +1051,8 @@ class PositionMonitor:
             if not order_id:
                 # No order_id stored — close was submitted before this fix; leave for manual
                 continue
+
+            put_order_id = pos.get("close_put_order_id")
 
             try:
                 order = self.alpaca.get_order_status(order_id)
@@ -1060,6 +1071,45 @@ class PositionMonitor:
 
             order_status = str(order.get("status", "")).lower()
 
+            # --- Dual-leg close (straddle/strangle) ---
+            if put_order_id:
+                try:
+                    put_order = self.alpaca.get_order_status(put_order_id)
+                except Exception as e:
+                    logger.warning(
+                        "PositionMonitor: put close order status fetch failed for %s: %s",
+                        put_order_id, e,
+                    )
+                    continue
+
+                put_status = str(put_order.get("status", "")).lower() if put_order else ""
+
+                # Both legs filled → record combined P&L
+                if "filled" in order_status and "filled" in put_status:
+                    combined_order = self._combine_straddle_fills(order, put_order)
+                    self._record_close_pnl(pos, combined_order)
+                # One leg terminal-no-fill → reset to open for retry
+                elif order_status in _TERMINAL_NO_FILL or put_status in _TERMINAL_NO_FILL:
+                    logger.warning(
+                        "PositionMonitor: straddle close partial failure for %s — "
+                        "call=%s put=%s — resetting to open",
+                        pos.get("id"), order_status, put_status,
+                    )
+                    self._reset_to_open(pos)
+                # One leg filled, other still pending → warn but wait
+                elif "filled" in order_status or "filled" in put_status:
+                    logger.warning(
+                        "PositionMonitor: straddle %s partial close fill — "
+                        "call=%s put=%s — waiting for second leg",
+                        pos.get("id"), order_status, put_status,
+                    )
+                    self._check_stale_close(pos, order_id, order_status)
+                else:
+                    # Both still pending — check staleness
+                    self._check_stale_close(pos, order_id, order_status)
+                continue
+
+            # --- Single-order close (credit spread, iron condor) ---
             if "filled" in order_status:
                 # Partial fill detection: compare filled_qty to expected contracts
                 filled_qty_str = order.get("filled_qty")
@@ -1079,42 +1129,64 @@ class PositionMonitor:
                 self._record_close_pnl(pos, order)
 
             elif order_status in _TERMINAL_NO_FILL:
-                # Close order was rejected/cancelled — reset position to open for retry
                 logger.warning(
                     "PositionMonitor: close order %s terminal status '%s' for %s — resetting to open",
                     order_id, order_status, pos.get("id"),
                 )
-                pos["status"] = "open"
-                pos.pop("close_order_id", None)
-                pos.pop("exit_reason", None)
-                pos.pop("close_order_submitted_at", None)
-                try:
-                    upsert_trade(pos, source="execution", path=self.db_path)
-                except Exception as e:
-                    logger.error(
-                        "PositionMonitor: failed to reset %s to open: %s", pos.get("id"), e
-                    )
+                self._reset_to_open(pos)
             else:
-                # Still pending (new, accepted, partially_filled) — leave as pending_close
-                # Warn if the close order has been sitting unfilled too long (stale)
-                submitted_at_str = pos.get("close_order_submitted_at")
-                if submitted_at_str:
-                    try:
-                        submitted_at = datetime.fromisoformat(submitted_at_str)
-                        if submitted_at.tzinfo is None:
-                            submitted_at = submitted_at.replace(tzinfo=timezone.utc)
-                        age_minutes = (
-                            datetime.now(timezone.utc) - submitted_at
-                        ).total_seconds() / 60
-                        if age_minutes >= _STALE_CLOSE_MINUTES:
-                            logger.warning(
-                                "PositionMonitor: STALE CLOSE ORDER — %s has been pending "
-                                "%.0f min (order_id=%s status=%s). "
-                                "Consider manual intervention or price ladder escalation.",
-                                pos.get("id"), age_minutes, order_id, order_status,
-                            )
-                    except (ValueError, TypeError):
-                        pass
+                self._check_stale_close(pos, order_id, order_status)
+
+    def _combine_straddle_fills(self, call_order: Dict, put_order: Dict) -> Dict:
+        """Combine two single-leg fill orders into a synthetic combined order for P&L calc.
+
+        The filled_avg_price is the sum of both legs' fill prices (total cost/credit per share).
+        """
+        call_fill = float(call_order.get("filled_avg_price") or 0)
+        put_fill = float(put_order.get("filled_avg_price") or 0)
+        combined_fill = call_fill + put_fill
+
+        return {
+            "status": "filled",
+            "filled_avg_price": str(combined_fill),
+            "filled_at": call_order.get("filled_at") or put_order.get("filled_at"),
+            "filled_qty": call_order.get("filled_qty") or put_order.get("filled_qty"),
+        }
+
+    def _reset_to_open(self, pos: Dict) -> None:
+        """Reset a failed pending_close position back to open for retry."""
+        pos["status"] = "open"
+        pos.pop("close_order_id", None)
+        pos.pop("close_put_order_id", None)
+        pos.pop("exit_reason", None)
+        pos.pop("close_order_submitted_at", None)
+        try:
+            upsert_trade(pos, source="execution", path=self.db_path)
+        except Exception as e:
+            logger.error(
+                "PositionMonitor: failed to reset %s to open: %s", pos.get("id"), e
+            )
+
+    def _check_stale_close(self, pos: Dict, order_id: str, order_status: str) -> None:
+        """Warn if a close order has been sitting unfilled for too long."""
+        submitted_at_str = pos.get("close_order_submitted_at")
+        if submitted_at_str:
+            try:
+                submitted_at = datetime.fromisoformat(submitted_at_str)
+                if submitted_at.tzinfo is None:
+                    submitted_at = submitted_at.replace(tzinfo=timezone.utc)
+                age_minutes = (
+                    datetime.now(timezone.utc) - submitted_at
+                ).total_seconds() / 60
+                if age_minutes >= _STALE_CLOSE_MINUTES:
+                    logger.warning(
+                        "PositionMonitor: STALE CLOSE ORDER — %s has been pending "
+                        "%.0f min (order_id=%s status=%s). "
+                        "Consider manual intervention or price ladder escalation.",
+                        pos.get("id"), age_minutes, order_id, order_status,
+                    )
+            except (ValueError, TypeError):
+                pass
 
     def _record_close_pnl(self, pos: Dict, order: Dict) -> None:
         """Calculate realized P&L from fill data and update DB with final closed status."""
