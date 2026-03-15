@@ -168,6 +168,10 @@ def init_db(path: Optional[str] = None) -> None:
             "ALTER TABLE trades ADD COLUMN alpaca_client_order_id TEXT",
             "ALTER TABLE trades ADD COLUMN alpaca_fill_price REAL",
             "ALTER TABLE trades ADD COLUMN alpaca_status TEXT",
+            # Bug #2: existing DBs may have alert_dedup without direction column
+            "ALTER TABLE alert_dedup ADD COLUMN direction TEXT DEFAULT ''",
+            # C1 fix: existing DBs may have alert_dedup without alert_type column
+            "ALTER TABLE alert_dedup ADD COLUMN alert_type TEXT DEFAULT 'credit_spread'",
         ]:
             try:
                 conn.execute(migration_sql)
