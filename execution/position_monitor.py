@@ -1176,7 +1176,7 @@ class PositionMonitor:
             logger.error(
                 "PositionMonitor: close_trade DB write failed for %s: %s — "
                 "writing to WAL for recovery on next startup",
-                pos_id, e,
+                pos_id, e_close,
             )
             # WAL write ensures this fill is not silently lost even if the DB is unavailable.
             # On next startup, replay_wal() will re-apply these entries before trading resumes.

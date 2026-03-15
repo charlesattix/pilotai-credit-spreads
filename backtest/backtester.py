@@ -411,15 +411,31 @@ class Backtester:
         self._target_dte: int = int(self.strategy_params.get('target_dte', 35))
         self._min_dte: int = int(self.strategy_params.get('min_dte', 25))
 
-        # Monte Carlo DTE randomization: if seed is provided, each trading day
-        # samples a DTE from U(dte_lo, dte_hi) using this seeded RNG.
-        # Current trade DTE is updated in the scan loop before each day's entries.
+        # Monte Carlo randomization config.
+        # mode='dte'  (legacy) → only DTE is randomized (original behaviour, default).
+        # mode='full' → DTE + slippage jitter + entry-day shift + trade skip + credit jitter.
         _mc = self.backtest_config.get('monte_carlo', {})
+        self._mc_mode: str = _mc.get('mode', 'dte')
         self._mc_dte_lo: int = int(_mc.get('dte_lo', 28))
         self._mc_dte_hi: int = int(_mc.get('dte_hi', 42))
+        # ── Full-mode jitter knobs (all default to 0 = disabled) ──────────
+        # slippage_jitter_pct: ±fraction applied to entry AND exit slippage each trade.
+        #   0.50 = ±50 % of the configured value → uniform factor in [0.50, 1.50].
+        self._mc_slippage_jitter: float = float(_mc.get('slippage_jitter_pct', 0.0))
+        # entry_day_jitter: ±calendar days added to the expiration reference date.
+        #   2 → expiration computed as if entering up to 2 days earlier or later.
+        self._mc_entry_day_jitter: int = int(_mc.get('entry_day_jitter', 0))
+        # trade_skip_pct: probability [0, 1) that a qualifying trade is randomly dropped.
+        #   0.15 = skip 15 % of trades; tests whether results depend on every single entry.
+        self._mc_trade_skip_pct: float = float(_mc.get('trade_skip_pct', 0.0))
+        # credit_jitter: ±absolute addition to BACKTEST_CREDIT_FRACTION (heuristic mode only).
+        #   0.10 → credit fraction drawn from U(0.25, 0.45) when baseline is 0.35.
+        self._mc_credit_jitter: float = float(_mc.get('credit_jitter', 0.0))
         self._rng: Optional[random.Random] = random.Random(seed) if seed is not None else None
         self._current_trade_dte: int = self._target_dte
         self._current_trade_min_dte: int = self._min_dte
+        # Entry-day shift sampled once per trading day in full MC mode (days offset).
+        self._mc_entry_day_shift: int = 0
 
         # Profit target — configurable (config stores as %, e.g. 50 → close at 50% of credit)
         self._profit_target_pct: float = float(self.risk_params.get('profit_target', 50)) / 100.0
@@ -486,7 +502,37 @@ class Backtester:
         pure VIX scaling.
         """
         vix_scale = min(3.0, 1.0 + max(0.0, (self._current_vix - 20.0) * 0.1))
-        return self.exit_slippage * self._slippage_multiplier * vix_scale
+        base = self.exit_slippage * self._slippage_multiplier * vix_scale
+        if self._rng is not None and self._mc_mode == 'full' and self._mc_slippage_jitter > 0:
+            factor = self._rng.uniform(
+                1.0 - self._mc_slippage_jitter, 1.0 + self._mc_slippage_jitter
+            )
+            base = max(0.0, base * factor)
+        return base
+
+    def _mc_jitter_slippage(self, base: float) -> float:
+        """Return entry slippage jittered by ±_mc_slippage_jitter in full MC mode.
+
+        Only active when a seed has been provided (self._rng is not None) and
+        mc_mode == 'full'.  Falls through unchanged in all other cases so that
+        legacy dte-only runs are unaffected.
+        """
+        if self._rng is None or self._mc_mode != 'full' or self._mc_slippage_jitter <= 0:
+            return base
+        factor = self._rng.uniform(
+            1.0 - self._mc_slippage_jitter, 1.0 + self._mc_slippage_jitter
+        )
+        return max(0.0, base * factor)
+
+    def _mc_should_skip_trade(self) -> bool:
+        """Return True if this trade should be randomly dropped (full MC mode only).
+
+        Probability is self._mc_trade_skip_pct.  Used to test whether strategy
+        returns depend on capturing every qualifying trade.
+        """
+        if self._rng is None or self._mc_mode != 'full' or self._mc_trade_skip_pct <= 0:
+            return False
+        return self._rng.random() < self._mc_trade_skip_pct
 
     def run_backtest(
         self,
@@ -783,12 +829,22 @@ class Backtester:
                     equity = max(total_equity, 1.0)
                     return (current_max_loss + new_max_loss) / equity * 100 <= self._max_portfolio_exposure_pct
 
-                # Monte Carlo DTE: sample once per trading day so all entries on
+                # Monte Carlo per-day sampling — sampled once so all entries on
                 # the same day target the same expiration cycle.
                 if self._rng is not None:
+                    # DTE randomization (both 'dte' and 'full' modes).
                     _sampled_dte = self._rng.randint(self._mc_dte_lo, self._mc_dte_hi)
                     self._current_trade_dte = _sampled_dte
                     self._current_trade_min_dte = max(20, _sampled_dte - 10)
+                    # Entry-day shift: only active in 'full' mode with jitter > 0.
+                    # Shifts the expiration reference date by ±N calendar days,
+                    # modelling entering the same trade 1-2 days early or late.
+                    if self._mc_mode == 'full' and self._mc_entry_day_jitter > 0:
+                        self._mc_entry_day_shift = self._rng.randint(
+                            -self._mc_entry_day_jitter, self._mc_entry_day_jitter
+                        )
+                    else:
+                        self._mc_entry_day_shift = 0
                 else:
                     # VIX-gated DTE: when VIX is below threshold, use a longer DTE to
                     # capture more premium in low-vol environments (e.g. 2024).
@@ -816,6 +872,10 @@ class Backtester:
                             _key = (new_position.get('expiration'), new_position['short_strike'], 'P')
                             if _key not in _entered_today and _open_key_counts.get(_key, 0) < _max_per_key:
                                 if _exposure_ok(new_position):
+                                    if self._mc_should_skip_trade():
+                                        self.capital += new_position.get('commission', 0)
+                                        logger.debug("MC trade-skip: dropped bull_put %s", _key)
+                                        continue
                                     open_positions.append(new_position)
                                     _entered_today.add(_key)
                                     _open_key_counts[_key] = _open_key_counts.get(_key, 0) + 1
@@ -844,6 +904,10 @@ class Backtester:
                             _key = (bear_call.get('expiration'), bear_call['short_strike'], 'C')
                             if _key not in _entered_today and _open_key_counts.get(_key, 0) < _max_per_key:
                                 if _exposure_ok(bear_call):
+                                    if self._mc_should_skip_trade():
+                                        self.capital += bear_call.get('commission', 0)
+                                        logger.debug("MC trade-skip: dropped bear_call %s", _key)
+                                        continue
                                     open_positions.append(bear_call)
                                     _entered_today.add(_key)
                                     _open_key_counts[_key] = _open_key_counts.get(_key, 0) + 1
@@ -870,6 +934,10 @@ class Backtester:
                             )
                             if _ic_key not in _entered_today and _open_key_counts.get(_ic_key, 0) < _max_per_key:
                                 if _exposure_ok(condor):
+                                    if self._mc_should_skip_trade():
+                                        self.capital += condor.get('commission', 0)
+                                        logger.debug("MC trade-skip: dropped IC %s", _ic_key)
+                                        continue
                                     open_positions.append(condor)
                                     _entered_today.add(_ic_key)
                                     _open_key_counts[_ic_key] = _open_key_counts.get(_ic_key, 0) + 1
@@ -889,14 +957,22 @@ class Backtester:
                                 ticker, current_date, current_price, price_data
                             )
                         if new_position:
-                            open_positions.append(new_position)
+                            if self._mc_should_skip_trade():
+                                self.capital += new_position.get('commission', 0)
+                                logger.debug("MC trade-skip: dropped heuristic bull_put")
+                            else:
+                                open_positions.append(new_position)
 
                         if not new_position and _want_calls and len(open_positions) < self.risk_params['max_positions']:
                             bear_call = self._find_bear_call_opportunity(
                                 ticker, current_date, current_price, price_data
                             )
                             if bear_call:
-                                open_positions.append(bear_call)
+                                if self._mc_should_skip_trade():
+                                    self.capital += bear_call.get('commission', 0)
+                                    logger.debug("MC trade-skip: dropped heuristic bear_call")
+                                else:
+                                    open_positions.append(bear_call)
                             # Note: IC fallback is not available in heuristic mode —
                             # _find_iron_condor_opportunity requires real data.
 
@@ -1188,7 +1264,10 @@ class Backtester:
         # - Post-2022-09-12 → all 5 weekdays (Mon–Fri) since SPY added Tue/Thu weeklies
         # - Before 2022-09-12 → Mon/Wed/Fri only
         if self._rng is not None:
-            expiration = _nearest_friday_expiration(date, self._current_trade_dte, self._current_trade_min_dte)
+            # Entry-day shift: expiration is computed from a date offset by ±N days
+            # (full MC mode only).  This models entering 1–2 days early or late.
+            _ref_date = date + timedelta(days=self._mc_entry_day_shift) if self._mc_entry_day_shift else date
+            expiration = _nearest_friday_expiration(_ref_date, self._current_trade_dte, self._current_trade_min_dte)
         elif date >= _SPY_TUETHU_START:
             expiration = _nearest_weekday_expiration(date, self._current_trade_dte, self._current_trade_min_dte)
         else:
@@ -1297,8 +1376,10 @@ class Backtester:
             return None
 
         if self._rng is not None:
-            # MC mode: target Friday directly — no Mon/Wed API calls for uncached expirations
-            expiration = _nearest_friday_expiration(date, self._current_trade_dte, self._current_trade_min_dte)
+            # MC mode: target Friday directly — no Mon/Wed API calls for uncached expirations.
+            # Apply entry-day shift to reference date (full MC mode, ±N days).
+            _ref_date = date + timedelta(days=self._mc_entry_day_shift) if self._mc_entry_day_shift else date
+            expiration = _nearest_friday_expiration(_ref_date, self._current_trade_dte, self._current_trade_min_dte)
             friday_exp = expiration
         elif date >= _SPY_TUETHU_START:
             expiration = _nearest_weekday_expiration(date, self._current_trade_dte, self._current_trade_min_dte)
@@ -1774,8 +1855,13 @@ class Backtester:
             long_strike = short_strike + spread_width
             ot = "C"
 
-        credit = spread_width * BACKTEST_CREDIT_FRACTION
-        credit -= self.slippage
+        # Credit fraction jitter (full MC mode only): vary ±_mc_credit_jitter around baseline.
+        _credit_fraction = BACKTEST_CREDIT_FRACTION
+        if self._rng is not None and self._mc_mode == 'full' and self._mc_credit_jitter > 0:
+            _credit_fraction += self._rng.uniform(-self._mc_credit_jitter, self._mc_credit_jitter)
+            _credit_fraction = max(0.05, min(0.95, _credit_fraction))  # clamp to sane range
+        credit = spread_width * _credit_fraction
+        credit -= self._mc_jitter_slippage(self.slippage)
 
         max_loss = spread_width - credit
 
@@ -2446,6 +2532,30 @@ class Backtester:
                 cur_win = 0
                 max_loss_streak = max(max_loss_streak, cur_loss)
 
+        # Bootstrap sampling (full MC mode only): resample per-trade PnL with replacement
+        # to test whether a few lucky trades are driving the return.
+        # Uses 200 bootstrap iterations — lightweight, just needs the pnl column.
+        bootstrap_stats: dict = {}
+        if self._rng is not None and self._mc_mode == 'full' and total_trades >= 5:
+            pnl_vals = trades_df['pnl'].tolist()
+            n = len(pnl_vals)
+            _bs_returns = []
+            for _ in range(200):
+                sample = [pnl_vals[self._rng.randrange(n)] for _ in range(n)]
+                bs_total_pnl = sum(sample)
+                bs_ret = (bs_total_pnl / self.starting_capital) * 100
+                _bs_returns.append(bs_ret)
+            _bs_sorted = sorted(_bs_returns)
+            _pct = lambda p: _bs_sorted[min(len(_bs_sorted) - 1, int(len(_bs_sorted) * p / 100))]
+            bootstrap_stats = {
+                'P5': round(_pct(5), 1),
+                'P25': round(_pct(25), 1),
+                'P50': round(_pct(50), 1),
+                'P75': round(_pct(75), 1),
+                'P95': round(_pct(95), 1),
+                'pct_profitable': round(sum(1 for r in _bs_returns if r > 0) / len(_bs_returns) * 100, 1),
+            }
+
         results = {
             'total_trades': total_trades,
             'winning_trades': len(winners),
@@ -2477,6 +2587,8 @@ class Backtester:
             'volume_skipped': self._volume_skipped,
             # P1-D: whether capital reached zero during the backtest
             'ruin_triggered': self._ruin_triggered,
+            # Bootstrap resampling stats (full MC mode only — empty dict otherwise)
+            'bootstrap': bootstrap_stats,
         }
 
         return results
