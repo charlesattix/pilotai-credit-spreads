@@ -275,6 +275,7 @@ class TestDedupPersistence:
             assert len(entries) == 1
             assert entries[0]["ticker"] == "SPY"
             assert entries[0]["direction"] == "bullish"
+            assert entries[0]["alert_type"] == "credit_spread"
         finally:
             os.unlink(db_path)
 
