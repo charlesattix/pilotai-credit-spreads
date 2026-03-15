@@ -321,7 +321,8 @@ class TestDedupKeyIncludesType:
 
         # Mark an IC as routed
         now = datetime.now(timezone.utc)
-        router._mark_dedup("SPY", "neutral", "iron_condor", now)
+        with patch("alerts.alert_router.upsert_dedup_entry"):
+            router._mark_dedup("SPY", "neutral", now, "iron_condor")
 
         # Straddle key should NOT be blocked
         straddle_key = ("SPY", "neutral", "straddle_strangle")

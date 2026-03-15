@@ -280,32 +280,34 @@ class TestWithinScanDedup:
             f"Expected 1 SPY IC per expiration per scan, got {len(spy_ic)}"
         )
 
-    def test_two_spy_ics_different_expirations_deduped(self):
-        """Two SPY ICs with DIFFERENT expirations → only 1 dispatched (same dedup key: ticker+direction+type)."""
+    def test_two_spy_ics_different_expirations_both_dispatched(self):
+        """Two SPY ICs with DIFFERENT expirations → both dispatched (different contracts, different scan keys)."""
         router = _build_router()
         opps = [
             _ic_opp(expiration="2026-04-17", short_strike=510.0),
             _ic_opp(expiration="2026-04-10", short_strike=512.0),
         ]
-        with patch("alerts.alert_router.insert_alert"):
+        with patch("alerts.alert_router.insert_alert"), patch("alerts.alert_router.upsert_dedup_entry"):
             result = router.route_opportunities(opps, _clean_state())
         spy_ic = [a for a in result if a.ticker == "SPY" and a.direction.value == "neutral"]
-        assert len(spy_ic) == 1, (
-            f"Expected 1 SPY IC (same ticker+direction+type dedup key), got {len(spy_ic)}"
+        assert len(spy_ic) == 2, (
+            f"Expected 2 SPY ICs (different expirations = different contracts), got {len(spy_ic)}"
         )
 
-    def test_three_spy_ics_all_deduped_to_one(self):
-        """3 SPY ICs: all share the same dedup key (ticker+direction+type) → only 1 dispatched."""
+    def test_three_spy_ics_same_exp_deduped_different_exp_not(self):
+        """3 SPY ICs: 2 same expiration → deduped to 1, 1 different expiration → dispatched separately."""
         router = _build_router()
         opps = [
             _ic_opp(expiration="2026-04-17", short_strike=510.0, score=64),
-            _ic_opp(expiration="2026-04-17", short_strike=512.0, score=63),  # same key → deduped
-            _ic_opp(expiration="2026-04-10", short_strike=513.0, score=62),  # same key → deduped
+            _ic_opp(expiration="2026-04-17", short_strike=512.0, score=63),  # same exp → deduped
+            _ic_opp(expiration="2026-04-10", short_strike=513.0, score=62),  # diff exp → dispatched
         ]
-        with patch("alerts.alert_router.insert_alert"):
+        with patch("alerts.alert_router.insert_alert"), patch("alerts.alert_router.upsert_dedup_entry"):
             result = router.route_opportunities(opps, _clean_state())
         spy_results = [a for a in result if a.ticker == "SPY"]
-        assert len(spy_results) == 1
+        assert len(spy_results) == 2, (
+            f"Expected 2 SPY ICs (1 per expiration), got {len(spy_results)}"
+        )
 
     def test_different_tickers_not_blocked(self):
         """SPY IC and IWM IC in same scan should both be dispatched."""
