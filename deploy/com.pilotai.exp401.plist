@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.pilotai.exp401</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>main.py</string>
+        <string>scheduler</string>
+        <string>--config</string>
+        <string>configs/paper_exp401.yaml</string>
+        <string>--env-file</string>
+        <string>.env.exp401</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/charlesbot/projects/pilotai-credit-spreads</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>/Users/charlesbot</string>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/charlesbot/logs/exp401.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/charlesbot/logs/exp401.log</string>
+
+    <!-- Restart unconditionally — crash or clean exit both trigger restart -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Minimum 10s between restarts to avoid rapid crash loops -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>
