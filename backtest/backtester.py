@@ -421,6 +421,19 @@ class Backtester:
         self._rng: Optional[random.Random] = random.Random(seed) if seed is not None else None
         self._current_trade_dte: int = self._target_dte
         self._current_trade_min_dte: int = self._min_dte
+        # Full MC robustness mode (BT-3): 'dte' = DTE randomization only; 'full' = all jitters
+        self._mc_mode: str = _mc.get('mode', 'dte')
+        # slippage_jitter_pct: ±fraction applied to entry and exit slippage in full mode.
+        #   0.20 → slippage drawn from U(0.80×base, 1.20×base).
+        self._mc_slippage_jitter: float = float(_mc.get('slippage_jitter_pct', 0.0))
+        # entry_day_jitter: ±calendar days added to the expiration reference date.
+        self._mc_entry_day_jitter: int = int(_mc.get('entry_day_jitter', 0))
+        # trade_skip_pct: probability [0, 1) that a qualifying trade is randomly dropped.
+        self._mc_trade_skip_pct: float = float(_mc.get('trade_skip_pct', 0.0))
+        # credit_jitter: ±absolute addition to BACKTEST_CREDIT_FRACTION (heuristic only).
+        self._mc_credit_jitter: float = float(_mc.get('credit_jitter', 0.0))
+        # Entry-day shift sampled once per trading day in full MC mode (days offset).
+        self._mc_entry_day_shift: int = 0
 
         # Profit target — configurable (config stores as %, e.g. 50 → close at 50% of credit)
         self._profit_target_pct: float = float(self.risk_params.get('profit_target', 50)) / 100.0
@@ -487,7 +500,37 @@ class Backtester:
         pure VIX scaling.
         """
         vix_scale = min(3.0, 1.0 + max(0.0, (self._current_vix - 20.0) * 0.1))
-        return self.exit_slippage * self._slippage_multiplier * vix_scale
+        base = self.exit_slippage * self._slippage_multiplier * vix_scale
+        if self._rng is not None and self._mc_mode == 'full' and self._mc_slippage_jitter > 0:
+            factor = self._rng.uniform(
+                1.0 - self._mc_slippage_jitter, 1.0 + self._mc_slippage_jitter
+            )
+            base = max(0.0, base * factor)
+        return base
+
+    def _mc_jitter_slippage(self, base: float) -> float:
+        """Return entry slippage jittered by ±_mc_slippage_jitter in full MC mode.
+
+        Only active when a seed has been provided (self._rng is not None) and
+        mc_mode == 'full'.  Falls through unchanged in all other cases so that
+        legacy dte-only runs are unaffected.
+        """
+        if self._rng is None or self._mc_mode != 'full' or self._mc_slippage_jitter <= 0:
+            return base
+        factor = self._rng.uniform(
+            1.0 - self._mc_slippage_jitter, 1.0 + self._mc_slippage_jitter
+        )
+        return max(0.0, base * factor)
+
+    def _mc_should_skip_trade(self) -> bool:
+        """Return True if this trade should be randomly dropped (full MC mode only).
+
+        Probability is self._mc_trade_skip_pct.  Used to test whether strategy
+        returns depend on capturing every qualifying trade.
+        """
+        if self._rng is None or self._mc_mode != 'full' or self._mc_trade_skip_pct <= 0:
+            return False
+        return self._rng.random() < self._mc_trade_skip_pct
 
     def run_backtest(
         self,
@@ -781,6 +824,13 @@ class Backtester:
                     _sampled_dte = self._rng.randint(self._mc_dte_lo, self._mc_dte_hi)
                     self._current_trade_dte = _sampled_dte
                     self._current_trade_min_dte = max(20, _sampled_dte - 10)
+                    # Entry-day shift: only active in 'full' mode with jitter > 0.
+                    if self._mc_mode == 'full' and self._mc_entry_day_jitter > 0:
+                        self._mc_entry_day_shift = self._rng.randint(
+                            -self._mc_entry_day_jitter, self._mc_entry_day_jitter
+                        )
+                    else:
+                        self._mc_entry_day_shift = 0
                 else:
                     self._current_trade_dte = self._target_dte
                     self._current_trade_min_dte = self._min_dte
@@ -796,6 +846,9 @@ class Backtester:
                             scan_hour=scan_hour, scan_minute=scan_minute,
                         )
                         if new_position:
+                            if self._mc_should_skip_trade():
+                                self.capital += new_position.get('commission', 0)
+                                continue
                             _key = (new_position.get('expiration'), new_position['short_strike'], 'P')
                             if _key not in _entered_today and _key not in _open_keys:
                                 if _exposure_ok(new_position):
@@ -819,6 +872,9 @@ class Backtester:
                             scan_hour=scan_hour, scan_minute=scan_minute,
                         )
                         if bear_call:
+                            if self._mc_should_skip_trade():
+                                self.capital += bear_call.get('commission', 0)
+                                continue
                             _key = (bear_call.get('expiration'), bear_call['short_strike'], 'C')
                             if _key not in _entered_today and _key not in _open_keys:
                                 if _exposure_ok(bear_call):
@@ -838,6 +894,9 @@ class Backtester:
                             ticker, current_date, current_price, scan_hour, scan_minute,
                         )
                         if condor:
+                            if self._mc_should_skip_trade():
+                                self.capital += condor.get('commission', 0)
+                                continue
                             _ic_key = (
                                 condor.get('expiration'),
                                 condor['short_strike'],
@@ -865,14 +924,21 @@ class Backtester:
                                 ticker, current_date, current_price, price_data
                             )
                         if new_position:
-                            open_positions.append(new_position)
+                            if self._mc_should_skip_trade():
+                                self.capital += new_position.get('commission', 0)
+                                new_position = None
+                            else:
+                                open_positions.append(new_position)
 
                         if not new_position and _want_calls and len(open_positions) < self.risk_params['max_positions']:
                             bear_call = self._find_bear_call_opportunity(
                                 ticker, current_date, current_price, price_data
                             )
                             if bear_call:
-                                open_positions.append(bear_call)
+                                if self._mc_should_skip_trade():
+                                    self.capital += bear_call.get('commission', 0)
+                                else:
+                                    open_positions.append(bear_call)
                             # Note: IC fallback is not available in heuristic mode —
                             # _find_iron_condor_opportunity requires real data.
 
@@ -1346,7 +1412,6 @@ class Backtester:
             return None
 
         stop_loss_multiplier = self.risk_params['stop_loss_multiplier']
-        commission_cost = self.commission * 4  # 4 legs (entry)
         # P0-C fix: worst case is BOTH wings simultaneously ITM (gap open / flash crash).
         # One-wing assumption leads to ~2x oversizing and miscalibrated stop thresholds.
         max_loss = (2 * spread_width) - combined_credit
@@ -1398,6 +1463,7 @@ class Backtester:
             trade_dollar_risk, spread_width * 2, combined_credit,
             max_contracts=max_contracts_cap,
         ))
+        commission_cost = self.commission * 4 * contracts  # 4 legs × contracts
 
         scan_time_mins = (scan_hour or 0) * 60 + (scan_minute or 0)
         market_open_mins = _FIRST_BAR_HOUR * 60 + _FIRST_BAR_MINUTE
@@ -1593,8 +1659,6 @@ class Backtester:
         if credit <= 0:
             return None
 
-        commission_cost = self.commission * 2  # Two legs
-
         max_loss = spread_width - credit
 
         risk_per_spread = max_loss * 100
@@ -1698,6 +1762,8 @@ class Backtester:
                 self._volume_skipped += 1
                 return None
 
+        commission_cost = self.commission * 2 * contracts  # Two legs × contracts
+
         position = {
             'ticker': ticker,
             'type': spread_type,
@@ -1750,9 +1816,12 @@ class Backtester:
             long_strike = short_strike + spread_width
             ot = "C"
 
-        credit = spread_width * BACKTEST_CREDIT_FRACTION
+        credit_fraction = BACKTEST_CREDIT_FRACTION
+        if self._rng is not None and self._mc_mode == 'full' and self._mc_credit_jitter > 0:
+            jitter = self._rng.uniform(-self._mc_credit_jitter, self._mc_credit_jitter)
+            credit_fraction = max(0.05, min(0.95, credit_fraction + jitter))
+        credit = spread_width * credit_fraction
         credit -= self.slippage
-        commission_cost = self.commission * 2
 
         max_loss = spread_width - credit
 
@@ -1762,6 +1831,7 @@ class Backtester:
         max_risk = account_base * (self.risk_params['max_risk_per_trade'] / 100)
         max_contracts_cap = self.risk_params.get('max_contracts', 999)
         contracts = max(1, min(max_contracts_cap, int(max_risk / risk_per_spread)))
+        commission_cost = self.commission * 2 * contracts  # Two legs × contracts
 
         position = {
             'ticker': ticker,
@@ -2451,6 +2521,28 @@ class Backtester:
             'volume_skipped': self._volume_skipped,
             # P1-D: whether capital reached zero during the backtest
             'ruin_triggered': self._ruin_triggered,
+            # Bootstrap sampling stats (populated in full MC mode only)
+            'bootstrap': {},
         }
+
+        # Bootstrap stats: resample per-trade PnL to get return distribution
+        if self._mc_mode == 'full' and total_trades >= 5 and self._rng is not None:
+            pnls = trades_df['pnl'].tolist()
+            n = len(pnls)
+            n_boot = 200
+            boot_returns = []
+            for _ in range(n_boot):
+                sample = [pnls[self._rng.randint(0, n - 1)] for _ in range(n)]
+                boot_returns.append(sum(sample) / self.starting_capital * 100)
+            boot_returns.sort()
+            idx_p5 = max(0, int(0.05 * n_boot) - 1)
+            idx_p50 = max(0, int(0.50 * n_boot) - 1)
+            idx_p95 = max(0, int(0.95 * n_boot) - 1)
+            results['bootstrap'] = {
+                'P5': round(boot_returns[idx_p5], 2),
+                'P50': round(boot_returns[idx_p50], 2),
+                'P95': round(boot_returns[idx_p95], 2),
+                'pct_profitable': round(sum(1 for r in boot_returns if r > 0) / n_boot * 100, 1),
+            }
 
         return results

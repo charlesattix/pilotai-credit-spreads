@@ -323,15 +323,23 @@ class PositionReconciler:
 
             # Case 1: DB-only trade (Alpaca disabled when trade was opened)
             if not client_order_id:
-                trade["status"] = "open"
+                if trade.get('dry_run'):
+                    status = 'open'  # Dry run, expected no order ID
+                else:
+                    status = 'failed_open'  # Submission may have failed
+                trade["status"] = status
                 upsert_trade(trade, source="scanner", path=self.db_path)
                 insert_reconciliation_event(
-                    trade_id, "promoted_to_open",
-                    {"reason": "no_alpaca_order_id"},
+                    trade_id, status,
+                    {"reason": "no_alpaca_order_id", "dry_run": bool(trade.get('dry_run'))},
                     self.db_path,
                 )
-                result.pending_resolved += 1
-                logger.info("Trade %s promoted to open (DB-only)", trade_id)
+                if status == 'open':
+                    result.pending_resolved += 1
+                    logger.info("Trade %s promoted to open (dry_run)", trade_id)
+                else:
+                    result.pending_failed += 1
+                    logger.warning("Trade %s marked failed_open (no order ID, not dry_run)", trade_id)
                 continue
 
             # Case 2: Look up order in Alpaca

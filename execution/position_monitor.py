@@ -34,6 +34,7 @@ except ImportError:                        # pragma: no cover — Python < 3.9
 
 from shared.database import close_trade, get_trades, upsert_trade, init_db
 from shared.strategy_adapter import trade_dict_to_position
+from shared.telegram_alerts import notify_api_failure
 from strategies.base import MarketSnapshot, PositionAction
 
 logger = logging.getLogger(__name__)
@@ -324,6 +325,16 @@ class PositionMonitor:
             logger.error(
                 "PositionMonitor: failed to fetch Alpaca positions (consecutive_failures=%d): %s",
                 self._consecutive_api_failures, e,
+            )
+            try:
+                _open = get_trades(status="open", source="execution", path=self.db_path)
+                _unmonitored = len(_open) if _open else 0
+            except Exception:
+                _unmonitored = -1
+            notify_api_failure(
+                error_msg=str(e),
+                context="get_positions",
+                unmonitored_positions=max(0, _unmonitored),
             )
             if self._consecutive_api_failures >= 3:
                 logger.critical(
@@ -864,6 +875,10 @@ class PositionMonitor:
                 "PositionMonitor: exception submitting close for %s: %s",
                 pos.get("id"), e, exc_info=True,
             )
+            notify_api_failure(
+                error_msg=str(e),
+                context=f"submit_close ({pos.get('ticker', '?')} / {pos.get('id', '?')})",
+            )
 
     def _submit_ic_close(self, pos: Dict, contracts: int, expiration_str: str) -> Dict:
         """Delegate 4-leg iron condor close to AlpacaProvider."""
@@ -904,7 +919,7 @@ class PositionMonitor:
 
         close_side = "sell" if is_long else "buy"
 
-        call_result = self.alpaca.close_single_leg(
+        call_result = self.alpaca.submit_single_leg(
             ticker=ticker,
             strike=call_strike,
             expiration=expiration_str,
@@ -918,7 +933,7 @@ class PositionMonitor:
         if call_result.get("status") != "submitted":
             return {"status": "error", "message": f"Call close failed: {call_result}"}
 
-        put_result = self.alpaca.close_single_leg(
+        put_result = self.alpaca.submit_single_leg(
             ticker=ticker,
             strike=put_strike,
             expiration=expiration_str,
@@ -1100,6 +1115,10 @@ class PositionMonitor:
                 logger.warning(
                     "PositionMonitor: order status fetch failed for %s: %s", order_id, e
                 )
+                notify_api_failure(
+                    error_msg=str(e),
+                    context=f"get_order_status (order_id={order_id})",
+                )
                 continue
 
             if not order:
@@ -1249,7 +1268,7 @@ class PositionMonitor:
         # Commission deduction (default 0 = paper trading; set execution.commission_per_contract
         # in config for live trading, e.g. 0.65 for standard broker rate)
         commission_per_contract = float(
-            self.config.get("execution", {}).get("commission_per_contract", 0.0)
+            self.config.get("execution", {}).get("commission_per_contract", 0.65)
         )
         if commission_per_contract > 0:
             spread_type = str(pos.get("strategy_type", pos.get("type", ""))).lower()

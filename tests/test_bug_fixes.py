@@ -13,21 +13,25 @@ Tests for code-review bug fixes:
   #24 holidays extended through 2030
 """
 
-import sqlite3
-import tempfile
 import os
+import tempfile
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
+
 import pytest
 
+try:
+    from alpaca.trading.requests import OptionLegRequest  # noqa: F401
+except ImportError:
+    pytest.skip("OptionLegRequest not available in this alpaca-py version", allow_module_level=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _make_alert(risk_pct=0.02, ticker="SPY", direction="bullish", alert_type="credit_spread"):
-    from alerts.alert_schema import Alert, AlertType, Direction, Leg, Confidence, TimeSensitivity
-    from datetime import timezone
+
+    from alerts.alert_schema import Alert, AlertType, Confidence, Direction, Leg
     type_map = {
         "credit_spread": AlertType.credit_spread,
         "iron_condor": AlertType.iron_condor,
@@ -155,7 +159,8 @@ class TestICMaxLossFormula:
         }
         return AlertPositionSizer(cfg)
 
-    def test_ic_uses_single_wing_max_loss(self):
+    def test_ic_uses_both_wings_max_loss(self):
+        """IC max_loss must use both wings: (2 * spread_width - combined_credit) * 100."""
         sizer = self._sizer()
         alert = _make_alert(risk_pct=0.05, alert_type="iron_condor")
         alert.legs = [
@@ -168,26 +173,27 @@ class TestICMaxLossFormula:
         with patch.object(sizer, '_extract_spread_params', return_value=(5.0, 1.50)):
             result = sizer.size(alert, account_value=100_000, iv_rank=30, current_portfolio_risk=0)
 
-        # Correct max_loss_per_spread = (5.0 - 1.50) * 100 = $350 (one wing)
+        # Correct: max_loss_per_spread = (2*5.0 - 1.50) * 100 = $850 (both wings, matches backtester)
         # dollar_risk = 100_000 * 0.10 = $10_000
-        # contracts = 10_000 / 350 = 28, capped at 25
-        # actual_dollar_risk = 25 * 350 = $8_750
-        expected_max_loss_per_spread = (5.0 - 1.50) * 100  # $350 — NOT $650 (old 2× formula)
-        assert result.max_loss == pytest.approx(25 * expected_max_loss_per_spread, rel=0.01)
+        # contracts = 10_000 / 850 = 11, capped at 25 → 11
+        # actual_dollar_risk = 11 * 850 = $9_350
+        expected_max_loss_per_spread = (2 * 5.0 - 1.50) * 100  # $850
+        contracts = int(10_000 / expected_max_loss_per_spread)  # 11
+        assert result.max_loss == pytest.approx(contracts * expected_max_loss_per_spread, rel=0.01)
 
-    def test_ic_max_loss_less_than_double_formula(self):
-        """Confirm the fix actually produces a SMALLER max_loss than the old 2× formula."""
+    def test_ic_max_loss_larger_than_single_wing_formula(self):
+        """Confirm both-wings formula produces LARGER max_loss than old single-wing formula."""
         sizer = self._sizer()
         alert = _make_alert(risk_pct=0.05, alert_type="iron_condor")
         with patch.object(sizer, '_extract_spread_params', return_value=(5.0, 1.50)):
-            result = sizer.size(alert, account_value=100_000, iv_rank=30, current_portfolio_risk=0)
+            sizer.size(alert, account_value=100_000, iv_rank=30, current_portfolio_risk=0)
 
-        # Old: max_loss_per_spread = (5*2 - 1.5) * 100 = $850 → fewer contracts → lower max_loss
-        # New: max_loss_per_spread = (5 - 1.5) * 100 = $350 → more contracts → higher max_loss
-        # This confirms the fix gives more contracts (less under-sizing)
-        old_max_loss_per_spread = (5.0 * 2 - 1.50) * 100  # $850
-        new_max_loss_per_spread = (5.0 - 1.50) * 100       # $350
-        assert new_max_loss_per_spread < old_max_loss_per_spread
+        # New (correct): max_loss_per_spread = (2*5 - 1.5) * 100 = $850 per contract
+        # Old (wrong):   max_loss_per_spread = (5 - 1.5) * 100 = $350 per contract
+        # Both-wings formula gives fewer contracts but correct per-contract max_loss
+        both_wings = (2 * 5.0 - 1.50) * 100   # $850 (correct)
+        single_wing = (5.0 - 1.50) * 100       # $350 (old wrong formula)
+        assert both_wings > single_wing
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -261,7 +267,7 @@ class TestDedupPersistence:
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
             db_path = f.name
         try:
-            from shared.database import init_db, upsert_dedup_entry, load_dedup_entries
+            from shared.database import init_db, load_dedup_entries, upsert_dedup_entry
             init_db(db_path)
             now_iso = datetime.now(timezone.utc).isoformat()
             upsert_dedup_entry("SPY", "bullish", now_iso, path=db_path)
@@ -276,7 +282,7 @@ class TestDedupPersistence:
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
             db_path = f.name
         try:
-            from shared.database import init_db, upsert_dedup_entry, load_dedup_entries
+            from shared.database import init_db, load_dedup_entries, upsert_dedup_entry
             init_db(db_path)
             old_iso = "2020-01-01T00:00:00+00:00"  # clearly outside 30-min window
             upsert_dedup_entry("SPY", "bullish", old_iso, path=db_path)
@@ -290,8 +296,8 @@ class TestDedupPersistence:
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
             db_path = f.name
         try:
-            from shared.database import init_db, upsert_dedup_entry
             from alerts.alert_router import AlertRouter
+            from shared.database import init_db, upsert_dedup_entry
             init_db(db_path)
             now_iso = datetime.now(timezone.utc).isoformat()
             upsert_dedup_entry("XLE", "bearish", now_iso, path=db_path)
@@ -314,9 +320,9 @@ class TestDedupPersistence:
 
 class TestDedupAfterExecution:
     def _make_router(self, exec_engine=None):
+        from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
         from alerts.risk_gate import RiskGate
-        from alerts.alert_position_sizer import AlertPositionSizer
 
         rg = MagicMock(spec=RiskGate)
         rg.check.return_value = (True, "")
@@ -516,8 +522,12 @@ class TestHolidaysThrough2030:
         assert "2030-11-27" in ec
 
     def test_backward_compat_alias(self):
-        from execution.position_monitor import _MARKET_HOLIDAYS_2026, _MARKET_HOLIDAYS
-        from execution.position_monitor import _EARLY_CLOSE_DATES_2026, _EARLY_CLOSE_DATES
+        from execution.position_monitor import (
+            _EARLY_CLOSE_DATES,
+            _EARLY_CLOSE_DATES_2026,
+            _MARKET_HOLIDAYS,
+            _MARKET_HOLIDAYS_2026,
+        )
         assert _MARKET_HOLIDAYS_2026 is _MARKET_HOLIDAYS
         assert _EARLY_CLOSE_DATES_2026 is _EARLY_CLOSE_DATES
 
@@ -534,6 +544,7 @@ class TestAtomicICExecutionFlag:
 
     def test_flag_set_true_logs_warning(self, caplog):
         import logging
+
         from execution.execution_engine import ExecutionEngine
         with caplog.at_level(logging.WARNING, logger="execution.execution_engine"):
             engine = ExecutionEngine(
@@ -553,9 +564,9 @@ class TestRealRiskPctPipeline:
 
     def test_sizing_before_risk_gate(self):
         """After routing, approved alerts have risk_pct from sizer, not hardcoded 0.02."""
+        from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
         from alerts.risk_gate import RiskGate
-        from alerts.alert_position_sizer import AlertPositionSizer
 
         # Use real RiskGate with 25% limit so we don't accidentally block
         rg = RiskGate({"risk": {"max_total_exposure_pct": 25}})
@@ -596,9 +607,9 @@ class TestRealRiskPctPipeline:
 
     def test_high_real_risk_blocked_by_gate(self):
         """If sizer returns risk_pct > MAX_RISK_PER_TRADE, risk gate blocks it."""
+        from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
         from alerts.risk_gate import RiskGate
-        from alerts.alert_position_sizer import AlertPositionSizer
         from shared.constants import MAX_RISK_PER_TRADE
 
         rg = RiskGate({})

@@ -115,7 +115,11 @@ def _monitor(alpaca=None, db_path=None, config=None):
     """Build a PositionMonitor with sensible defaults."""
     return PositionMonitor(
         alpaca_provider=alpaca or _make_alpaca(),
-        config=config or {"risk": {"profit_target": 50, "stop_loss_multiplier": 3.5}, "strategy": {"manage_dte": 0}},
+        config=config or {
+            "risk": {"profit_target": 50, "stop_loss_multiplier": 3.5},
+            "strategy": {"manage_dte": 0},
+            "execution": {"commission_per_contract": 0},
+        },
         db_path=db_path,
     )
 

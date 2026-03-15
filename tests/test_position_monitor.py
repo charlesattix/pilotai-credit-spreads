@@ -6,18 +6,20 @@
   +    : Market hours gate
 """
 
-import sqlite3
+import pytest
+
+try:
+    from alpaca.trading.requests import OptionLegRequest  # noqa: F401
+except ImportError:
+    pytest.skip("OptionLegRequest not available in this alpaca-py version", allow_module_level=True)
+
 import tempfile
-import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from execution.position_monitor import PositionMonitor
 from shared.database import get_trades, init_db, upsert_trade
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -349,9 +351,11 @@ class TestPnLRecording:
         trades = get_trades(path=db)
         assert len(trades) == 1
         t = trades[0]
-        # pnl = (1.00 - 0.40) * 2 contracts * 100 = 120
+        # gross pnl = (1.00 - 0.40) * 2 * 100 = 120
+        # commission = 0.65 * 2 contracts * 2 legs * 2 sides = $5.20 (default 0.65)
+        # net pnl = 120 - 5.20 = 114.80
         assert t["status"] == "closed_profit"
-        assert abs(t["pnl"] - 120.0) < 0.01
+        assert abs(t["pnl"] - 114.80) < 0.01
         assert t["exit_date"] is not None
 
     def test_filled_order_records_loss(self):
@@ -376,9 +380,11 @@ class TestPnLRecording:
 
         trades = get_trades(path=db)
         t = trades[0]
-        # pnl = (1.00 - 2.80) * 1 * 100 = -180
+        # gross pnl = (1.00 - 2.80) * 1 * 100 = -180
+        # commission = 0.65 * 1 contract * 2 legs * 2 sides = $2.60 (default 0.65)
+        # net pnl = -180 - 2.60 = -182.60
         assert t["status"] == "closed_loss"
-        assert abs(t["pnl"] - (-180.0)) < 0.01
+        assert abs(t["pnl"] - (-182.60)) < 0.01
 
     def test_pending_order_left_unchanged(self):
         db = self._setup_db()
@@ -551,7 +557,7 @@ class TestMarketHoursGate:
     def test_market_open_weekday(self):
         # Patch to Wednesday 10:30 ET
         with patch("execution.position_monitor.datetime") as mock_dt:
-            wednesday_1030 = datetime(2026, 3, 4, 10, 30, tzinfo=None)   # weekday=2
+            datetime(2026, 3, 4, 10, 30, tzinfo=None)   # weekday=2
             mock_dt.now.return_value = MagicMock(
                 weekday=lambda: 2,  # Wednesday
                 hour=10, minute=30,
@@ -680,8 +686,10 @@ class TestFullIcCycle:
         trades = get_trades(path=db)
         t = trades[0]
         assert t["status"] == "closed_profit"
-        # pnl = (2.00 - 0.80) * 2 * 100 = 240
-        assert abs(t["pnl"] - 240.0) < 0.01
+        # gross pnl = (2.00 - 0.80) * 2 * 100 = 240
+        # commission = 0.65 * 2 contracts * 4 legs * 2 sides = $10.40 (default 0.65)
+        # net pnl = 240 - 10.40 = 229.60
+        assert abs(t["pnl"] - 229.60) < 0.01
 
 
 # ---------------------------------------------------------------------------
@@ -966,7 +974,7 @@ class TestStraddleCloseAndPnL:
         """_close_position routes straddle to _submit_straddle_close."""
         db = self._setup_db()
         alpaca = _make_alpaca()
-        alpaca.close_single_leg.return_value = {"status": "submitted", "order_id": "sl-001"}
+        alpaca.submit_single_leg.return_value = {"status": "submitted", "order_id": "sl-001"}
         mon = _monitor(alpaca=alpaca, db_path=db)
 
         pos = _make_straddle_trade(trade_id="ss-close-1")
@@ -974,8 +982,8 @@ class TestStraddleCloseAndPnL:
 
         mon._close_position(pos, "profit_target")
 
-        # Should call close_single_leg for call AND put
-        assert alpaca.close_single_leg.call_count == 2
+        # Should call submit_single_leg for call AND put
+        assert alpaca.submit_single_leg.call_count == 2
 
     def test_debit_pnl_recording(self):
         """P&L for a debit (long) straddle: pnl = (fill_price - debit_paid) * contracts * 100."""
@@ -998,8 +1006,10 @@ class TestStraddleCloseAndPnL:
         trades = get_trades(path=db)
         t = trades[0]
         assert t["status"] == "closed_profit"
-        # pnl = (6.50 - 4.00) * 2 * 100 = 500
-        assert abs(t["pnl"] - 500.0) < 0.01
+        # gross pnl = (6.50 - 4.00) * 2 * 100 = 500
+        # commission = 0.65 * 2 contracts * 2 legs * 2 sides = $5.20 (default 0.65)
+        # net pnl = 500 - 5.20 = 494.80
+        assert abs(t["pnl"] - 494.80) < 0.01
 
     def test_credit_pnl_recording_for_short_straddle(self):
         """P&L for a credit (short) straddle: pnl = (credit - fill_price) * contracts * 100."""
@@ -1022,5 +1032,7 @@ class TestStraddleCloseAndPnL:
         trades = get_trades(path=db)
         t = trades[0]
         assert t["status"] == "closed_profit"
-        # pnl = (5.00 - 2.00) * 1 * 100 = 300
-        assert abs(t["pnl"] - 300.0) < 0.01
+        # gross pnl = (5.00 - 2.00) * 1 * 100 = 300
+        # commission = 0.65 * 1 contract * 2 legs * 2 sides = $2.60 (default 0.65)
+        # net pnl = 300 - 2.60 = 297.40
+        assert abs(t["pnl"] - 297.40) < 0.01

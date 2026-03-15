@@ -79,6 +79,12 @@ def init_db(path: Optional[str] = None) -> None:
                 created_at TEXT DEFAULT (datetime('now'))
             );
 
+            CREATE TABLE IF NOT EXISTS scanner_state (
+                key TEXT PRIMARY KEY NOT NULL,
+                value TEXT NOT NULL,
+                updated_at TEXT DEFAULT (datetime('now'))
+            );
+
             CREATE TABLE IF NOT EXISTS alert_dedup (
                 ticker TEXT NOT NULL,
                 direction TEXT NOT NULL,
@@ -108,13 +114,31 @@ def init_db(path: Optional[str] = None) -> None:
         """)
         conn.commit()
 
+        # alert_dedup schema migration: old schema had (ticker, expiration, strike_type) PK;
+        # new schema uses (ticker, direction).  Since dedup data is transient (30-min window),
+        # drop-and-recreate is safe — at worst one scan's worth of dedup state is lost.
+        try:
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(alert_dedup)").fetchall()]
+            if "expiration" in cols and "direction" not in cols:
+                conn.execute("DROP TABLE IF EXISTS alert_dedup")
+                conn.execute("""
+                    CREATE TABLE alert_dedup (
+                        ticker TEXT NOT NULL,
+                        direction TEXT NOT NULL,
+                        last_routed_at TEXT NOT NULL,
+                        PRIMARY KEY (ticker, direction)
+                    )
+                """)
+                conn.commit()
+                logger.info("Database: migrated alert_dedup to (ticker, direction) PK")
+        except Exception as _mig_err:
+            logger.warning("Database: alert_dedup migration check failed (non-fatal): %s", _mig_err)
+
         # Safe column migrations — ADD IF NOT EXISTS (try/except for older SQLite)
         for migration_sql in [
             "ALTER TABLE trades ADD COLUMN alpaca_client_order_id TEXT",
             "ALTER TABLE trades ADD COLUMN alpaca_fill_price REAL",
             "ALTER TABLE trades ADD COLUMN alpaca_status TEXT",
-            # Bug #2: existing DBs may have alert_dedup without direction column
-            "ALTER TABLE alert_dedup ADD COLUMN direction TEXT DEFAULT ''",
         ]:
             try:
                 conn.execute(migration_sql)
@@ -369,6 +393,31 @@ def delete_old_dedup_entries(window_seconds: int = 1800, path: Optional[str] = N
             f"DELETE FROM alert_dedup WHERE last_routed_at <= datetime('now', '-{window_seconds} seconds')"
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def save_scanner_state(key: str, value: str, path: Optional[str] = None) -> None:
+    """Persist a scanner state value (e.g. peak_equity) that survives restarts."""
+    conn = get_db(path)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO scanner_state (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+            (key, value),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_scanner_state(key: str, path: Optional[str] = None) -> Optional[str]:
+    """Load a persisted scanner state value. Returns None if not found."""
+    conn = get_db(path)
+    try:
+        row = conn.execute(
+            "SELECT value FROM scanner_state WHERE key = ?", (key,)
+        ).fetchone()
+        return row["value"] if row else None
     finally:
         conn.close()
 

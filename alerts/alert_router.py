@@ -63,7 +63,7 @@ class AlertRouter:
         self.execution_engine = execution_engine  # None = alert-only mode
         self.config = config or {}
 
-        # In-memory dedup ledger: (ticker, direction) → last_routed_at
+        # In-memory dedup ledger: (ticker, direction, alert_type) → last_routed_at
         # Populated from SQLite on startup so restarts don't lose dedup state (BUG #17).
         self._dedup_ledger: Dict[tuple, datetime] = {}
         self._load_dedup_from_db()

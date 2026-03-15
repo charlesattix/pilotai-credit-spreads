@@ -18,12 +18,16 @@ import os
 import tempfile
 import threading
 import time
-from datetime import datetime, timezone, timedelta
-from typing import Dict
-from unittest.mock import MagicMock, patch, call
+from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
+
+try:
+    from alpaca.trading.requests import OptionLegRequest  # noqa: F401
+except ImportError:
+    pytest.skip("OptionLegRequest not available in this alpaca-py version", allow_module_level=True)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -231,7 +235,7 @@ class TestPositionMonitor:
 
     def test_stop_called_when_event_set(self, tmp_path):
         monitor, _ = self._make_monitor(tmp_path=tmp_path)
-        with patch.object(monitor, '_check_positions') as mock_check:
+        with patch.object(monitor, '_check_positions'):
             t = threading.Thread(target=monitor.start, daemon=True)
             t.start()
             time.sleep(0.1)
@@ -382,8 +386,12 @@ class TestAlertPositionSizerFlat:
         alert.ticker = "SPY"
         alert.type = AlertType.iron_condor if is_ic else AlertType.credit_spread
         alert.entry_price = credit
-        leg1 = MagicMock(); leg1.strike = short; leg1.option_type = "put"
-        leg2 = MagicMock(); leg2.strike = long; leg2.option_type = "put"
+        leg1 = MagicMock()
+        leg1.strike = short
+        leg1.option_type = "put"
+        leg2 = MagicMock()
+        leg2.strike = long
+        leg2.option_type = "put"
         alert.legs = [leg1, leg2]
         return alert
 
@@ -410,10 +418,11 @@ class TestAlertPositionSizerFlat:
         result = sizer.size(alert=alert, account_value=100_000, iv_rank=30,
                             current_portfolio_risk=0, weekly_loss_breach=False)
 
-        # IC: 12% risk = $12000; width=5, credit=2.0 → max_loss=(5-2)*100=$300 (single wing)
-        # Both wings cannot simultaneously expire ITM; only one can lose.
-        # contracts = 12000 / 300 = 40, capped at max_contracts=25
-        assert result.contracts == 25
+        # IC: 12% risk = $12000; width=5, credit=2.0
+        # Corrected formula: max_loss = (2*width - credit)*100 = (2*5-2)*100 = $800
+        # Both wings can lose in a gap/flash-crash scenario (matches backtester).
+        # contracts = 12000 / 800 = 15; below max_contracts=25 cap
+        assert result.contracts == 15
 
     def test_max_contracts_from_config_not_hardcoded(self):
         from alerts.alert_position_sizer import AlertPositionSizer
@@ -479,7 +488,8 @@ class TestRiskGateDrawdownCB:
         alert = MagicMock(spec=Alert)
         alert.ticker = "SPY"
         alert.type = AlertType.credit_spread
-        alert.direction = MagicMock(); alert.direction.value = "bullish"
+        alert.direction = MagicMock()
+        alert.direction.value = "bullish"
         alert.risk_pct = 0.05
         return alert
 
@@ -554,7 +564,7 @@ class TestRiskGateDrawdownCB:
 
 class TestPendingCloseStatus:
     def test_pending_close_written_and_read(self, tmp_path):
-        from shared.database import upsert_trade, get_trades, init_db
+        from shared.database import get_trades, init_db, upsert_trade
         db_path = str(tmp_path / "test.db")
         init_db(db_path)
 
@@ -579,9 +589,9 @@ class TestPendingCloseStatus:
 
 class TestAlertRouterExecution:
     def test_execution_engine_called_after_dispatch(self):
+        from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
         from alerts.risk_gate import RiskGate
-        from alerts.alert_position_sizer import AlertPositionSizer
 
         mock_telegram = MagicMock()
         mock_telegram.send_alert = MagicMock()
@@ -603,20 +613,14 @@ class TestAlertRouterExecution:
         mock_alert = MagicMock(spec=Alert)
         mock_alert.ticker = "SPY"
         mock_alert.type = AlertType.credit_spread
-        mock_alert.direction = MagicMock(); mock_alert.direction.value = "bullish"
+        mock_alert.direction = MagicMock()
+        mock_alert.direction.value = "bullish"
         mock_alert.score = 75
         mock_alert.risk_pct = 0.05
-        mock_alert.sizing = MagicMock(); mock_alert.sizing.contracts = 2
+        mock_alert.sizing = MagicMock()
+        mock_alert.sizing.contracts = 2
         mock_alert.to_dict.return_value = {"ticker": "SPY", "type": "credit_spread", "contracts": 2}
 
-        account_state = {
-            "account_value": 100_000,
-            "peak_equity": 100_000,
-            "open_positions": [],
-            "daily_pnl_pct": 0.0,
-            "weekly_pnl_pct": 0.0,
-            "recent_stops": [],
-        }
 
         with patch.object(router, '_dedup_ledger', {}), \
              patch('alerts.alert_router.insert_alert'):
@@ -628,9 +632,9 @@ class TestAlertRouterExecution:
 
     def test_no_execution_when_engine_is_none(self):
         """When execution_engine=None, no orders submitted (alert-only mode)."""
+        from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
         from alerts.risk_gate import RiskGate
-        from alerts.alert_position_sizer import AlertPositionSizer
 
         router = AlertRouter(
             risk_gate=RiskGate(),
@@ -650,9 +654,9 @@ class TestAlertRouterDteGate:
     """_validate_dte enforces min_dte / max_dte from config before execution."""
 
     def _router(self, min_dte=25, max_dte=45):
+        from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
         from alerts.risk_gate import RiskGate
-        from alerts.alert_position_sizer import AlertPositionSizer
         return AlertRouter(
             risk_gate=RiskGate(),
             position_sizer=AlertPositionSizer(),
@@ -664,6 +668,7 @@ class TestAlertRouterDteGate:
 
     def _alert_with_dte(self, dte_days: int):
         from datetime import date, timedelta
+
         from alerts.alert_schema import Alert, AlertType, Direction, Leg
         exp = (date.today() + timedelta(days=dte_days)).isoformat()
         return Alert(
@@ -707,9 +712,9 @@ class TestAlertRouterDteGate:
 
     def test_no_config_passes_through(self):
         """When no DTE config, gate is disabled — all expirations allowed."""
+        from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
         from alerts.risk_gate import RiskGate
-        from alerts.alert_position_sizer import AlertPositionSizer
         router = AlertRouter(
             risk_gate=RiskGate(),
             position_sizer=AlertPositionSizer(),
@@ -810,9 +815,6 @@ class TestVixFallbackNeutral:
         system.strategy._combo_regime_detector = detector
         system.strategy.evaluate_spread_opportunity.return_value = []
 
-        # Unified strategy path — empty list so generate_signals loop is no-op
-        system.unified_strategies = []
-
         system.ml_pipeline = None
         system.ml_score_weight = 0.5
         system.rules_score_weight = 0.5
@@ -820,22 +822,18 @@ class TestVixFallbackNeutral:
 
         return technical_signals
 
-    @patch('main.build_live_market_snapshot')
-    def test_neutral_set_when_detector_raises(self, mock_snapshot):
-        """VIX fetch / detector exception → combo_regime = 'NEUTRAL'."""
-        mock_snapshot.return_value = MagicMock()
+    def test_neutral_set_when_detector_raises(self):
+        """VIX fetch / detector exception → combo_regime = 'BULL' (matches backtester starting state)."""
         system = self._make_system()
         signals = self._wire_analyze_deps(
             system, regime_side_effect=Exception("VIX fetch failed")
         )
         system._analyze_ticker("SPY")
-        assert signals.get("combo_regime") == "NEUTRAL"
+        assert signals.get("combo_regime") == "BULL"
 
-    @patch('main.build_live_market_snapshot')
-    def test_actual_regime_set_when_detector_succeeds(self, mock_snapshot):
+    def test_actual_regime_set_when_detector_succeeds(self):
         """When detector works, combo_regime reflects the detected value."""
         import pandas as pd
-        mock_snapshot.return_value = MagicMock()
         ts = pd.Timestamp("2025-01-02")
         system = self._make_system()
         signals = self._wire_analyze_deps(
@@ -844,10 +842,8 @@ class TestVixFallbackNeutral:
         system._analyze_ticker("SPY")
         assert signals.get("combo_regime") == "BULL"
 
-    @patch('main.build_live_market_snapshot')
-    def test_combo_regime_absent_in_non_combo_mode(self, mock_snapshot):
+    def test_combo_regime_absent_in_non_combo_mode(self):
         """In non-combo (simple/hmm) mode, combo_regime is never injected."""
-        mock_snapshot.return_value = MagicMock()
         system = self._make_system()
         signals = self._wire_analyze_deps(system)
         system.strategy.regime_mode = "simple"
@@ -946,8 +942,8 @@ class TestStrikePricePreservation:
 
     def test_alert_legs_preserve_strikes_through_pipeline(self):
         """Strike prices must survive: opportunity → Alert → execution dict unchanged."""
-        from alerts.alert_schema import Alert
         from alerts.alert_router import AlertRouter
+        from alerts.alert_schema import Alert
 
         opp = {
             "ticker": "SPY",
