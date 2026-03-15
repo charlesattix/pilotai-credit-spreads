@@ -1103,6 +1103,8 @@ Examples:
                     config=system.config,
                     db_path=args.db_path,
                 )
+                # Register unified strategies for manage_position() dispatch
+                position_monitor.register_strategies(system.unified_strategies)
                 monitor_thread = threading.Thread(
                     target=position_monitor.start,
                     daemon=True,
