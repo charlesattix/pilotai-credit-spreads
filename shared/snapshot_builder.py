@@ -112,7 +112,7 @@ def build_live_market_snapshot(
     )
 
 
-def reprice_signals_from_chain(signals, options_chain):
+def reprice_signals_from_chain(signals, options_chain, slippage: float = 0.05):
     """Re-price Signal objects using real options chain bid/ask data.
 
     When real chain data is available, overwrite BS-derived credit/max_loss
@@ -121,6 +121,7 @@ def reprice_signals_from_chain(signals, options_chain):
     Args:
         signals: List of Signal objects from generate_signals().
         options_chain: DataFrame with columns: strike, option_type, bid, ask, expiration.
+        slippage: Per-spread slippage deduction in dollars (default 0.05).
 
     Returns:
         Updated list of Signal objects (modified in place).
@@ -174,7 +175,7 @@ def reprice_signals_from_chain(signals, options_chain):
 
             if all_priced and total_credit > 0:
                 spread_width = abs(signal.legs[0].strike - signal.legs[1].strike)
-                signal.net_credit = round(total_credit - 0.05, 4)  # slippage
+                signal.net_credit = round(total_credit - slippage, 4)
                 signal.max_loss = round(spread_width - signal.net_credit, 4)
                 signal.max_profit = signal.net_credit
 
