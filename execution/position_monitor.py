@@ -413,23 +413,37 @@ class PositionMonitor:
         pnl = credit - current_value
         pnl_pct = (pnl / credit) * 100
 
-        # 3. Profit target
+        # 3. Profit target — per-trade value with global fallback
+        #    Per-trade profit_target_pct from Signal is a fraction (e.g. 0.50 = 50%);
+        #    global self.profit_target_pct is already in percentage form (e.g. 50).
         # NOTE (E4 — exit slippage): backtester applies VIX-scaled slippage to every exit
         # (base=0.10, up to 3x at VIX≥40; see backtester.py _vix_scaled_exit_slippage()).
         # The live system uses real Alpaca market fills instead — no explicit slippage parameter.
         # Validate quarterly: compare actual fill prices vs intraday mid-price at trigger time.
-        if pnl_pct >= self.profit_target_pct:
+        pt_raw = pos.get("profit_target_pct")
+        if pt_raw is not None:
+            pt_val = float(pt_raw)
+            # Convert fraction → percentage if needed (Signal stores 0.50, config stores 50)
+            pt_pct = pt_val * 100 if pt_val < 1.0 else pt_val
+        else:
+            pt_pct = self.profit_target_pct
+
+        if pnl_pct >= pt_pct:
             logger.info(
                 "PositionMonitor: %s profit target hit: %.1f%% >= %.0f%% → closing",
-                pos.get("id"), pnl_pct, self.profit_target_pct,
+                pos.get("id"), pnl_pct, pt_pct,
             )
             return "profit_target"
 
-        # 4. Stop loss — matches backtester semantics exactly:
-        #    Fires when LOSS (current_value - credit) >= stop_loss_mult × credit
-        #    i.e., current_value >= (1 + mult) × credit
-        #    For credit=$1.50, mult=3.5: fires at current_value=$6.75
-        sl_threshold = (1.0 + self.stop_loss_mult) * credit
+        # 4. Stop loss — per-trade value with global fallback
+        #    Per-trade stop_loss_pct from Signal is a multiplier (e.g. 2.5 = 2.5x credit
+        #    for CS, 0.50 = 50% for SS); same convention as self.stop_loss_mult.
+        #
+        #    Matches backtester semantics:
+        #       Fires when LOSS (current_value - credit) >= stop_loss_mult × credit
+        #       i.e., current_value >= (1 + mult) × credit
+        sl_mult = float(pos.get("stop_loss_pct", self.stop_loss_mult))
+        sl_threshold = (1.0 + sl_mult) * credit
 
         # Sanity: sl_threshold must not exceed the spread's max possible value per contract.
         # Fires when credit is in wrong units (e.g., per-contract instead of per-share).
