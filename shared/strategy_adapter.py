@@ -209,8 +209,8 @@ def trade_dict_to_position(trade: Dict) -> Position:
             net_credit=credit,
             max_loss_per_unit=max_loss,
             max_profit_per_unit=abs(credit) if is_long else credit,
-            profit_target_pct=trade.get("profit_target_pct", 0.55),
-            stop_loss_pct=trade.get("stop_loss_pct", 0.45),
+            profit_target_pct=trade.get("profit_target_pct", 0.50),
+            stop_loss_pct=trade.get("stop_loss_pct", 0.50),
         )
 
     if "condor" in spread_type:
@@ -261,5 +261,5 @@ def trade_dict_to_position(trade: Dict) -> Position:
         max_loss_per_unit=max_loss,
         max_profit_per_unit=credit,
         profit_target_pct=trade.get("profit_target_pct", 0.50),
-        stop_loss_pct=trade.get("stop_loss_pct", 2.0),
+        stop_loss_pct=trade.get("stop_loss_pct", 2.5),
     )
