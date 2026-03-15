@@ -6,6 +6,13 @@
   +    : Market hours gate
 """
 
+import pytest
+
+try:
+    from alpaca.trading.requests import OptionLegRequest  # noqa: F401
+except ImportError:
+    pytest.skip("OptionLegRequest not available in this alpaca-py version", allow_module_level=True)
+
 import tempfile
 from datetime import datetime, timezone
 from typing import Dict, List, Optional

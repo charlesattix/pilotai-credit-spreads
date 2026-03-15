@@ -9,6 +9,13 @@ Hardening Pass 3 — tests for the final sweep of gaps:
   - Wide bid-ask: all closes use market orders (explicit test)
 """
 
+import pytest
+
+try:
+    from alpaca.trading.requests import OptionLegRequest  # noqa: F401
+except ImportError:
+    pytest.skip("OptionLegRequest not available in this alpaca-py version", allow_module_level=True)
+
 import json
 import os
 from unittest.mock import MagicMock, patch
