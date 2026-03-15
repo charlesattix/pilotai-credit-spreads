@@ -28,6 +28,7 @@ class PositionAction(str, Enum):
     CLOSE_PROFIT = "close_profit_target"
     CLOSE_STOP = "close_stop_loss"
     CLOSE_EXPIRY = "close_expiration"
+    CLOSE_DTE = "close_dte_management"
     CLOSE_TIME = "close_time_decay"
     CLOSE_EVENT = "close_event"
     CLOSE_SIGNAL = "close_signal_exit"

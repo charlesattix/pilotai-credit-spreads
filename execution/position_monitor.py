@@ -242,6 +242,7 @@ class PositionMonitor:
         PositionAction.CLOSE_PROFIT: "profit_target",
         PositionAction.CLOSE_STOP: "stop_loss",
         PositionAction.CLOSE_EXPIRY: "expiration_today",
+        PositionAction.CLOSE_DTE: "dte_management",
         PositionAction.CLOSE_TIME: "dte_management",
         PositionAction.CLOSE_EVENT: "event_exit",
         PositionAction.CLOSE_SIGNAL: "signal_exit",
