@@ -17,6 +17,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+try:
+    from alpaca.trading.requests import OptionLegRequest  # noqa: F401
+except ImportError:
+    pytest.skip("OptionLegRequest not available in this alpaca-py version", allow_module_level=True)
+
 # ---------------------------------------------------------------------------
 # Helpers shared across tests
 # ---------------------------------------------------------------------------
