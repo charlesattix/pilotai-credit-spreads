@@ -189,6 +189,15 @@ class ExecutionEngine:
             logger.error("ExecutionEngine: DB write failed for %s: %s", client_id, e)
             return {"status": "error", "message": f"DB write failed: {e}", "client_order_id": client_id}
 
+        # ML-1: Log trade features for future ML training
+        try:
+            from shared.feature_logger import FeatureLogger, _extract_features_from_opportunity
+            fl = FeatureLogger(db_path=self.db_path)
+            features = _extract_features_from_opportunity(opp)
+            fl.log_entry(client_id, features)
+        except Exception as e:
+            logger.warning("ExecutionEngine: feature logging failed for %s (non-fatal): %s", client_id, e)
+
         # Dry-run mode: no Alpaca provider configured
         if not self.alpaca:
             logger.info(

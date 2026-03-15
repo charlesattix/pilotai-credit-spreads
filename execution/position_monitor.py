@@ -1172,7 +1172,7 @@ class PositionMonitor:
 
         try:
             close_trade(pos_id, pnl, exit_reason, path=self.db_path)
-        except Exception as e:
+        except Exception as e_close:
             logger.error(
                 "PositionMonitor: close_trade DB write failed for %s: %s — "
                 "writing to WAL for recovery on next startup",
@@ -1197,3 +1197,38 @@ class PositionMonitor:
                     "Manual reconciliation required.",
                     pos_id, wal_err,
                 )
+
+        # ML-1: Log trade outcome for feature logger
+        try:
+            from shared.feature_logger import FeatureLogger
+            from datetime import datetime as _dt, timezone as _tz
+            # Determine outcome
+            if abs(pnl) < 0.01:
+                outcome = "scratch"
+            elif pnl > 0:
+                outcome = "win"
+            else:
+                outcome = "loss"
+            # Calculate pnl_pct relative to max_loss (risk)
+            max_loss_val = float(pos.get("max_loss", 0) or 0)
+            if max_loss_val == 0:
+                short_s = float(pos.get("short_strike", 0) or 0)
+                long_s = float(pos.get("long_strike", 0) or 0)
+                if short_s and long_s:
+                    max_loss_val = abs(short_s - long_s) * contracts * 100
+            pnl_pct = round(pnl / max_loss_val * 100, 2) if max_loss_val > 0 else 0.0
+            # Calculate hold_days
+            entry_date_str = pos.get("entry_date") or pos.get("created_at", "")
+            hold_days = 0.0
+            if entry_date_str:
+                try:
+                    entry_dt = _dt.fromisoformat(entry_date_str)
+                    if entry_dt.tzinfo is None:
+                        entry_dt = entry_dt.replace(tzinfo=_tz.utc)
+                    hold_days = round((_dt.now(_tz.utc) - entry_dt).total_seconds() / 86400, 2)
+                except (ValueError, TypeError):
+                    pass
+            fl = FeatureLogger(db_path=self.db_path)
+            fl.log_outcome(pos_id, outcome, pnl_pct, hold_days)
+        except Exception as e_ml:
+            logger.warning("PositionMonitor: feature outcome logging failed for %s (non-fatal): %s", pos_id, e_ml)

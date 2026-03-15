@@ -423,6 +423,70 @@ class CreditSpreadSystem:
 
             # Scores from rules-based scoring + combo regime + COMPASS are used directly.
             # ML pipeline is intentionally disconnected (not validated in backtesting).
+
+            # ML-1: Attach context features to each opportunity for the feature logger.
+            # These are consumed by FeatureLogger in execution_engine after trade submission.
+            try:
+                import numpy as np
+                close_series = price_data['Close'].dropna()
+                ma200 = float(close_series.rolling(200).mean().iloc[-1]) if len(close_series) >= 200 else None
+                ma200_distance = round((current_price - ma200) / ma200 * 100, 4) if ma200 else None
+
+                # Realized volatility (annualized)
+                log_returns = np.log(close_series / close_series.shift(1)).dropna()
+                rv_20d = float(log_returns.tail(20).std() * np.sqrt(252)) if len(log_returns) >= 20 else None
+                rv_5d = float(log_returns.tail(5).std() * np.sqrt(252)) if len(log_returns) >= 5 else None
+
+                # VIX & term structure
+                vix_val = None
+                vix_rank_val = None
+                vix_pct_val = None
+                vix_vix3m_ratio = None
+                try:
+                    vix_hist = self.data_cache.get_history('^VIX', period='1y')
+                    if not vix_hist.empty:
+                        vix_close = vix_hist['Close'].dropna()
+                        vix_val = float(vix_close.iloc[-1])
+                        vix_window = vix_close.tail(252)
+                        if len(vix_window) > 1:
+                            vix_rank_val = round((vix_val - vix_window.min()) / (vix_window.max() - vix_window.min()) * 100, 2)
+                            vix_pct_val = round((vix_window < vix_val).mean() * 100, 2)
+                    try:
+                        vix3m_hist = self.data_cache.get_history('^VIX3M', period='5d')
+                        if not vix3m_hist.empty and vix_val:
+                            vix3m_val = float(vix3m_hist['Close'].dropna().iloc[-1])
+                            if vix3m_val > 0:
+                                vix_vix3m_ratio = round(vix_val / vix3m_val, 4)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
+                # Vol premium z-score: (IV - RV) normalized
+                vol_premium_zscore = None
+                iv_current = iv_data.get('current_iv') or iv_data.get('iv_rank')
+                if iv_current and rv_20d and rv_20d > 0:
+                    vol_premium_zscore = round((iv_current / 100 - rv_20d) / rv_20d, 4)
+
+                ml_features = {
+                    "current_price": current_price,
+                    "regime": technical_signals.get('combo_regime', technical_signals.get('trend', '')),
+                    "vix": vix_val,
+                    "vix_rank": vix_rank_val,
+                    "vix_percentile": vix_pct_val,
+                    "iv_rank": iv_data.get('iv_rank'),
+                    "rsi": technical_signals.get('rsi'),
+                    "ma200_distance": ma200_distance,
+                    "realized_vol_20d": round(rv_20d, 4) if rv_20d else None,
+                    "realized_vol_5d": round(rv_5d, 4) if rv_5d else None,
+                    "vix_vix3m_ratio": vix_vix3m_ratio,
+                    "vol_premium_zscore": vol_premium_zscore,
+                }
+                for opp in opportunities:
+                    opp['_ml_features'] = ml_features
+            except Exception as e:
+                logger.warning("ML-1 feature enrichment failed for %s (non-fatal): %s", ticker, e)
+
             return opportunities
 
         except Exception as e:
