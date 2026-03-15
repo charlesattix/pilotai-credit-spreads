@@ -82,10 +82,10 @@ def init_db(path: Optional[str] = None) -> None:
 
             CREATE TABLE IF NOT EXISTS alert_dedup (
                 ticker TEXT NOT NULL,
-                expiration TEXT NOT NULL,
-                strike_type TEXT NOT NULL,
+                direction TEXT NOT NULL,
+                alert_type TEXT NOT NULL DEFAULT 'credit_spread',
                 last_routed_at TEXT NOT NULL,
-                PRIMARY KEY (ticker, expiration, strike_type)
+                PRIMARY KEY (ticker, direction, alert_type)
             );
 
             CREATE TABLE IF NOT EXISTS scanner_state (
@@ -159,6 +159,8 @@ def init_db(path: Optional[str] = None) -> None:
             "ALTER TABLE trades ADD COLUMN alpaca_status TEXT",
             # Bug #2: existing DBs may have alert_dedup without direction column
             "ALTER TABLE alert_dedup ADD COLUMN direction TEXT DEFAULT ''",
+            # C1 fix: existing DBs may have alert_dedup without alert_type column
+            "ALTER TABLE alert_dedup ADD COLUMN alert_type TEXT DEFAULT 'credit_spread'",
         ]:
             try:
                 conn.execute(migration_sql)
@@ -379,16 +381,13 @@ def insert_reconciliation_event(
         conn.close()
 
 
-def upsert_dedup_entry(ticker: str, expiration: str, strike_type: str, last_routed_at: str, path: Optional[str] = None) -> None:
-    """Persist a dedup ledger entry so the router survives restarts.
-
-    Key is (ticker, expiration, strike_type) matching backtester _open_keys granularity.
-    """
+def upsert_dedup_entry(ticker: str, direction: str, alert_type: str, last_routed_at: str, path: Optional[str] = None) -> None:
+    """Persist a dedup ledger entry so the router survives restarts."""
     conn = get_db(path)
     try:
         conn.execute(
-            "INSERT OR REPLACE INTO alert_dedup (ticker, expiration, strike_type, last_routed_at) VALUES (?, ?, ?, ?)",
-            (ticker, expiration, strike_type, last_routed_at),
+            "INSERT OR REPLACE INTO alert_dedup (ticker, direction, alert_type, last_routed_at) VALUES (?, ?, ?, ?)",
+            (ticker, direction, alert_type, last_routed_at),
         )
         conn.commit()
     finally:
@@ -401,7 +400,7 @@ def load_dedup_entries(window_seconds: int = 1800, path: Optional[str] = None) -
     try:
         cutoff = f"datetime('now', '-{window_seconds} seconds')"
         rows = conn.execute(
-            f"SELECT ticker, expiration, strike_type, last_routed_at FROM alert_dedup WHERE last_routed_at > {cutoff}"
+            f"SELECT ticker, direction, alert_type, last_routed_at FROM alert_dedup WHERE last_routed_at > {cutoff}"
         ).fetchall()
         return [dict(r) for r in rows]
     finally:

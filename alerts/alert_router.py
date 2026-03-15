@@ -323,7 +323,7 @@ class AlertRouter:
             delete_old_dedup_entries(window_seconds=_DEDUP_WINDOW, path=db_path)
             entries = load_dedup_entries(window_seconds=_DEDUP_WINDOW, path=db_path)
             for entry in entries:
-                key = (entry["ticker"], entry["direction"], entry.get("alert_type", "credit_spread"))
+                key = (entry["ticker"], entry["direction"], entry["alert_type"])
                 try:
                     ts = datetime.fromisoformat(entry["last_routed_at"])
                     if ts.tzinfo is None:
