@@ -409,8 +409,9 @@ class CreditSpreadSystem:
                         logger.info("%s: ComboRegime = %s", ticker, current_regime)
                 except Exception as e:
                     logger.warning("ComboRegimeDetector failed for %s: %s", ticker, e)
-                    # Fallback to BULL matches backtester starting state and allows
-                    # bull_put spreads to proceed when regime detection is unavailable.
+                    # BULL matches ComboRegimeDetector's optimistic prior and the backtester's
+                    # starting state. Defense-in-depth: blocks ICs (which require NEUTRAL regime).
+                    # Without this, combo_regime is absent → ic_neutral_regime_only check skips.
                     technical_signals['combo_regime'] = 'BULL'
 
             # IV analysis
@@ -470,7 +471,8 @@ class CreditSpreadSystem:
 
             # Re-price from real options chain when available
             if not options_chain.empty:
-                all_signals = reprice_signals_from_chain(all_signals, options_chain)
+                slippage = float(self.config.get("risk", {}).get("slippage", 0.05))
+                all_signals = reprice_signals_from_chain(all_signals, options_chain, slippage=slippage)
 
             # Convert Signal objects → opportunity dicts for AlertRouter / paper trader
             opportunities = []
