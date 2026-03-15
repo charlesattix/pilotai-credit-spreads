@@ -394,16 +394,29 @@ class PositionMonitor:
         pnl = credit - current_value
         pnl_pct = (pnl / credit) * 100
 
-        # 3. Profit target
-        if pnl_pct >= self.profit_target_pct:
+        # 3. Profit target — per-trade value with global fallback
+        #    Per-trade profit_target_pct from Signal is a fraction (e.g. 0.50 = 50%);
+        #    global self.profit_target_pct is already in percentage form (e.g. 50).
+        pt_raw = pos.get("profit_target_pct")
+        if pt_raw is not None:
+            pt_val = float(pt_raw)
+            # Convert fraction → percentage if needed (Signal stores 0.50, config stores 50)
+            pt_pct = pt_val * 100 if pt_val < 1.0 else pt_val
+        else:
+            pt_pct = self.profit_target_pct
+
+        if pnl_pct >= pt_pct:
             logger.info(
                 "PositionMonitor: %s profit target hit: %.1f%% >= %.0f%% → closing",
-                pos.get("id"), pnl_pct, self.profit_target_pct,
+                pos.get("id"), pnl_pct, pt_pct,
             )
             return "profit_target"
 
-        # 4. Stop loss — two complementary checks:
+        # 4. Stop loss — per-trade value with global fallback
+        #    Per-trade stop_loss_pct from Signal is a multiplier (e.g. 2.5 = 2.5x credit
+        #    for CS, 0.50 = 50% for SS); same convention as self.stop_loss_mult.
         #
+        #    Two complementary checks:
         #   (a) Loss-based (matches backtester semantics):
         #       Fires when LOSS (current_value - credit) >= stop_loss_mult × credit
         #       i.e., current_value >= (1 + mult) × credit
@@ -413,7 +426,8 @@ class PositionMonitor:
         #       Skipped for straddles/strangles (no defined spread width).
         #
         #   The effective SL threshold is the LOWER of (a) and (b).
-        loss_based_threshold = (1.0 + self.stop_loss_mult) * credit
+        sl_mult = float(pos.get("stop_loss_pct", self.stop_loss_mult))
+        loss_based_threshold = (1.0 + sl_mult) * credit
 
         spread_width = 0.0
         is_straddle = "straddle" in spread_type or "strangle" in spread_type
