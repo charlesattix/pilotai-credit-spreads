@@ -67,7 +67,7 @@ All experiments are tracked here. Every new experiment gets an ID and entry.
 | 3 | Portfolio Blending | ✅ COMPLETE | CS+S/S blend beats CS+IC. +39.1% avg, -9.5% DD |
 | 4 | Regime Switching | ✅ COMPLETE | Dynamic allocation: +40.7% avg, -7.0% DD |
 | 5 | Final Validation | ✅ COMPLETE | WF 3/3, MC 10K, slippage, tail risk — ALL PASS |
-| 6 | Paper Trading | 🔄 IN PROGRESS | EXP-400 ready, EXP-401 needs wiring |
+| 6 | Paper Trading | 🔄 LIVE — VALIDATING | Both EXP-400 + EXP-401 deployed. 8-week clock: Mar 16 → May 11 |
 | 6.5 | Operation Unified Front | ✅ COMPLETE | Entry + exit paths unified. All strategies use same code as backtester. |
 
 ---
@@ -79,15 +79,20 @@ All experiments are tracked here. Every new experiment gets an ID and entry.
 2. ✅ Quickstart guide written (`PAPER_TRADING_QUICKSTART.md`)
 3. ✅ Alignment-patches PR merged (paper trader aligned with backtester)
 4. ✅ Branch pushed (`maximus/champion-config`)
-5. ⬜ Charles deploys paper trading
-6. ⬜ 8-week validation period
+5. ✅ Deployed via launchd (Charles, 2026-03-15)
+6. ⏳ 8-week validation period (Mar 16 → May 11, 2026)
 
 ### Next (EXP-401 — The Blend)
 1. ✅ Wire straddle/strangle into paper trader (Operation Unified Front)
-2. ⬜ Create paper_exp401.yaml config
-3. ⬜ Deploy as second paper experiment alongside EXP-400
-4. ⬜ 8-week validation period
+2. ✅ Create paper_exp401.yaml config
+3. ✅ Deployed side-by-side with EXP-400 via launchd (Charles, 2026-03-15)
+4. ⏳ 8-week validation period (Mar 16 → May 11, 2026)
 5. ⬜ Compare EXP-400 vs EXP-401 live results
+
+### Deployment Status (2026-03-15)
+- Nuclear reset: DBs nuked, Alpaca positions auto-close cron Monday 9:31 AM
+- Both experiments running via launchd
+- 8-week clock: **March 16 → May 11, 2026**
 
 ### Victory Conditions for Live Trading
 - Paper trading 8+ weeks with results within 30% of backtest expectations
