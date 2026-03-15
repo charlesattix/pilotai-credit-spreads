@@ -34,9 +34,10 @@ logger = logging.getLogger(__name__)
 _TYPE_PRIORITY = {
     AlertType.credit_spread: 0,
     AlertType.iron_condor: 1,
-    AlertType.momentum_swing: 2,
-    AlertType.earnings_play: 3,
-    AlertType.gamma_lotto: 4,
+    AlertType.straddle_strangle: 2,
+    AlertType.momentum_swing: 3,
+    AlertType.earnings_play: 4,
+    AlertType.gamma_lotto: 5,
 }
 
 # Dedup window in seconds
@@ -253,10 +254,10 @@ class AlertRouter:
             d["expiration"] = str(legs[0].get("expiration", "")).split(" ")[0]
 
         # --- spread_type: map direction → bull_put / bear_call ---
-        # Alert.type is "credit_spread" or "iron_condor"; execution engine needs
-        # "bull_put" / "bear_call" / "iron_condor" to determine option type.
+        # Alert.type is "credit_spread", "iron_condor", or "straddle_strangle";
+        # execution engine needs specific type strings.
         alert_type_val = d.get("type", "")
-        if "condor" not in alert_type_val:
+        if "condor" not in alert_type_val and "straddle" not in alert_type_val and "strangle" not in alert_type_val:
             d["type"] = "bull_put" if alert.direction.value == "bullish" else "bear_call"
 
         # --- strikes: extract sell leg → short, buy leg → long ---
@@ -287,6 +288,15 @@ class AlertRouter:
                 d["call_short_strike"] = cs["strike"]
             if cb:
                 d["call_long_strike"] = cb["strike"]
+
+        # --- straddle/strangle: extract call/put strikes from legs ---
+        if "straddle" in alert_type_val or "strangle" in alert_type_val:
+            call_leg = next((l for l in legs if l.get("option_type") == "call"), None)
+            put_leg = next((l for l in legs if l.get("option_type") == "put"), None)
+            if call_leg:
+                d["call_strike"] = call_leg["strike"]
+            if put_leg:
+                d["put_strike"] = put_leg["strike"]
 
         return d
 
