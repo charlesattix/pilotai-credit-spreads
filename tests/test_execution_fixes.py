@@ -815,6 +815,9 @@ class TestVixFallbackNeutral:
         system.strategy._combo_regime_detector = detector
         system.strategy.evaluate_spread_opportunity.return_value = []
 
+        # Unified strategy path — empty list so generate_signals loop is no-op
+        system.unified_strategies = []
+
         system.ml_pipeline = None
         system.ml_score_weight = 0.5
         system.rules_score_weight = 0.5
@@ -822,8 +825,10 @@ class TestVixFallbackNeutral:
 
         return technical_signals
 
-    def test_neutral_set_when_detector_raises(self):
+    @patch('main.build_live_market_snapshot')
+    def test_neutral_set_when_detector_raises(self, mock_snapshot):
         """VIX fetch / detector exception → combo_regime = 'BULL' (matches backtester starting state)."""
+        mock_snapshot.return_value = MagicMock()
         system = self._make_system()
         signals = self._wire_analyze_deps(
             system, regime_side_effect=Exception("VIX fetch failed")
@@ -831,9 +836,11 @@ class TestVixFallbackNeutral:
         system._analyze_ticker("SPY")
         assert signals.get("combo_regime") == "BULL"
 
-    def test_actual_regime_set_when_detector_succeeds(self):
+    @patch('main.build_live_market_snapshot')
+    def test_actual_regime_set_when_detector_succeeds(self, mock_snapshot):
         """When detector works, combo_regime reflects the detected value."""
         import pandas as pd
+        mock_snapshot.return_value = MagicMock()
         ts = pd.Timestamp("2025-01-02")
         system = self._make_system()
         signals = self._wire_analyze_deps(
@@ -842,8 +849,10 @@ class TestVixFallbackNeutral:
         system._analyze_ticker("SPY")
         assert signals.get("combo_regime") == "BULL"
 
-    def test_combo_regime_absent_in_non_combo_mode(self):
+    @patch('main.build_live_market_snapshot')
+    def test_combo_regime_absent_in_non_combo_mode(self, mock_snapshot):
         """In non-combo (simple/hmm) mode, combo_regime is never injected."""
+        mock_snapshot.return_value = MagicMock()
         system = self._make_system()
         signals = self._wire_analyze_deps(system)
         system.strategy.regime_mode = "simple"
