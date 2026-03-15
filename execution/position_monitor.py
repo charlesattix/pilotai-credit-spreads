@@ -797,7 +797,7 @@ class PositionMonitor:
 
         close_side = "sell" if is_long else "buy"
 
-        call_result = self.alpaca.submit_single_leg(
+        call_result = self.alpaca.close_single_leg(
             ticker=ticker,
             strike=call_strike,
             expiration=expiration_str,
@@ -811,7 +811,7 @@ class PositionMonitor:
         if call_result.get("status") != "submitted":
             return {"status": "error", "message": f"Call close failed: {call_result}"}
 
-        put_result = self.alpaca.submit_single_leg(
+        put_result = self.alpaca.close_single_leg(
             ticker=ticker,
             strike=put_strike,
             expiration=expiration_str,

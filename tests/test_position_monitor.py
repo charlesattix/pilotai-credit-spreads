@@ -966,7 +966,7 @@ class TestStraddleCloseAndPnL:
         """_close_position routes straddle to _submit_straddle_close."""
         db = self._setup_db()
         alpaca = _make_alpaca()
-        alpaca.submit_single_leg.return_value = {"status": "submitted", "order_id": "sl-001"}
+        alpaca.close_single_leg.return_value = {"status": "submitted", "order_id": "sl-001"}
         mon = _monitor(alpaca=alpaca, db_path=db)
 
         pos = _make_straddle_trade(trade_id="ss-close-1")
@@ -974,8 +974,8 @@ class TestStraddleCloseAndPnL:
 
         mon._close_position(pos, "profit_target")
 
-        # Should call submit_single_leg for call AND put
-        assert alpaca.submit_single_leg.call_count == 2
+        # Should call close_single_leg for call AND put
+        assert alpaca.close_single_leg.call_count == 2
 
     def test_debit_pnl_recording(self):
         """P&L for a debit (long) straddle: pnl = (fill_price - debit_paid) * contracts * 100."""
