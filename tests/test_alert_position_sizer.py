@@ -97,13 +97,13 @@ class TestSizingMath:
 
 
 class TestCapping:
-    """Verify the 5% MASTERPLAN hard cap is enforced."""
+    """Verify IV-rank sizer stays within expected range (40% heat cap inside calculate_dynamic_risk)."""
 
-    def test_dollar_risk_capped(self):
+    def test_dollar_risk_within_heat_cap(self):
+        """IV-rank sizer at IVR=100 returns 3% (backtester: no extra MAX_RISK_PER_TRADE cap)."""
         sizer = AlertPositionSizer()
         alert = _make_alert()
 
-        # High IV + empty portfolio should push up, but cap at 5%
         result = sizer.size(
             alert=alert,
             account_value=10_000,
@@ -111,14 +111,17 @@ class TestCapping:
             current_portfolio_risk=0,
         )
 
-        assert result.risk_pct <= MAX_RISK_PER_TRADE
-        assert result.dollar_risk <= MAX_RISK_PER_TRADE * 10_000
+        # calculate_dynamic_risk at IVR=100: 2% * 1.5 = 3% ($300 for $10K account)
+        # No extra MAX_RISK_PER_TRADE hard cap — only 40% heat cap applies
+        assert result.dollar_risk <= 10_000 * 0.40  # within heat cap
+        assert result.dollar_risk > 0
 
 
 class TestWeeklyLossReduction:
-    """Verify 50% size reduction when weekly loss limit is breached."""
+    """Weekly loss breach no longer reduces size (removed to match backtester)."""
 
-    def test_reduction_halves_dollar_risk(self):
+    def test_weekly_loss_breach_no_longer_reduces_size(self):
+        """Backtester has no weekly-loss breach reduction — live must match."""
         sizer = AlertPositionSizer()
         alert = _make_alert()
 
@@ -130,7 +133,7 @@ class TestWeeklyLossReduction:
             weekly_loss_breach=False,
         )
 
-        reduced = sizer.size(
+        with_breach = sizer.size(
             alert=alert,
             account_value=100_000,
             iv_rank=30,
@@ -138,8 +141,9 @@ class TestWeeklyLossReduction:
             weekly_loss_breach=True,
         )
 
-        assert reduced.dollar_risk == pytest.approx(normal.dollar_risk * 0.5)
-        assert reduced.contracts <= normal.contracts
+        # weekly_loss_breach flag is accepted but must NOT change sizing
+        assert with_breach.dollar_risk == pytest.approx(normal.dollar_risk)
+        assert with_breach.contracts == normal.contracts
 
 
 class TestEdgeCases:

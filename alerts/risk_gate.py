@@ -193,9 +193,18 @@ class RiskGate:
                 "starting_capital",
                 self.config.get("risk", {}).get("account_size", account_value),
             )
-            peak_equity = account_state.get("peak_equity", starting_capital)
-            if peak_equity and peak_equity > 0:
-                drawdown_pct = ((account_value - peak_equity) / peak_equity) * 100
+            # Mirror backtester behavior (backtester.py lines 679-683):
+            #   flat/non-compound mode → compare against starting_capital (no ratchet).
+            #   compound mode          → compare against peak_equity (high-water mark).
+            sizing_mode = self.config.get("risk", {}).get("sizing_mode", "dynamic")
+            compound = self.config.get("backtest", {}).get("compound", True)
+            use_flat = (sizing_mode == "flat") or (not compound)
+            if use_flat:
+                cb_reference = starting_capital
+            else:
+                cb_reference = account_state.get("peak_equity", starting_capital)
+            if cb_reference and cb_reference > 0:
+                drawdown_pct = ((account_value - cb_reference) / cb_reference) * 100
                 if drawdown_pct < -drawdown_cb_pct:
                     reason = (
                         f"Drawdown CB triggered: {drawdown_pct:.1f}% < "
@@ -203,6 +212,20 @@ class RiskGate:
                     )
                     logger.warning("RiskGate BLOCKED: %s", reason)
                     return (False, reason)
+
+        # 7.5. VIX entry gate — hard block when VIX exceeds vix_max_entry.
+        # Mirrors backtester: strategy_params.get('vix_max_entry', 0); 0 = disabled.
+        # current_vix must be present in account_state (populated by _build_account_state).
+        vix_max_entry = self.config.get("strategy", {}).get("vix_max_entry", 0)
+        if vix_max_entry > 0:
+            current_vix = account_state.get("current_vix", 0)
+            if current_vix > vix_max_entry:
+                reason = (
+                    f"VIX {current_vix:.1f} > vix_max_entry {vix_max_entry} "
+                    "— entry blocked"
+                )
+                logger.warning("RiskGate BLOCKED: %s", reason)
+                return (False, reason)
 
         # ── COMPASS extensions (config-driven, default OFF) ──────────────────
 

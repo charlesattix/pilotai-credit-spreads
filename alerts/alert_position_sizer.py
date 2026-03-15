@@ -36,9 +36,18 @@ logger = logging.getLogger(__name__)
 _LEGACY_MAX_CONTRACTS = 5
 _LEGACY_BASE_RISK_PCT = 0.02
 
-# Macro score thresholds for position size scaling (COMPASS portfolio mode)
-_MACRO_FEAR_THRESHOLD = 45    # score < this → boost size 1.2×
-_MACRO_GREED_THRESHOLD = 75   # score > this → reduce size 0.85×
+# Macro score thresholds for position size scaling (COMPASS portfolio mode).
+# Mirrors backtester.py lines 607-616 (5-tier scale):
+#   ra < 30  → 1.2× (strong fear boost)
+#   ra < 45  → 1.1× (mild fear boost)
+#   ra > 75  → 0.85× (strong greed reduction)
+#   ra > 65  → 0.95× (mild greed reduction)
+#   else     → 1.0× (neutral)
+_MACRO_STRONG_FEAR_THRESHOLD = 30   # score < this → 1.2×
+_MACRO_MILD_FEAR_THRESHOLD = 45     # score < this → 1.1×
+_MACRO_MILD_GREED_THRESHOLD = 65    # score > this → 0.95×
+_MACRO_STRONG_GREED_THRESHOLD = 75  # score > this → 0.85×
+# Backward-compat aliases used in tests
 _MACRO_FEAR_SCALE = 1.20
 _MACRO_GREED_SCALE = 0.85
 
@@ -93,7 +102,7 @@ class AlertPositionSizer:
                 alert, account_value, weekly_loss_breach, macro_score
             )
 
-        return self._flat_risk_size(alert, account_value, weekly_loss_breach)
+        return self._flat_risk_size(alert, account_value, weekly_loss_breach, macro_score)
 
     # ------------------------------------------------------------------
     # Portfolio-mode sizing (COMPASS multi-underlying)
@@ -167,21 +176,14 @@ class AlertPositionSizer:
         # Macro score scaling
         effective_risk_pct = raw_risk_pct * self._macro_scale(macro_score)
 
-        # Weekly loss breach → 50% reduction
-        if weekly_loss_breach:
-            effective_risk_pct *= 0.5
-            logger.info(
-                "AlertPositionSizer (portfolio): 50%% size reduction (weekly loss breach)"
-            )
-
         dollar_risk = account_base * effective_risk_pct
 
         # Spread geometry
         spread_width, credit = self._extract_spread_params(alert)
         if is_ic:
-            # IC max loss = one wing's width minus combined credit.
-            # Both wings cannot lose simultaneously; only one can be ITM at expiry.
-            max_loss_per_spread = max((spread_width - credit) * 100, 1.0)
+            # IC worst case: both wings ITM simultaneously (gap open / flash crash).
+            # max_loss = 2 * spread_width - combined_credit (matches backtester).
+            max_loss_per_spread = max((2 * spread_width - credit) * 100, 1.0)
         else:
             max_loss_per_spread = max((spread_width - credit) * 100, 1.0)
 
@@ -223,13 +225,16 @@ class AlertPositionSizer:
     def _macro_scale(self, macro_score: Optional[float]) -> float:
         """Return position size scalar based on macro score.
 
+        Mirrors backtester.py lines 607-616 (5-tier scale).
         If macro_score is None, attempts to read from macro_state.db.
         Falls back to 1.0 (no scaling) on any error.
 
         Returns:
-            1.2 (fear boost) if score < 45
-            0.85 (greed reduction) if score > 75
-            1.0 (neutral) otherwise
+            1.2  (strong fear boost)  if score < 30
+            1.1  (mild fear boost)    if 30 <= score < 45
+            0.85 (strong greed cut)   if score > 75
+            0.95 (mild greed cut)     if 65 < score <= 75
+            1.0  (neutral)            otherwise
         """
         score = macro_score
         if score is None:
@@ -239,25 +244,39 @@ class AlertPositionSizer:
                 logger.debug("AlertPositionSizer: macro score fetch failed: %s", e)
                 return 1.0
 
-        if score < _MACRO_FEAR_THRESHOLD:
-            logger.info(
-                "AlertPositionSizer: macro_score=%.1f < %d → fear boost ×%.2f",
-                score, _MACRO_FEAR_THRESHOLD, _MACRO_FEAR_SCALE,
-            )
-            return _MACRO_FEAR_SCALE
-        if score > _MACRO_GREED_THRESHOLD:
-            logger.info(
-                "AlertPositionSizer: macro_score=%.1f > %d → greed reduction ×%.2f",
-                score, _MACRO_GREED_THRESHOLD, _MACRO_GREED_SCALE,
-            )
-            return _MACRO_GREED_SCALE
+        if score < _MACRO_STRONG_FEAR_THRESHOLD:
+            scale = 1.20
+            logger.info("AlertPositionSizer: macro_score=%.1f < %d → strong fear boost ×%.2f",
+                        score, _MACRO_STRONG_FEAR_THRESHOLD, scale)
+            return scale
+        if score < _MACRO_MILD_FEAR_THRESHOLD:
+            scale = 1.10
+            logger.info("AlertPositionSizer: macro_score=%.1f < %d → mild fear boost ×%.2f",
+                        score, _MACRO_MILD_FEAR_THRESHOLD, scale)
+            return scale
+        if score > _MACRO_STRONG_GREED_THRESHOLD:
+            scale = 0.85
+            logger.info("AlertPositionSizer: macro_score=%.1f > %d → strong greed reduction ×%.2f",
+                        score, _MACRO_STRONG_GREED_THRESHOLD, scale)
+            return scale
+        if score > _MACRO_MILD_GREED_THRESHOLD:
+            scale = 0.95
+            logger.info("AlertPositionSizer: macro_score=%.1f > %d → mild greed reduction ×%.2f",
+                        score, _MACRO_MILD_GREED_THRESHOLD, scale)
+            return scale
         return 1.0
 
     # ------------------------------------------------------------------
     # Flat-risk sizing (exp_154 / backtest-parity mode)
     # ------------------------------------------------------------------
 
-    def _flat_risk_size(self, alert: Alert, account_value: float, weekly_loss_breach: bool) -> SizeResult:
+    def _flat_risk_size(
+        self,
+        alert: Alert,
+        account_value: float,
+        weekly_loss_breach: bool,
+        macro_score: Optional[float] = None,
+    ) -> SizeResult:
         """Flat-risk sizing matching backtester.py logic."""
         risk_cfg = self.config.get("risk", {})
         strategy_cfg = self.config.get("strategy", {})
@@ -290,19 +309,19 @@ class AlertPositionSizer:
 
         effective_risk_pct = raw_risk_pct * vix_scale
 
-        # Weekly loss breach → 50% reduction
-        if weekly_loss_breach:
-            effective_risk_pct *= 0.5
-            logger.info("AlertPositionSizer: 50%% size reduction (weekly loss breach)")
+        # COMPASS macro score scaling — mirrors backtester lines 1643-1644.
+        # Applied when strategy.compass_enabled=true (same key as backtester).
+        if strategy_cfg.get("compass_enabled", False):
+            effective_risk_pct *= self._macro_scale(macro_score)
 
         dollar_risk = account_base * effective_risk_pct
 
         # Spread geometry
         spread_width, credit = self._extract_spread_params(alert)
         if is_ic:
-            # IC max loss = one wing's width minus combined credit.
-            # Both wings cannot lose simultaneously; only one can be ITM at expiry.
-            max_loss_per_spread = max((spread_width - credit) * 100, 1.0)
+            # IC worst case: both wings ITM simultaneously (gap open / flash crash).
+            # max_loss = 2 * spread_width - combined_credit (matches backtester).
+            max_loss_per_spread = max((2 * spread_width - credit) * 100, 1.0)
         else:
             max_loss_per_spread = max((spread_width - credit) * 100, 1.0)
 
@@ -374,18 +393,16 @@ class AlertPositionSizer:
         current_portfolio_risk: float,
         weekly_loss_breach: bool,
     ) -> SizeResult:
-        """Original IV-rank based dynamic sizing (pre-exp_154)."""
+        """Original IV-rank based dynamic sizing (pre-exp_154).
+
+        Matches backtester: only the 40% portfolio heat cap inside
+        calculate_dynamic_risk applies. The MAX_RISK_PER_TRADE extra cap layer
+        and weekly-loss breach reduction are removed (backtester has neither).
+        """
         from ml.position_sizer import calculate_dynamic_risk, get_contract_size
         from shared.constants import MAX_RISK_PER_TRADE
 
         dollar_risk = calculate_dynamic_risk(account_value, iv_rank, current_portfolio_risk)
-
-        hard_cap = MAX_RISK_PER_TRADE * account_value
-        dollar_risk = min(dollar_risk, hard_cap)
-
-        if weekly_loss_breach:
-            dollar_risk *= 0.5
-            logger.info("AlertPositionSizer [legacy]: 50%% size reduction (weekly loss breach)")
 
         risk_pct = dollar_risk / account_value if account_value > 0 else 0.0
         spread_width, credit = self._extract_spread_params(alert)

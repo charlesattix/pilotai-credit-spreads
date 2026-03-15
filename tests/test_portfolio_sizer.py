@@ -286,13 +286,14 @@ class TestMacroScoreScaling:
         assert sizer._macro_scale(45.0) == pytest.approx(1.0)
 
     def test_macro_scale_boundary_exactly_75(self):
-        """Score exactly at 75 is NOT in the greed zone (> 75)."""
+        """Score exactly at 75 is in the mild greed zone (65 < 75, but not > 75 strong greed)."""
         sizer = AlertPositionSizer(config=_make_compass_config())
-        assert sizer._macro_scale(75.0) == pytest.approx(1.0)
+        assert sizer._macro_scale(75.0) == pytest.approx(0.95)
 
     def test_macro_scale_fear_returns_correct_constant(self):
+        """Score 25 (< 30) hits the strong fear tier → 1.2×."""
         sizer = AlertPositionSizer(config=_make_compass_config())
-        assert sizer._macro_scale(30.0) == pytest.approx(_MACRO_FEAR_SCALE)
+        assert sizer._macro_scale(25.0) == pytest.approx(_MACRO_FEAR_SCALE)
 
     def test_macro_scale_greed_returns_correct_constant(self):
         sizer = AlertPositionSizer(config=_make_compass_config())
@@ -313,18 +314,19 @@ class TestMacroScoreScaling:
             scale = sizer._macro_scale(None)
         assert scale == pytest.approx(1.0)
 
-    def test_weekly_loss_breach_still_halves_portfolio_mode(self):
-        """Weekly loss breach → 50% in portfolio mode (same as flat mode)."""
+    def test_weekly_loss_breach_no_longer_reduces_portfolio_mode(self):
+        """Backtester has no weekly-loss breach reduction — portfolio mode must match."""
         cfg = _make_compass_config()
         sizer = AlertPositionSizer(config=cfg)
         alert = _make_alert(ticker="SPY", credit=1.50, short=500.0, long_=495.0)
 
         normal = sizer.size(alert=alert, account_value=100_000, iv_rank=30, current_portfolio_risk=0,
                             weekly_loss_breach=False, macro_score=55.0)
-        halved = sizer.size(alert=alert, account_value=100_000, iv_rank=30, current_portfolio_risk=0,
-                            weekly_loss_breach=True, macro_score=55.0)
+        with_breach = sizer.size(alert=alert, account_value=100_000, iv_rank=30, current_portfolio_risk=0,
+                                 weekly_loss_breach=True, macro_score=55.0)
 
-        assert halved.dollar_risk <= normal.dollar_risk * 0.55  # 50% ± rounding
+        # weekly_loss_breach flag must NOT change sizing
+        assert with_breach.dollar_risk == pytest.approx(normal.dollar_risk)
 
 
 # ============================================================================

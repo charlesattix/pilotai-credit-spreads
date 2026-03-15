@@ -5,9 +5,9 @@ Runs every 5 minutes during market hours (Mon–Fri 9:30–16:00 ET) and:
   1. Reconciles pending_close positions (polls Alpaca for fill status, records P&L)
   2. Detects externally-closed positions (disappeared from Alpaca) → marks closed_external
   3. Checks open positions for exit conditions:
-       a. DTE management: close when DTE <= manage_dte (default 21)
+       a. DTE management: close when DTE <= manage_dte (default 0 = disabled; matches backtester)
        b. Profit target:  close when P&L >= profit_target_pct% of credit (default 50%)
-       c. Stop loss:      close when spread value >= stop_loss_mult * credit (default 3.5x)
+       c. Stop loss:      close when spread value >= (1 + stop_loss_mult) × credit (default 3.5x)
 
 Supports 2-leg credit spreads, 4-leg iron condors, and 2-leg straddles/strangles
 (both long/debit and short/credit).
@@ -164,7 +164,7 @@ class PositionMonitor:
         strategy = config.get("strategy", {})
         self.profit_target_pct = float(risk.get("profit_target", 50))
         self.stop_loss_mult = float(risk.get("stop_loss_multiplier", 3.5))
-        self.manage_dte = int(strategy.get("manage_dte", 21))
+        self.manage_dte = int(strategy.get("manage_dte", 0))  # 0 = disabled (matches backtester: no DTE exit)
         # Tracks consecutive Alpaca API failures for escalation alerting
         self._consecutive_api_failures = 0
 
@@ -173,8 +173,9 @@ class PositionMonitor:
     def start(self):
         """Start the monitoring loop. Blocks until stop() is called."""
         logger.info(
-            "PositionMonitor started | profit_target=%.0f%% | SL=%.1fx | manage_dte=%d",
-            self.profit_target_pct, self.stop_loss_mult, self.manage_dte,
+            "PositionMonitor started | profit_target=%.0f%% | SL=%.1fx | manage_dte=%s",
+            self.profit_target_pct, self.stop_loss_mult,
+            self.manage_dte if self.manage_dte > 0 else "disabled",
         )
         while not self._stop_event.is_set():
             try:
@@ -320,14 +321,20 @@ class PositionMonitor:
                     exp_date = exp_date.replace(tzinfo=timezone.utc)
                 dte = (exp_date - datetime.now(timezone.utc)).days
                 if dte <= 0:
-                    # Expiring today — close immediately to avoid pin risk and assignment
+                    # Expiring today — close immediately to avoid pin risk and assignment.
+                    # NOTE (E7): This intentionally differs from the backtester, which holds
+                    # through the full expiration day and settles at the closing price.
+                    # Live trading exits at market open on expiration day to avoid pin risk.
+                    # For spreads expiring worthless the P&L impact is negligible. For spreads
+                    # near the short strike, the live system exits earlier (at open) vs the
+                    # backtester which sees the full day's intraday moves before settlement.
                     logger.warning(
                         "PositionMonitor: %s expires TODAY (DTE=%d) — urgent close "
                         "(pin risk / assignment avoidance)",
                         pos.get("id"), dte,
                     )
                     return "expiration_today"
-                if dte <= self.manage_dte:
+                if self.manage_dte > 0 and dte <= self.manage_dte:
                     logger.info(
                         "PositionMonitor: %s DTE=%d <= %d → closing (dte_management)",
                         pos.get("id"), dte, self.manage_dte,
@@ -395,6 +402,10 @@ class PositionMonitor:
         pnl_pct = (pnl / credit) * 100
 
         # 3. Profit target
+        # NOTE (E4 — exit slippage): backtester applies VIX-scaled slippage to every exit
+        # (base=0.10, up to 3x at VIX≥40; see backtester.py _vix_scaled_exit_slippage()).
+        # The live system uses real Alpaca market fills instead — no explicit slippage parameter.
+        # Validate quarterly: compare actual fill prices vs intraday mid-price at trigger time.
         if pnl_pct >= self.profit_target_pct:
             logger.info(
                 "PositionMonitor: %s profit target hit: %.1f%% >= %.0f%% → closing",
@@ -402,51 +413,28 @@ class PositionMonitor:
             )
             return "profit_target"
 
-        # 4. Stop loss — two complementary checks:
-        #
-        #   (a) Loss-based (matches backtester semantics):
-        #       Fires when LOSS (current_value - credit) >= stop_loss_mult × credit
-        #       i.e., current_value >= (1 + mult) × credit
-        #
-        #   (b) Spread-width cap (safety backstop):
-        #       Fires at 90% of the spread width regardless of credit amount.
-        #       Skipped for straddles/strangles (no defined spread width).
-        #
-        #   The effective SL threshold is the LOWER of (a) and (b).
-        loss_based_threshold = (1.0 + self.stop_loss_mult) * credit
+        # 4. Stop loss — matches backtester semantics exactly:
+        #    Fires when LOSS (current_value - credit) >= stop_loss_mult × credit
+        #    i.e., current_value >= (1 + mult) × credit
+        #    For credit=$1.50, mult=3.5: fires at current_value=$6.75
+        sl_threshold = (1.0 + self.stop_loss_mult) * credit
 
-        spread_width = 0.0
-        is_straddle = "straddle" in spread_type or "strangle" in spread_type
-        if not is_straddle:
-            try:
-                if "condor" in spread_type:
-                    # For ICs, use the wider wing
-                    put_w = abs(
-                        float(pos.get("put_short_strike") or pos.get("short_strike") or 0)
-                        - float(pos.get("put_long_strike") or pos.get("long_strike") or 0)
-                    )
-                    call_w = abs(
-                        float(pos.get("call_short_strike") or pos.get("short_strike") or 0)
-                        - float(pos.get("call_long_strike") or pos.get("long_strike") or 0)
-                    )
-                    spread_width = max(put_w, call_w)
-                else:
-                    spread_width = abs(
-                        float(pos.get("short_strike") or 0) - float(pos.get("long_strike") or 0)
-                    )
-            except (TypeError, ValueError):
-                pass
-
-        sl_threshold = loss_based_threshold
-        if spread_width > 0:
-            sl_threshold = min(loss_based_threshold, spread_width * 0.90)
+        # Sanity: sl_threshold must not exceed the spread's max possible value per contract.
+        # Fires when credit is in wrong units (e.g., per-contract instead of per-share).
+        _sw = abs(float(pos.get("short_strike") or 0) - float(pos.get("long_strike") or 0))
+        if _sw > 0 and sl_threshold > _sw * 100:
+            logger.warning(
+                "PositionMonitor: %s sl_threshold=%.2f exceeds spread_width*100=%.2f "
+                "(credit=%.4f × (1+%.1f), width=%.0f) — verify credit field units",
+                pos.get("id"), sl_threshold, _sw * 100, credit, self.stop_loss_mult, _sw,
+            )
 
         if current_value >= sl_threshold:
             logger.warning(
                 "PositionMonitor: %s stop loss hit: current=%.4f >= threshold=%.4f "
-                "(loss_formula=%.4f spread_width_cap=%.4f) → closing",
+                "(credit=%.4f × (1 + %.1f)) → closing",
                 pos.get("id"), current_value, sl_threshold,
-                loss_based_threshold, spread_width * 0.90 if spread_width > 0 else float("inf"),
+                credit, self.stop_loss_mult,
             )
             return "stop_loss"
 
@@ -731,6 +719,16 @@ class PositionMonitor:
                     "PositionMonitor: close submitted for %s order_id=%s",
                     pos.get("id"), pos["close_order_id"],
                 )
+            elif result.get("status") == "partial_close":
+                # IC close failed after all retries — _submit_ic_close already logged CRITICAL
+                # and set ic_partial_close=True in the DB. Leave position in pending_close
+                # state so it is NOT automatically retried (which would loop indefinitely).
+                # Manual intervention required to close remaining open legs.
+                logger.critical(
+                    "PositionMonitor: IC %s is in PARTIAL_CLOSE state — manual leg-by-leg "
+                    "close required. Position left in pending_close to prevent auto-retry loop.",
+                    pos.get("id"),
+                )
             else:
                 # Close order was rejected by Alpaca (non-submitted result).
                 # Reset status back to "open" so the exit-condition check retries on
@@ -759,7 +757,20 @@ class PositionMonitor:
             )
 
     def _submit_ic_close(self, pos: Dict, contracts: int, expiration_str: str) -> Dict:
-        """Delegate 4-leg iron condor close to AlpacaProvider."""
+        """Delegate 4-leg iron condor close to AlpacaProvider, with retry on failure.
+
+        Retries up to 2 additional times (3 total) with a 5-second delay between
+        attempts to handle transient Alpaca errors (e.g. rate limits, brief outages).
+
+        If all attempts fail, the position is flagged as partial_close in the DB
+        and a CRITICAL alert is logged. Manual intervention is required to close
+        any remaining open legs to avoid unhedged exposure.
+
+        Returns:
+            Dict with status 'submitted', 'error', or 'partial_close'.
+        """
+        import time
+
         ticker = pos.get("ticker", "")
         put_short = pos.get("put_short_strike") or pos.get("short_strike")
         put_long = pos.get("put_long_strike") or pos.get("long_strike")
@@ -769,16 +780,52 @@ class PositionMonitor:
         if not all([put_short, put_long, call_short, call_long]):
             return {"status": "error", "message": "IC missing wing strikes — cannot close"}
 
-        return self.alpaca.close_iron_condor(
-            ticker=ticker,
-            put_short_strike=put_short,
-            put_long_strike=put_long,
-            call_short_strike=call_short,
-            call_long_strike=call_long,
-            expiration=expiration_str,
-            contracts=contracts,
-            limit_price=None,
+        _MAX_ATTEMPTS = 3
+        last_result: Dict = {}
+
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            last_result = self.alpaca.close_iron_condor(
+                ticker=ticker,
+                put_short_strike=put_short,
+                put_long_strike=put_long,
+                call_short_strike=call_short,
+                call_long_strike=call_long,
+                expiration=expiration_str,
+                contracts=contracts,
+                limit_price=None,
+            )
+            if last_result.get("status") == "submitted":
+                return last_result
+
+            logger.warning(
+                "PositionMonitor: IC close attempt %d/%d FAILED for %s (%s): %s",
+                attempt, _MAX_ATTEMPTS, pos.get("id"), ticker,
+                last_result.get("message", last_result),
+            )
+            if attempt < _MAX_ATTEMPTS:
+                time.sleep(5)
+
+        # All attempts exhausted — mark partial_close and escalate
+        logger.critical(
+            "PositionMonitor: IC CLOSE FAILED after %d attempts for %s (%s). "
+            "Position flagged as partial_close. Manual intervention required to "
+            "close all 4 legs and eliminate unhedged exposure.",
+            _MAX_ATTEMPTS, pos.get("id"), ticker,
         )
+        pos["ic_partial_close"] = True
+        try:
+            upsert_trade(pos, source="execution", path=self.db_path)
+        except Exception as db_err:
+            logger.error(
+                "PositionMonitor: failed to persist ic_partial_close flag for %s: %s",
+                pos.get("id"), db_err,
+            )
+
+        return {
+            "status": "partial_close",
+            "message": f"IC close failed after {_MAX_ATTEMPTS} attempts — manual close required",
+            "last_error": last_result.get("message"),
+        }
 
     def _submit_straddle_close(self, pos: Dict, contracts: int, expiration_str: str) -> Dict:
         """Close a straddle/strangle by submitting two single-leg close orders.
@@ -1071,10 +1118,21 @@ class PositionMonitor:
         else:
             pnl = (credit - fill_price) * contracts * 100
 
-        # Commission deduction (default 0 = paper trading; set execution.commission_per_contract
-        # in config for live trading, e.g. 0.65 for standard broker rate)
+        # Commission deduction — defaults to $0.65/contract matching backtester default.
+        # Set execution.commission_per_contract: 0 in config to disable.
+        #
+        # E6 AUDIT — CONFIRMED MATCH with backtester:
+        # Backtester (backtester.py line 1349 IC / line 1596 2-leg):
+        #   commission_cost = self.commission * N_legs  (entry-side only)
+        #   At entry: capital -= commission_cost
+        #   At exit:  pnl -= pos['commission']  (= commission_cost again)
+        #   => round-trip = 2 × N_legs × $0.65/contract
+        #
+        # Live (here): commission = 0.65 × contracts × N_legs × 2  (round-trip in one shot)
+        #   IC (4 legs):  $0.65 × 1 × 4 × 2 = $5.20/contract ✓ matches backtester
+        #   2-leg:        $0.65 × 1 × 2 × 2 = $2.60/contract ✓ matches backtester
         commission_per_contract = float(
-            self.config.get("execution", {}).get("commission_per_contract", 0.0)
+            self.config.get("execution", {}).get("commission_per_contract", 0.65)
         )
         if commission_per_contract > 0:
             spread_type = str(pos.get("strategy_type", pos.get("type", ""))).lower()

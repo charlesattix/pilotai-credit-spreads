@@ -159,7 +159,8 @@ class TestICMaxLossFormula:
         }
         return AlertPositionSizer(cfg)
 
-    def test_ic_uses_single_wing_max_loss(self):
+    def test_ic_uses_both_wings_max_loss(self):
+        """IC max_loss must use both wings: (2 * spread_width - combined_credit) * 100."""
         sizer = self._sizer()
         alert = _make_alert(risk_pct=0.05, alert_type="iron_condor")
         alert.legs = [
@@ -172,26 +173,27 @@ class TestICMaxLossFormula:
         with patch.object(sizer, '_extract_spread_params', return_value=(5.0, 1.50)):
             result = sizer.size(alert, account_value=100_000, iv_rank=30, current_portfolio_risk=0)
 
-        # Correct max_loss_per_spread = (5.0 - 1.50) * 100 = $350 (one wing)
+        # Correct: max_loss_per_spread = (2*5.0 - 1.50) * 100 = $850 (both wings, matches backtester)
         # dollar_risk = 100_000 * 0.10 = $10_000
-        # contracts = 10_000 / 350 = 28, capped at 25
-        # actual_dollar_risk = 25 * 350 = $8_750
-        expected_max_loss_per_spread = (5.0 - 1.50) * 100  # $350 — NOT $650 (old 2× formula)
-        assert result.max_loss == pytest.approx(25 * expected_max_loss_per_spread, rel=0.01)
+        # contracts = 10_000 / 850 = 11, capped at 25 → 11
+        # actual_dollar_risk = 11 * 850 = $9_350
+        expected_max_loss_per_spread = (2 * 5.0 - 1.50) * 100  # $850
+        contracts = int(10_000 / expected_max_loss_per_spread)  # 11
+        assert result.max_loss == pytest.approx(contracts * expected_max_loss_per_spread, rel=0.01)
 
-    def test_ic_max_loss_less_than_double_formula(self):
-        """Confirm the fix actually produces a SMALLER max_loss than the old 2× formula."""
+    def test_ic_max_loss_larger_than_single_wing_formula(self):
+        """Confirm both-wings formula produces LARGER max_loss than old single-wing formula."""
         sizer = self._sizer()
         alert = _make_alert(risk_pct=0.05, alert_type="iron_condor")
         with patch.object(sizer, '_extract_spread_params', return_value=(5.0, 1.50)):
             sizer.size(alert, account_value=100_000, iv_rank=30, current_portfolio_risk=0)
 
-        # Old: max_loss_per_spread = (5*2 - 1.5) * 100 = $850 → fewer contracts → lower max_loss
-        # New: max_loss_per_spread = (5 - 1.5) * 100 = $350 → more contracts → higher max_loss
-        # This confirms the fix gives more contracts (less under-sizing)
-        old_max_loss_per_spread = (5.0 * 2 - 1.50) * 100  # $850
-        new_max_loss_per_spread = (5.0 - 1.50) * 100       # $350
-        assert new_max_loss_per_spread < old_max_loss_per_spread
+        # New (correct): max_loss_per_spread = (2*5 - 1.5) * 100 = $850 per contract
+        # Old (wrong):   max_loss_per_spread = (5 - 1.5) * 100 = $350 per contract
+        # Both-wings formula gives fewer contracts but correct per-contract max_loss
+        both_wings = (2 * 5.0 - 1.50) * 100   # $850 (correct)
+        single_wing = (5.0 - 1.50) * 100       # $350 (old wrong formula)
+        assert both_wings > single_wing
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -268,11 +270,12 @@ class TestDedupPersistence:
             from shared.database import init_db, load_dedup_entries, upsert_dedup_entry
             init_db(db_path)
             now_iso = datetime.now(timezone.utc).isoformat()
-            upsert_dedup_entry("SPY", "bullish", now_iso, path=db_path)
+            upsert_dedup_entry("SPY", "2026-04-17", "P", now_iso, path=db_path)
             entries = load_dedup_entries(window_seconds=1800, path=db_path)
             assert len(entries) == 1
             assert entries[0]["ticker"] == "SPY"
-            assert entries[0]["direction"] == "bullish"
+            assert entries[0]["expiration"] == "2026-04-17"
+            assert entries[0]["strike_type"] == "P"
         finally:
             os.unlink(db_path)
 
@@ -283,7 +286,7 @@ class TestDedupPersistence:
             from shared.database import init_db, load_dedup_entries, upsert_dedup_entry
             init_db(db_path)
             old_iso = "2020-01-01T00:00:00+00:00"  # clearly outside 30-min window
-            upsert_dedup_entry("SPY", "bullish", old_iso, path=db_path)
+            upsert_dedup_entry("SPY", "2026-04-17", "P", old_iso, path=db_path)
             entries = load_dedup_entries(window_seconds=1800, path=db_path)
             assert len(entries) == 0
         finally:
@@ -298,7 +301,7 @@ class TestDedupPersistence:
             from shared.database import init_db, upsert_dedup_entry
             init_db(db_path)
             now_iso = datetime.now(timezone.utc).isoformat()
-            upsert_dedup_entry("XLE", "bearish", now_iso, path=db_path)
+            upsert_dedup_entry("XLE", "2026-04-17", "C", now_iso, path=db_path)
 
             with patch.dict(os.environ, {"PILOTAI_DB_PATH": db_path}):
                 router = AlertRouter(
@@ -307,7 +310,7 @@ class TestDedupPersistence:
                     telegram_bot=MagicMock(),
                     formatter=MagicMock(),
                 )
-            assert ("XLE", "bearish") in router._dedup_ledger
+            assert ("XLE", "2026-04-17", "C") in router._dedup_ledger
         finally:
             os.unlink(db_path)
 

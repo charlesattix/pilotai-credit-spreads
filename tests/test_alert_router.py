@@ -71,16 +71,20 @@ def _build_router(
 class TestConversion:
     """Stage 1: convert opportunities to alerts."""
 
-    def test_scores_below_60_filtered(self):
+    def test_all_valid_opps_converted(self):
+        """Score gate removed — all valid opportunities are converted regardless of score."""
         router = _build_router()
-        opps = [_opp(score=59), _opp(score=40)]
+        # Two opps with different tickers — different dedup keys → both dispatched.
+        opps = [_opp(ticker="SPY", score=59), _opp(ticker="QQQ", score=40)]
         with patch("alerts.alert_router.insert_alert"):
             result = router.route_opportunities(opps, _clean_state())
-        assert result == []
+        # Both pass through score gate; different tickers so no dedup → 2 dispatched
+        assert len(result) == 2
 
-    def test_scores_at_60_included(self):
+    def test_valid_opp_with_any_score_dispatched(self):
+        """A single valid opportunity with any score (including < 60) is dispatched."""
         router = _build_router()
-        opps = [_opp(score=60)]
+        opps = [_opp(score=10)]
         with patch("alerts.alert_router.insert_alert"):
             result = router.route_opportunities(opps, _clean_state())
         assert len(result) == 1
@@ -97,7 +101,7 @@ class TestConversion:
 
 
 class TestDeduplication:
-    """Stage 2: same ticker+direction within 30 min is deduped."""
+    """Stage 2: same (ticker, expiration, strike_type) within 30 min is deduped."""
 
     def test_first_alert_passes(self):
         router = _build_router()
@@ -216,11 +220,12 @@ class TestFullPipeline:
     """End-to-end: realistic multi-opportunity scenario."""
 
     def test_mixed_scores_and_types(self):
+        """Score gate removed — all valid opps pass regardless of score; risk gate still applies."""
         router = _build_router()
         opps = [
             _opp(ticker="SPY", score=85, opp_type="bull_put_spread"),
             _opp(ticker="QQQ", score=72, opp_type="bear_call_spread"),
-            _opp(ticker="AAPL", score=55),   # below 60 — filtered
+            _opp(ticker="AAPL", score=55),  # low score but now passes score gate
             _opp(ticker="IWM", score=90, opp_type="iron_condor",
                  call_short_strike=220.0, call_long_strike=225.0),
         ]
@@ -229,7 +234,6 @@ class TestFullPipeline:
             result = router.route_opportunities(opps, _clean_state())
 
         tickers = {a.ticker for a in result}
-        assert "AAPL" not in tickers  # filtered (score < 60)
         assert "SPY" in tickers
         assert len(result) <= 5
 
@@ -256,41 +260,52 @@ def _ic_opp(ticker="SPY", score=75, expiration="2026-04-17", short_strike=510.0)
 
 
 class TestWithinScanDedup:
-    """Fix 1+2: multiple same-ticker/direction alerts in one scan → only 1 dispatched.
+    """Dedup granularity: (ticker, expiration, strike_type) matches backtester _open_keys.
 
-    Previously the batch dedup check (Step 2) ran before any alerts were marked,
-    so all same-ticker/direction ICs passed simultaneously.  The within-scan
-    re-check inside the dispatch loop now blocks duplicates.
+    Same (expiration, strike_type) on the same ticker → only 1 dispatched.
+    Different expirations on the same ticker → both dispatched (different contracts).
     """
 
-    def test_two_spy_ics_same_scan_only_one_dispatched(self):
-        """The original 3-IC bug in miniature: 2 SPY ICs → only 1 should execute."""
+    def test_two_spy_ics_same_expiration_only_one_dispatched(self):
+        """Two SPY ICs with the SAME expiration → only 1 dispatched (same contract key)."""
         router = _build_router()
-        # Two SPY iron condors with different expirations (both score 75)
+        opps = [
+            _ic_opp(expiration="2026-04-17", short_strike=510.0, score=75),
+            _ic_opp(expiration="2026-04-17", short_strike=512.0, score=74),
+        ]
+        with patch("alerts.alert_router.insert_alert"):
+            result = router.route_opportunities(opps, _clean_state())
+        spy_ic = [a for a in result if a.ticker == "SPY" and a.direction.value == "neutral"]
+        assert len(spy_ic) == 1, (
+            f"Expected 1 SPY IC per expiration per scan, got {len(spy_ic)}"
+        )
+
+    def test_two_spy_ics_different_expirations_both_dispatched(self):
+        """Two SPY ICs with DIFFERENT expirations → both dispatched (different contracts)."""
+        router = _build_router()
         opps = [
             _ic_opp(expiration="2026-04-17", short_strike=510.0),
             _ic_opp(expiration="2026-04-10", short_strike=512.0),
         ]
         with patch("alerts.alert_router.insert_alert"):
             result = router.route_opportunities(opps, _clean_state())
-        # Only the highest-scored (or first in tie) SPY IC should be dispatched.
         spy_ic = [a for a in result if a.ticker == "SPY" and a.direction.value == "neutral"]
-        assert len(spy_ic) == 1, (
-            f"Expected 1 SPY IC dispatched per scan, got {len(spy_ic)}"
+        assert len(spy_ic) == 2, (
+            f"Expected 2 SPY ICs (different expirations = different contracts), got {len(spy_ic)}"
         )
 
-    def test_three_spy_ics_same_scan_only_one_dispatched(self):
-        """Exact replication of the original bug: 3 SPY ICs → only 1 dispatched."""
+    def test_three_spy_ics_two_same_expiration_one_different(self):
+        """3 SPY ICs: 2 share expiration (deduped to 1) + 1 different → 2 dispatched total."""
         router = _build_router()
         opps = [
             _ic_opp(expiration="2026-04-17", short_strike=510.0, score=64),
-            _ic_opp(expiration="2026-04-17", short_strike=512.0, score=63),
-            _ic_opp(expiration="2026-04-10", short_strike=513.0, score=62),
+            _ic_opp(expiration="2026-04-17", short_strike=512.0, score=63),  # same exp → deduped
+            _ic_opp(expiration="2026-04-10", short_strike=513.0, score=62),  # different exp → allowed
         ]
         with patch("alerts.alert_router.insert_alert"):
             result = router.route_opportunities(opps, _clean_state())
         spy_results = [a for a in result if a.ticker == "SPY"]
-        assert len(spy_results) == 1
+        assert len(spy_results) == 2
 
     def test_different_tickers_not_blocked(self):
         """SPY IC and IWM IC in same scan should both be dispatched."""

@@ -46,7 +46,7 @@ from alerts.formatters.telegram import TelegramAlertFormatter
 from alerts.risk_gate import RiskGate
 from backtest import Backtester, HistoricalOptionsData, PerformanceMetrics
 from shared.data_cache import DataCache
-from shared.database import get_trades, insert_alert
+from shared.database import get_trades, insert_alert, save_scanner_state, load_scanner_state
 from shared.metrics import metrics
 from shared.provider_protocol import DataProvider  # noqa: F401 – ARCH-PY-06
 from strategy import CreditSpreadStrategy, OptionsAnalyzer, TechnicalAnalyzer
@@ -92,8 +92,15 @@ class CreditSpreadSystem:
             ml_pipeline: Pre-built ML pipeline or None for default.
         """
         self.config = config
-        # Track peak equity across calls for drawdown CB (P2 Fix 8)
-        self._peak_equity = float(self.config.get('risk', {}).get('account_size', 100_000))
+        # Track peak equity across calls for drawdown CB (P2 Fix 8).
+        # Load persisted value from DB so restarts don't reset the high-water mark.
+        starting_capital_init = float(self.config.get('risk', {}).get('account_size', 100_000))
+        try:
+            _db_path = os.environ.get('PILOTAI_DB_PATH')
+            _persisted = load_scanner_state("peak_equity", path=_db_path)
+            self._peak_equity = float(_persisted) if _persisted is not None else starting_capital_init
+        except Exception:
+            self._peak_equity = starting_capital_init
 
         logger.info("=" * 80)
         logger.info("Credit Spread Trading System Starting")
@@ -388,10 +395,11 @@ class CreditSpreadSystem:
                         logger.info("%s: ComboRegime = %s", ticker, current_regime)
                 except Exception as e:
                     logger.warning("ComboRegimeDetector failed for %s: %s", ticker, e)
-                    # Defense-in-depth: explicit NEUTRAL prevents IC gate bypass.
-                    # Without this, combo_regime is absent → current_regime=None →
-                    # ic_neutral_regime_only check skips entirely → ICs allowed in any regime.
-                    technical_signals['combo_regime'] = 'NEUTRAL'
+                    # BULL matches ComboRegimeDetector's optimistic prior (line 125:
+                    # current_regime = 'BULL') and the backtester's starting state.
+                    # With ic_neutral_regime_only=True, BULL blocks ICs and allows only
+                    # bull puts — the correct conservative behaviour on detector failure.
+                    technical_signals['combo_regime'] = 'BULL'
 
             # IV analysis
             current_iv = self.options_analyzer.get_current_iv(options_chain)
@@ -542,7 +550,13 @@ class CreditSpreadSystem:
                 if t.get('exit_reason') == 'stop_loss' and _days_ago(t, 7)
             ]
 
-            self._peak_equity = max(self._peak_equity, account_value)
+            if account_value > self._peak_equity:
+                self._peak_equity = account_value
+                try:
+                    db_path = os.environ.get('PILOTAI_DB_PATH')
+                    save_scanner_state("peak_equity", str(self._peak_equity), path=db_path)
+                except Exception as _pe_err:
+                    logger.warning("_build_account_state: could not persist peak_equity: %s", _pe_err)
             peak_equity = self._peak_equity
 
             state = {
@@ -553,6 +567,13 @@ class CreditSpreadSystem:
                 "weekly_pnl_pct": weekly_pnl_pct,
                 "recent_stops": recent_stops,
             }
+            # Populate current_vix for RiskGate rule 7.5 (vix_max_entry hard block).
+            try:
+                vix_hist = self.data_cache.get_history('^VIX', period='5d')
+                if not vix_hist.empty:
+                    state['current_vix'] = float(vix_hist['Close'].iloc[-1])
+            except Exception as _vix_err:
+                logger.debug("_build_account_state: VIX fetch skipped: %s", _vix_err)
             self._augment_with_compass_state(state)
             return state
 
@@ -827,10 +848,20 @@ Examples:
     signal.signal(signal.SIGINT, _shutdown_handler)
 
     try:
-        # Set custom DB path before any database imports use the default
+        # Set custom DB path before any database imports use the default.
+        # CLI --db takes priority; fall back to db_path field in the YAML config.
         if args.db_path:
-            import os
             os.environ['PILOTAI_DB_PATH'] = args.db_path
+        else:
+            try:
+                import yaml as _yaml
+                with open(args.config or 'config.yaml') as _f:
+                    _raw = _yaml.safe_load(_f)
+                _cfg_db = (_raw or {}).get('db_path')
+                if _cfg_db:
+                    os.environ['PILOTAI_DB_PATH'] = _cfg_db
+            except Exception:
+                pass
 
         # Initialize system
         system = create_system(config_file=args.config, env_file=args.env_file)
@@ -838,6 +869,18 @@ Examples:
         # Execute command
         if args.command == 'scan':
             system.scan_opportunities()
+            # Run one position-monitor cycle after every scan so stop-loss /
+            # profit-target exits are evaluated even in cron (one-shot) mode.
+            # In scheduler mode PositionMonitor runs as a background thread;
+            # here we call _check_positions() directly for the same effect.
+            if system.alpaca_provider:
+                from execution.position_monitor import PositionMonitor
+                _pm = PositionMonitor(
+                    alpaca_provider=system.alpaca_provider,
+                    config=system.config,
+                    db_path=os.environ.get('PILOTAI_DB_PATH'),
+                )
+                _pm._check_positions()
 
         elif args.command == 'scheduler':
             import threading

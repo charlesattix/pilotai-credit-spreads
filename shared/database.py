@@ -82,9 +82,16 @@ def init_db(path: Optional[str] = None) -> None:
 
             CREATE TABLE IF NOT EXISTS alert_dedup (
                 ticker TEXT NOT NULL,
-                direction TEXT NOT NULL,
+                expiration TEXT NOT NULL,
+                strike_type TEXT NOT NULL,
                 last_routed_at TEXT NOT NULL,
-                PRIMARY KEY (ticker, direction)
+                PRIMARY KEY (ticker, expiration, strike_type)
+            );
+
+            CREATE TABLE IF NOT EXISTS scanner_state (
+                key TEXT PRIMARY KEY NOT NULL,
+                value TEXT NOT NULL,
+                updated_at TEXT DEFAULT (datetime('now'))
             );
 
             CREATE TABLE IF NOT EXISTS deviation_snapshots (
@@ -108,6 +115,27 @@ def init_db(path: Optional[str] = None) -> None:
             );
         """)
         conn.commit()
+
+        # alert_dedup schema migration: old schema had (ticker, direction) PK;
+        # new schema uses (ticker, expiration, strike_type).  Since dedup data is
+        # transient (30-min window), drop-and-recreate is safe.
+        try:
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(alert_dedup)").fetchall()]
+            if "direction" in cols and "expiration" not in cols:
+                conn.execute("DROP TABLE IF EXISTS alert_dedup")
+                conn.execute("""
+                    CREATE TABLE alert_dedup (
+                        ticker TEXT NOT NULL,
+                        expiration TEXT NOT NULL,
+                        strike_type TEXT NOT NULL,
+                        last_routed_at TEXT NOT NULL,
+                        PRIMARY KEY (ticker, expiration, strike_type)
+                    )
+                """)
+                conn.commit()
+                logger.info("Database: migrated alert_dedup to (ticker, expiration, strike_type) PK")
+        except Exception as _mig_err:
+            logger.warning("Database: alert_dedup migration check failed (non-fatal): %s", _mig_err)
 
         # Safe column migrations — ADD IF NOT EXISTS (try/except for older SQLite)
         for migration_sql in [
@@ -336,13 +364,16 @@ def insert_reconciliation_event(
         conn.close()
 
 
-def upsert_dedup_entry(ticker: str, direction: str, last_routed_at: str, path: Optional[str] = None) -> None:
-    """Persist a dedup ledger entry so the router survives restarts."""
+def upsert_dedup_entry(ticker: str, expiration: str, strike_type: str, last_routed_at: str, path: Optional[str] = None) -> None:
+    """Persist a dedup ledger entry so the router survives restarts.
+
+    Key is (ticker, expiration, strike_type) matching backtester _open_keys granularity.
+    """
     conn = get_db(path)
     try:
         conn.execute(
-            "INSERT OR REPLACE INTO alert_dedup (ticker, direction, last_routed_at) VALUES (?, ?, ?)",
-            (ticker, direction, last_routed_at),
+            "INSERT OR REPLACE INTO alert_dedup (ticker, expiration, strike_type, last_routed_at) VALUES (?, ?, ?, ?)",
+            (ticker, expiration, strike_type, last_routed_at),
         )
         conn.commit()
     finally:
@@ -355,7 +386,7 @@ def load_dedup_entries(window_seconds: int = 1800, path: Optional[str] = None) -
     try:
         cutoff = f"datetime('now', '-{window_seconds} seconds')"
         rows = conn.execute(
-            f"SELECT ticker, direction, last_routed_at FROM alert_dedup WHERE last_routed_at > {cutoff}"
+            f"SELECT ticker, expiration, strike_type, last_routed_at FROM alert_dedup WHERE last_routed_at > {cutoff}"
         ).fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -370,6 +401,31 @@ def delete_old_dedup_entries(window_seconds: int = 1800, path: Optional[str] = N
             f"DELETE FROM alert_dedup WHERE last_routed_at <= datetime('now', '-{window_seconds} seconds')"
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def save_scanner_state(key: str, value: str, path: Optional[str] = None) -> None:
+    """Persist a scanner state value (e.g. peak_equity) that survives restarts."""
+    conn = get_db(path)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO scanner_state (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+            (key, value),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_scanner_state(key: str, path: Optional[str] = None) -> Optional[str]:
+    """Load a persisted scanner state value. Returns None if not found."""
+    conn = get_db(path)
+    try:
+        row = conn.execute(
+            "SELECT value FROM scanner_state WHERE key = ?", (key,)
+        ).fetchone()
+        return row["value"] if row else None
     finally:
         conn.close()
 

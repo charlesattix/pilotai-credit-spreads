@@ -321,17 +321,25 @@ class PositionReconciler:
             trade_id = trade.get("id", "?")
             client_order_id = trade.get("alpaca_client_order_id")
 
-            # Case 1: DB-only trade (Alpaca disabled when trade was opened)
+            # Case 1: No Alpaca order ID — order was never submitted to the broker
+            # (e.g. crash or network failure after DB write but before Alpaca submission).
+            # The reconciler only runs when Alpaca is active, so a missing order ID
+            # means there is no live position to track. Mark failed_open immediately
+            # rather than promoting to open where the trade would have no Alpaca coverage.
             if not client_order_id:
-                trade["status"] = "open"
-                upsert_trade(trade, source="scanner", path=self.db_path)
+                trade["status"] = "failed_open"
+                trade["exit_reason"] = "stale_no_order_id"
+                upsert_trade(trade, source="reconciler", path=self.db_path)
                 insert_reconciliation_event(
-                    trade_id, "promoted_to_open",
+                    trade_id, "failed_open",
                     {"reason": "no_alpaca_order_id"},
                     self.db_path,
                 )
-                result.pending_resolved += 1
-                logger.info("Trade %s promoted to open (DB-only)", trade_id)
+                result.pending_failed += 1
+                logger.warning(
+                    "Trade %s marked failed_open (no Alpaca order ID — never submitted)",
+                    trade_id,
+                )
                 continue
 
             # Case 2: Look up order in Alpaca

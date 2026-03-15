@@ -33,7 +33,7 @@ class TechnicalAnalyzer:
             config: Configuration dictionary
         """
         self.config = config
-        self.tech_params = config['strategy']['technical']
+        self.tech_params = config.get('strategy', {}).get('technical', {})
 
         logger.info("TechnicalAnalyzer initialized")
 

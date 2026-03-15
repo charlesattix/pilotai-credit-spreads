@@ -60,36 +60,40 @@ def _make_open_pos(tmp_path, trade_id="pos-001", credit=1.50, short_strike=545.0
 # ===========================================================================
 
 class TestStopLossThreshold:
-    """Verify the SL threshold uses spread_width cap for narrow spreads
-    and backtester-aligned loss formula for wider spreads."""
+    """Verify SL uses formula-only threshold matching the backtester.
+
+    Backtester: fires when spread_value >= (1 + stop_loss_mult) × credit.
+    The 90% spread-width cap was removed (backtester has no width cap).
+    """
 
     def _check_sl(self, monitor, pos, current_value):
         """Call _check_exit_conditions with a mocked spread value."""
         with patch.object(monitor, "_get_spread_value", return_value=current_value):
             return monitor._check_exit_conditions(pos, {})
 
-    def test_narrow_spread_sl_fires_at_90pct_of_width(self, tmp_path):
-        """$5 spread, $1.50 credit: formula-based SL ($6.75) is above max spread value.
-        Spread_width cap should fire at 90% of $5 = $4.50."""
+    def test_narrow_spread_sl_does_not_fire_below_formula_threshold(self, tmp_path):
+        """$5 spread, $1.50 credit: formula threshold = (1+3.5)×$1.50 = $6.75.
+        Since spread_width ($5) < threshold ($6.75), SL via formula is unreachable.
+        At $4.50 (old 90% cap level), SL must NOT fire — no width cap anymore."""
         monitor, _ = _make_monitor(tmp_path)
         pos = _make_open_pos(tmp_path, credit=1.50, short_strike=545.0, long_strike=540.0)
-        # Spread value at 90% of $5 = $4.50 → should trigger stop_loss
+        # Value at $4.50 — below formula threshold $6.75 → no SL (no width cap)
         result = self._check_sl(monitor, pos, current_value=4.50)
-        assert result == "stop_loss"
-
-    def test_narrow_spread_sl_does_not_fire_before_90pct(self, tmp_path):
-        """Below the 90% cap ($4.49), SL should NOT fire."""
-        monitor, _ = _make_monitor(tmp_path)
-        pos = _make_open_pos(tmp_path, credit=1.50, short_strike=545.0, long_strike=540.0)
-        result = self._check_sl(monitor, pos, current_value=4.49)
         assert result != "stop_loss"
 
+    def test_narrow_spread_sl_fires_at_formula_threshold(self, tmp_path):
+        """SL fires when spread_value reaches formula threshold (1+mult)×credit."""
+        monitor, _ = _make_monitor(tmp_path)
+        pos = _make_open_pos(tmp_path, credit=1.50, short_strike=545.0, long_strike=540.0)
+        # Threshold = (1+3.5) × 1.50 = 6.75 — fires exactly at threshold
+        result = self._check_sl(monitor, pos, current_value=6.75)
+        assert result == "stop_loss"
+
     def test_wide_spread_sl_fires_on_loss_formula(self, tmp_path):
-        """$20 wide spread, $3.00 credit: formula-based SL = (1+3.5) × $3 = $13.50.
-        90% of $20 = $18.00. Lower of the two is $13.50 → SL fires there."""
+        """$20 wide spread, $3.00 credit: formula SL = (1+3.5) × $3 = $13.50."""
         monitor, _ = _make_monitor(tmp_path)
         pos = _make_open_pos(tmp_path, credit=3.00, short_strike=560.0, long_strike=540.0)
-        # At $13.50 — formula fires first (below the cap of $18)
+        # At $13.50 — formula threshold, SL fires
         result = self._check_sl(monitor, pos, current_value=13.50)
         assert result == "stop_loss"
 

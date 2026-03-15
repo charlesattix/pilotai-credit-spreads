@@ -57,7 +57,8 @@ class CreditSpreadStrategy:
         self.default_spread_width = self.strategy_params.get('spread_width', 10)
 
         # Regime detection mode: 'combo' (v2 rule-based) or 'hmm' (legacy ML)
-        self.regime_mode = self.strategy_params.get('regime_mode', 'hmm')
+        # Default 'combo' matches backtester default (backtester.py line 407).
+        self.regime_mode = self.strategy_params.get('regime_mode', 'combo')
         self._combo_regime_detector = None
         if self.regime_mode == 'combo':
             try:
@@ -100,19 +101,34 @@ class CreditSpreadStrategy:
         # Filter by DTE (use as_of_date for backtesting, datetime.now() for live)
         valid_expirations = self._filter_by_dte(option_chain, as_of_date=as_of_date)
 
+        # Determine direction flags once, outside the expiration loop.
+        # In combo mode, direction is decided SOLELY by ComboRegimeDetector output
+        # (technical_signals['combo_regime']), mirroring backtester.py lines 715-729:
+        #   _want_puts = (regime == 'BULL')
+        #   _want_calls = (regime == 'BEAR')
+        # NEUTRAL → ICs only; no directional spreads opened.
+        # In non-combo mode, fall back to _check_bullish/_check_bearish_conditions.
+        combo_regime = technical_signals.get('combo_regime')
+        if self.regime_mode == 'combo' and combo_regime is not None:
+            want_bull_put = (combo_regime == 'BULL')
+            want_bear_call = (combo_regime == 'BEAR')
+        else:
+            want_bull_put = self._check_bullish_conditions(technical_signals, iv_data)
+            want_bear_call = self._check_bearish_conditions(technical_signals, iv_data)
+
         for expiration in valid_expirations:
             exp_chain = option_chain[option_chain['expiration'] == expiration]
 
-            # Evaluate bull put spreads (bullish/neutral)
-            if self._check_bullish_conditions(technical_signals, iv_data):
+            # Evaluate bull put spreads
+            if want_bull_put:
                 bull_puts = self._find_bull_put_spreads(
                     ticker, exp_chain, current_price, expiration, iv_data,
                     as_of_date=as_of_date,
                 )
                 opportunities.extend(bull_puts)
 
-            # Evaluate bear call spreads (bearish/neutral)
-            if self._check_bearish_conditions(technical_signals, iv_data):
+            # Evaluate bear call spreads
+            if want_bear_call:
                 bear_calls = self._find_bear_call_spreads(
                     ticker, exp_chain, current_price, expiration, iv_data,
                     as_of_date=as_of_date,
@@ -151,16 +167,26 @@ class CreditSpreadStrategy:
             return self.default_spread_width
 
     def _filter_by_dte(self, option_chain: pd.DataFrame, as_of_date: Optional[datetime] = None) -> List[datetime]:
-        """Filter expirations by DTE range.
+        """Filter expirations by DTE range and return the single preferred expiration.
+
+        Matches backtester behavior: _nearest_weekday_expiration selects ONE date
+        closest to target_dte, preferring Fridays.  Returning multiple expirations
+        caused the live scanner to open concurrent positions at different expirations
+        on the same scan, over-trading relative to the backtester.
 
         Args:
             option_chain: Options chain DataFrame
             as_of_date: Date to calculate DTE from. Defaults to now() for live scanning.
                         Pass the simulated date when backtesting historical data.
+
+        Returns:
+            List with at most one expiration — the nearest-to-target, Friday-preferred
+            date within [min_dte, max_dte].  Returns empty list if none qualify.
         """
         today = as_of_date or datetime.now(timezone.utc)
         if not hasattr(today, 'tzinfo') or today.tzinfo is None:
             today = today.replace(tzinfo=timezone.utc)
+        target_dte = int(self.strategy_params.get('target_dte', 35))
         valid_expirations = []
 
         for exp in option_chain['expiration'].unique():
@@ -169,7 +195,18 @@ class CreditSpreadStrategy:
             if self.strategy_params['min_dte'] <= dte <= self.strategy_params['max_dte']:
                 valid_expirations.append(exp)
 
-        return valid_expirations
+        if not valid_expirations:
+            return []
+
+        # Pick ONE expiration matching backtester's _nearest_weekday_expiration:
+        # sort key: (distance from target_dte, not-Friday) so the closest Friday wins.
+        def _pref(exp):
+            exp_aware = exp if hasattr(exp, 'tzinfo') and exp.tzinfo else (exp.replace(tzinfo=timezone.utc) if isinstance(exp, datetime) else exp)
+            dte = (exp_aware - today).days
+            is_not_friday = 0 if exp.weekday() == 4 else 1  # prefer Friday (weekday=4)
+            return (abs(dte - target_dte), is_not_friday)
+
+        return [min(valid_expirations, key=_pref)]
 
     def _check_bullish_conditions(
         self,
@@ -186,14 +223,17 @@ class CreditSpreadStrategy:
         Returns:
             True if conditions are favorable
         """
-        # IV must be elevated
-        iv_check = (
-            iv_data.get('iv_rank', 0) >= self.strategy_params['min_iv_rank'] or
-            iv_data.get('iv_percentile', 0) >= self.strategy_params['min_iv_percentile']
-        )
-
-        if not iv_check:
-            return False
+        # IV gate — only applied when config explicitly sets a non-zero floor.
+        # Default 0 = disabled, matching backtester iv_rank_min_entry=0 default.
+        _min_iv_rank = self.strategy_params.get('min_iv_rank', 0)
+        _min_iv_pct = self.strategy_params.get('min_iv_percentile', 0)
+        if _min_iv_rank > 0 or _min_iv_pct > 0:
+            iv_check = (
+                iv_data.get('iv_rank', 0) >= _min_iv_rank or
+                iv_data.get('iv_percentile', 0) >= _min_iv_pct
+            )
+            if not iv_check:
+                return False
 
         # Technical conditions for bull put spreads
         tech_params = self.strategy_params['technical']
@@ -217,14 +257,17 @@ class CreditSpreadStrategy:
         iv_data: Dict
     ) -> bool:
         """Check if conditions favor bear call spreads."""
-        # IV must be elevated
-        iv_check = (
-            iv_data.get('iv_rank', 0) >= self.strategy_params['min_iv_rank'] or
-            iv_data.get('iv_percentile', 0) >= self.strategy_params['min_iv_percentile']
-        )
-
-        if not iv_check:
-            return False
+        # IV gate — only applied when config explicitly sets a non-zero floor.
+        # Default 0 = disabled, matching backtester iv_rank_min_entry=0 default.
+        _min_iv_rank = self.strategy_params.get('min_iv_rank', 0)
+        _min_iv_pct = self.strategy_params.get('min_iv_percentile', 0)
+        if _min_iv_rank > 0 or _min_iv_pct > 0:
+            iv_check = (
+                iv_data.get('iv_rank', 0) >= _min_iv_rank or
+                iv_data.get('iv_percentile', 0) >= _min_iv_pct
+            )
+            if not iv_check:
+                return False
 
         tech_params = self.strategy_params['technical']
 
@@ -302,13 +345,17 @@ class CreditSpreadStrategy:
 
         iv_rank = iv_data.get('iv_rank', 0)
 
-        # Check conditions: IV must meet minimum
-        iv_check = (
-            iv_rank >= self.strategy_params['min_iv_rank'] or
-            iv_data.get('iv_percentile', 0) >= self.strategy_params['min_iv_percentile']
-        )
-        if not iv_check:
-            return []
+        # IV gate — only applied when config explicitly sets a non-zero floor.
+        # Default 0 = disabled, matching backtester iv_rank_min_entry=0 default.
+        _min_iv_rank = self.strategy_params.get('min_iv_rank', 0)
+        _min_iv_pct = self.strategy_params.get('min_iv_percentile', 0)
+        if _min_iv_rank > 0 or _min_iv_pct > 0:
+            iv_check = (
+                iv_rank >= _min_iv_rank or
+                iv_data.get('iv_percentile', 0) >= _min_iv_pct
+            )
+            if not iv_check:
+                return []
 
         # Trend filter for condors:
         # - Low IV (< threshold): allow any trend (condors are the primary strategy)
@@ -324,7 +371,8 @@ class CreditSpreadStrategy:
 
         condors: List[IronCondorOpportunity] = []
         valid_expirations = self._filter_by_dte(option_chain, as_of_date=as_of_date)
-        spread_width = self._select_spread_width(iv_data)
+        # Single spread_width from config — matches backtester (no IV-based switching)
+        spread_width = self.strategy_params.get('spread_width', self.default_spread_width)
 
         for expiration in valid_expirations:
             exp_chain = option_chain[option_chain['expiration'] == expiration]
@@ -349,21 +397,15 @@ class CreditSpreadStrategy:
 
                     combined_credit = round(bp['credit'] + bc['credit'], 2)
 
-                    # Synthetic pricing can overestimate individual wing credits.
-                    # In reality, combined condor credit is typically 20-50% of
-                    # one wing's width. Cap at 50% so max_loss stays positive.
-                    # Real Polygon prices replace this in the backtester anyway.
-                    if combined_credit > spread_width * 0.50:
-                        combined_credit = round(spread_width * 0.35, 2)
-
                     # Max loss = width of one wing - total credit (only one side can lose)
                     max_loss = round(spread_width - combined_credit, 2)
 
                     if max_loss <= 0:
                         continue
 
-                    # Check minimum combined credit
-                    if (combined_credit / spread_width) * 100 < min_combined_credit_pct:
+                    # Check minimum combined credit — denominator is 2×width (total IC risk)
+                    # matching backtester semantics: combined_credit / (2 * spread_width)
+                    if (combined_credit / (2 * spread_width)) * 100 < min_combined_credit_pct:
                         continue
 
                     # Combined POP: probability that NEITHER wing is breached
@@ -384,11 +426,11 @@ class CreditSpreadStrategy:
                         # Put side (reuse existing fields)
                         'short_strike': bp['short_strike'],
                         'long_strike': bp['long_strike'],
-                        'put_credit': min(bp['credit'], spread_width * 0.25),
+                        'put_credit': bp['credit'],
                         # Call side
                         'call_short_strike': bc['short_strike'],
                         'call_long_strike': bc['long_strike'],
-                        'call_credit': min(bc['credit'], spread_width * 0.25),
+                        'call_credit': bc['credit'],
                         # Combined
                         'credit': combined_credit,
                         'max_loss': max_loss,
@@ -478,11 +520,8 @@ class CreditSpreadStrategy:
                     (legs['delta'] <= target_delta_max)
                 ]
 
-        # Dynamic spread width based on IV environment
-        if iv_data:
-            spread_width = self._select_spread_width(iv_data)
-        else:
-            spread_width = self.strategy_params['spread_width']
+        # Single spread_width from config — matches backtester (no IV-based switching)
+        spread_width = self.strategy_params.get('spread_width', self.default_spread_width)
 
         for _, short_leg in short_candidates.iterrows():
             short_strike = short_leg['strike']
@@ -504,7 +543,15 @@ class CreditSpreadStrategy:
             # Calculate credit and risk
             credit = short_leg['bid'] - long_leg['ask']
 
-            # Reject crossed markets (negative credit)
+            # Apply entry slippage — matches backtester _find_real_spread:
+            #   slippage = prices.get("slippage", self.slippage); credit -= slippage
+            # Live reads from backtest.slippage (same config key as backtester).
+            _slippage = float(
+                self.config.get('backtest', {}).get('slippage', 0.0)
+            )
+            credit -= _slippage
+
+            # Reject crossed markets (negative credit after slippage)
             if credit <= 0:
                 continue
 

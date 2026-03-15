@@ -13,7 +13,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, Optional
 
-from shared.database import get_trade_by_id, init_db, upsert_trade
+from shared.database import get_trade_by_id, init_db, upsert_trade, save_scanner_state, load_scanner_state
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,69 @@ class ExecutionEngine:
                 "This flag will activate automatic 4-leg submission once Alpaca adds support."
             )
         init_db(db_path)
+
+    def _check_drawdown_cb(self) -> Optional[str]:
+        """Return a human-readable block reason if the drawdown circuit breaker is tripped, else None.
+
+        Mirrors backtester.py lines 674-702: if account equity has dropped more than
+        risk.drawdown_cb_pct% from the high-water mark, block new entries.
+
+        CB blocks new entries ONLY — does NOT force-close existing positions.
+        Peak equity is persisted to the DB via scanner_state so it survives restarts.
+
+        Returns None when:
+        - drawdown_cb_pct is 0 or unset (CB disabled)
+        - alpaca is None (dry-run mode — no account data available)
+        - account equity fetch fails (fail-open: don't block on API error)
+        """
+        cb_pct = float(self.config.get("risk", {}).get("drawdown_cb_pct", 0))
+        if cb_pct <= 0:
+            return None  # CB disabled in config
+
+        if not self.alpaca:
+            return None  # dry-run / alert-only mode
+
+        try:
+            account = self.alpaca.get_account()
+            current_equity = float(account.get("equity") or account.get("portfolio_value") or 0)
+        except Exception as e:
+            logger.warning(
+                "ExecutionEngine: drawdown CB — failed to fetch account equity: %s. "
+                "Failing open (not blocking entry).", e,
+            )
+            return None
+
+        if current_equity <= 0:
+            return None  # Cannot compute drawdown without valid equity
+
+        # Load and update persisted high-water mark
+        peak_str = load_scanner_state("peak_equity", path=self.db_path)
+        peak_equity = float(peak_str) if peak_str else current_equity
+
+        if current_equity > peak_equity:
+            peak_equity = current_equity
+            save_scanner_state("peak_equity", str(peak_equity), path=self.db_path)
+
+        drawdown_pct = (current_equity - peak_equity) / peak_equity
+        threshold = -abs(cb_pct) / 100.0
+
+        if drawdown_pct < threshold:
+            logger.critical(
+                "ExecutionEngine: DRAWDOWN CIRCUIT BREAKER TRIPPED — "
+                "equity=%.2f peak=%.2f drawdown=%.1f%% threshold=%.1f%%. "
+                "Blocking new entries. Existing positions continue to be managed.",
+                current_equity, peak_equity,
+                drawdown_pct * 100, threshold * 100,
+            )
+            return (
+                f"drawdown_cb_tripped: dd={drawdown_pct:.1%} exceeds threshold={threshold:.1%}"
+            )
+
+        logger.debug(
+            "ExecutionEngine: drawdown CB OK — equity=%.2f peak=%.2f dd=%.1f%%",
+            current_equity, peak_equity, drawdown_pct * 100,
+        )
+        return None
 
     def submit_opportunity(self, opp: Dict) -> Dict:
         """Submit a single opportunity as a live order.
@@ -149,6 +212,17 @@ class ExecutionEngine:
                 "message": f"market closed; next_open={clock.get('next_open')}",
             }
         # is_open=None means clock check failed — fail open (don't block)
+
+        # Drawdown circuit breaker — mirrors backtester.py lines 674-702.
+        # Checks high-water mark vs current equity; blocks new entries if drawdown
+        # exceeds risk.drawdown_cb_pct. CB does NOT close existing positions.
+        cb_reason = self._check_drawdown_cb()
+        if cb_reason:
+            logger.warning(
+                "ExecutionEngine: entry BLOCKED by drawdown CB for %s %s: %s",
+                ticker, spread_type, cb_reason,
+            )
+            return {"status": "drawdown_cb_tripped", "message": cb_reason, "client_order_id": client_id}
 
         # Submit to Alpaca
         try:

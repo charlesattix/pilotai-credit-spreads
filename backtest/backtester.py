@@ -725,6 +725,13 @@ class Backtester:
                 else:
                     _want_puts  = _regime_today in ('BULL', 'NEUTRAL')
                     _want_calls = _regime_today == 'BEAR'
+                    # ic_vix_min gates IC fallback in BULL regime only — blocks dangerous
+                    # BULL-regime fallback ICs in low-vol fast-recovery markets (e.g. 2024)
+                    # while retaining ICs in NEUTRAL/BEAR regimes where they are appropriate.
+                    _ic_vix_min_bull = self.strategy_params.get('iron_condor', {}).get('vix_min', 0)
+                    if (_ic_vix_min_bull > 0 and _regime_today == 'BULL'
+                            and self._current_vix < _ic_vix_min_bull):
+                        _ic_enabled = False
 
             # COMPASS RRG filter: block bull puts when economic backbone deteriorates AND
             # the combo regime detector independently confirms a BEAR regime.
@@ -746,18 +753,20 @@ class Backtester:
                 # same (expiration, strike) when a single daily entry is intended.
                 _entered_today: set = set()
 
-                # Build a set of (expiration, short_strike, type) for ALL currently open
-                # positions — prevents opening a duplicate of an existing open position on
-                # a subsequent trading day (e.g. same Friday expiration targeted by two
-                # consecutive days when using MWF → Friday fallback).
-                _open_keys: set = set()
+                # Build a count dict of (expiration, short_strike, type) for ALL currently
+                # open positions.  max_positions_per_expiration=N (default 1) allows up to N
+                # stacked identical positions — useful when SPY barely moves day-to-day so the
+                # same strike recurs.  N=1 reproduces the original one-per-key behaviour.
+                _max_per_key = int(self.strategy_params.get('max_positions_per_expiration', 1))
+                _open_key_counts: dict = {}
                 for _op in open_positions:
                     _exp = _op.get('expiration')
                     if _op.get('type') == 'iron_condor':
-                        _open_keys.add((_exp, _op['short_strike'], _op.get('call_short_strike'), 'IC'))
+                        _k = (_exp, _op['short_strike'], _op.get('call_short_strike'), 'IC')
                     else:
                         _t = 'C' if _op.get('option_type') == 'C' else 'P'
-                        _open_keys.add((_exp, _op['short_strike'], _t))
+                        _k = (_exp, _op['short_strike'], _t)
+                    _open_key_counts[_k] = _open_key_counts.get(_k, 0) + 1
 
                 def _exposure_ok(pos) -> bool:
                     """Return False if adding pos would exceed portfolio max-loss exposure cap."""
@@ -781,8 +790,17 @@ class Backtester:
                     self._current_trade_dte = _sampled_dte
                     self._current_trade_min_dte = max(20, _sampled_dte - 10)
                 else:
-                    self._current_trade_dte = self._target_dte
-                    self._current_trade_min_dte = self._min_dte
+                    # VIX-gated DTE: when VIX is below threshold, use a longer DTE to
+                    # capture more premium in low-vol environments (e.g. 2024).
+                    _vix_dte_thresh = self.strategy_params.get('vix_dte_threshold', 0)
+                    _dte_low_vix = self.strategy_params.get('dte_low_vix', self._target_dte)
+                    _min_dte_low_vix = self.strategy_params.get('min_dte_low_vix', self._min_dte)
+                    if _vix_dte_thresh > 0 and self._current_vix < _vix_dte_thresh:
+                        self._current_trade_dte = _dte_low_vix
+                        self._current_trade_min_dte = _min_dte_low_vix
+                    else:
+                        self._current_trade_dte = self._target_dte
+                        self._current_trade_min_dte = self._min_dte
 
                 for scan_hour, scan_minute in SCAN_TIMES:
                     if _skip_new_entries:
@@ -796,20 +814,25 @@ class Backtester:
                         )
                         if new_position:
                             _key = (new_position.get('expiration'), new_position['short_strike'], 'P')
-                            if _key not in _entered_today and _key not in _open_keys:
+                            if _key not in _entered_today and _open_key_counts.get(_key, 0) < _max_per_key:
                                 if _exposure_ok(new_position):
                                     open_positions.append(new_position)
                                     _entered_today.add(_key)
-                                    _open_keys.add(_key)
+                                    _open_key_counts[_key] = _open_key_counts.get(_key, 0) + 1
+                                    continue  # entered put: skip bear call + IC for this scan time
                                 else:
                                     self.capital += new_position.get('commission', 0)
                                     logger.debug("Portfolio exposure cap — skipping bull_put %s", _key)
+                                    # fall through: try IC on this scan time
                             else:
-                                # Duplicate (same expiry/strike already open) — refund commission
-                                # already deducted inside _find_real_spread.
+                                # Duplicate/stack-limit — refund commission.
+                                # In pure BULL regime (no calls wanted), preserve original behaviour:
+                                # skip IC fallback so a deduped put doesn't open an IC whose call
+                                # leg is immediately challenged by the rising market.
                                 self.capital += new_position.get('commission', 0)
                                 logger.debug("Duplicate key — refunding commission for bull_put %s", _key)
-                            continue  # found a put: skip bear call + IC for this scan time
+                                if not _want_calls:
+                                    continue  # BULL-only: deduped put → skip IC this scan time
                     if len(open_positions) >= self.risk_params['max_positions']:
                         break
                     if _want_calls:
@@ -819,18 +842,20 @@ class Backtester:
                         )
                         if bear_call:
                             _key = (bear_call.get('expiration'), bear_call['short_strike'], 'C')
-                            if _key not in _entered_today and _key not in _open_keys:
+                            if _key not in _entered_today and _open_key_counts.get(_key, 0) < _max_per_key:
                                 if _exposure_ok(bear_call):
                                     open_positions.append(bear_call)
                                     _entered_today.add(_key)
-                                    _open_keys.add(_key)
+                                    _open_key_counts[_key] = _open_key_counts.get(_key, 0) + 1
+                                    continue  # entered call: skip IC for this scan time
                                 else:
                                     self.capital += bear_call.get('commission', 0)
                                     logger.debug("Portfolio exposure cap — skipping bear_call %s", _key)
+                                    # fall through: try IC on this scan time
                             else:
                                 self.capital += bear_call.get('commission', 0)
                                 logger.debug("Duplicate key — refunding commission for bear_call %s", _key)
-                            continue
+                                # fall through: try IC on this scan time
                     # Iron condor fallback — only if enabled in config
                     if _ic_enabled and len(open_positions) < self.risk_params['max_positions']:
                         condor = self._find_iron_condor_opportunity(
@@ -843,11 +868,11 @@ class Backtester:
                                 condor['call_short_strike'],
                                 'IC',
                             )
-                            if _ic_key not in _entered_today and _ic_key not in _open_keys:
+                            if _ic_key not in _entered_today and _open_key_counts.get(_ic_key, 0) < _max_per_key:
                                 if _exposure_ok(condor):
                                     open_positions.append(condor)
                                     _entered_today.add(_ic_key)
-                                    _open_keys.add(_ic_key)
+                                    _open_key_counts[_ic_key] = _open_key_counts.get(_ic_key, 0) + 1
                                 else:
                                     self.capital += condor.get('commission', 0)
                                     logger.debug("Portfolio exposure cap — skipping IC %s", _ic_key)

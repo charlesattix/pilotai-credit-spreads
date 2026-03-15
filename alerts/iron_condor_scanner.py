@@ -93,6 +93,8 @@ class IronCondorScanner:
         for ticker in self._config["tickers"]:
             try:
                 opps = self._scan_ticker(ticker)
+                for opp in opps:
+                    opp["alert_source"] = "iron_condor"
                 results.extend(opps)
             except Exception as e:
                 logger.error(f"Iron condor scan failed for {ticker}: {e}", exc_info=True)
