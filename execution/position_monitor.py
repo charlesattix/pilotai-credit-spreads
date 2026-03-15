@@ -33,6 +33,8 @@ except ImportError:                        # pragma: no cover — Python < 3.9
     from backports.zoneinfo import ZoneInfo  # type: ignore
 
 from shared.database import close_trade, get_trades, upsert_trade, init_db
+from shared.strategy_adapter import trade_dict_to_position
+from strategies.base import MarketSnapshot, PositionAction
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +170,11 @@ class PositionMonitor:
         # Tracks consecutive Alpaca API failures for escalation alerting
         self._consecutive_api_failures = 0
 
+        # Strategy registry — maps strategy_name → strategy instance for manage_position()
+        self._strategy_registry: Dict[str, object] = {}
+        self._exit_snapshot_cache = None
+        self._exit_snapshot_ts = None
+
         init_db(db_path)
 
     def start(self):
@@ -188,6 +195,55 @@ class PositionMonitor:
     def stop(self):
         """Signal the monitor to stop after the current check completes."""
         self._stop_event.set()
+
+    def register_strategies(self, strategies: list) -> None:
+        """Register strategy instances for manage_position() dispatch.
+
+        Args:
+            strategies: List of BaseStrategy instances from build_strategy_list().
+        """
+        for strat in strategies:
+            name = strat.__class__.__name__
+            self._strategy_registry[name] = strat
+            logger.info("PositionMonitor: registered strategy %s", name)
+
+    def _build_exit_snapshot(self, ticker: str, current_price: float) -> MarketSnapshot:
+        """Build a minimal MarketSnapshot for strategy.manage_position().
+
+        Caches for 60s per scan cycle to avoid redundant construction.
+        """
+        now = datetime.now(timezone.utc)
+
+        # Cache check (60s TTL)
+        if (
+            self._exit_snapshot_cache is not None
+            and self._exit_snapshot_ts is not None
+            and (now - self._exit_snapshot_ts).total_seconds() < 60
+            and ticker in self._exit_snapshot_cache.prices
+        ):
+            return self._exit_snapshot_cache
+
+        snapshot = MarketSnapshot(
+            date=now,
+            price_data={},
+            prices={ticker: current_price},
+            vix=20.0,
+            iv_rank={ticker: 25.0},
+            realized_vol={ticker: 0.25},
+            rsi={ticker: 50.0},
+        )
+        self._exit_snapshot_cache = snapshot
+        self._exit_snapshot_ts = now
+        return snapshot
+
+    _ACTION_TO_REASON = {
+        PositionAction.CLOSE_PROFIT: "profit_target",
+        PositionAction.CLOSE_STOP: "stop_loss",
+        PositionAction.CLOSE_EXPIRY: "expiration_today",
+        PositionAction.CLOSE_TIME: "dte_management",
+        PositionAction.CLOSE_EVENT: "event_exit",
+        PositionAction.CLOSE_SIGNAL: "signal_exit",
+    }
 
     # ------------------------------------------------------------------
     # Market hours gate
@@ -336,6 +392,38 @@ class PositionMonitor:
             except (ValueError, TypeError) as e:
                 logger.warning(
                     "PositionMonitor: cannot parse expiration '%s': %s", expiration_str, e
+                )
+
+        # 1b. Strategy dispatch — delegate to strategy.manage_position()
+        strategy_name = pos.get("strategy_name", "")
+        strategy = self._strategy_registry.get(strategy_name) if strategy_name else None
+        if strategy is not None:
+            try:
+                position = trade_dict_to_position(pos)
+                # Get current price for snapshot (from Alpaca mid-price)
+                current_price = float(pos.get("current_price", 0))
+                if current_price <= 0:
+                    try:
+                        ticker = pos.get("ticker", "")
+                        quote = self.alpaca.get_quote(ticker) if hasattr(self.alpaca, 'get_quote') else None
+                        if quote:
+                            current_price = float(quote.get("mid", quote.get("last", 0)))
+                    except Exception:
+                        pass
+                if current_price > 0:
+                    snapshot = self._build_exit_snapshot(pos.get("ticker", ""), current_price)
+                    action = strategy.manage_position(position, snapshot)
+                    if action != PositionAction.HOLD:
+                        reason = self._ACTION_TO_REASON.get(action, "signal_exit")
+                        logger.info(
+                            "PositionMonitor: %s strategy %s → %s → closing (%s)",
+                            pos.get("id"), strategy_name, action.value, reason,
+                        )
+                        return reason
+            except Exception as e:
+                logger.warning(
+                    "PositionMonitor: strategy dispatch failed for %s: %s",
+                    pos.get("id"), e,
                 )
 
         # 2. Current spread value from Alpaca market data
