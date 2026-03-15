@@ -40,7 +40,13 @@ except Exception as e:
     logging.getLogger(__name__).error(f"Sentry initialization failed: {e}", exc_info=True)
 
 from utils import load_config, setup_logging, validate_config
-from strategy import CreditSpreadStrategy, TechnicalAnalyzer, OptionsAnalyzer
+from strategy import CreditSpreadStrategy as LegacyCreditSpreadStrategy, TechnicalAnalyzer, OptionsAnalyzer
+# Keep CreditSpreadStrategy name in module namespace for test backward compat
+CreditSpreadStrategy = LegacyCreditSpreadStrategy
+from shared.strategy_factory import build_strategy_list
+from shared.snapshot_builder import build_live_market_snapshot, reprice_signals_from_chain
+from shared.signal_scorer import score_signal
+from shared.strategy_adapter import signal_to_opportunity
 from alerts import AlertGenerator, TelegramBot
 from alerts.risk_gate import RiskGate
 from alerts.alert_position_sizer import AlertPositionSizer
@@ -69,7 +75,7 @@ class CreditSpreadSystem:
     def __init__(
         self,
         config: AppConfig,
-        strategy: Optional[CreditSpreadStrategy] = None,
+        strategy: Optional[LegacyCreditSpreadStrategy] = None,
         technical_analyzer: Optional[TechnicalAnalyzer] = None,
         options_analyzer: Optional[OptionsAnalyzer] = None,
         alert_generator: Optional[AlertGenerator] = None,
@@ -102,7 +108,10 @@ class CreditSpreadSystem:
 
         # Initialize components — use injected instances when provided
         self.data_cache = data_cache or DataCache()
-        self.strategy = strategy or CreditSpreadStrategy(self.config)
+        # Legacy strategy kept for backward compat (config key reads, regime_mode)
+        self.strategy = strategy or LegacyCreditSpreadStrategy(self.config)
+        # NEW unified strategies — same classes used by backtester
+        self.unified_strategies = build_strategy_list(self.config)
         self.technical_analyzer = technical_analyzer or TechnicalAnalyzer(self.config)
         self.options_analyzer = options_analyzer or OptionsAnalyzer(self.config, data_cache=self.data_cache)
         self.alert_generator = alert_generator or AlertGenerator(self.config)
@@ -400,17 +409,68 @@ class CreditSpreadSystem:
 
             logger.info(f"{ticker}: Price=${current_price:.2f}, IV Rank={iv_data.get('iv_rank', 0):.1f}%")
 
-            # Evaluate spread opportunities
-            opportunities = self.strategy.evaluate_spread_opportunity(
+            # --- Unified entry path (same strategy classes as backtester) ---
+            regime = technical_signals.get('combo_regime', None)
+
+            # VIX data for snapshot (already fetched for regime detector)
+            vix_data = None
+            try:
+                vix_data = self.data_cache.get_history('^VIX', period='2y')
+            except Exception:
+                pass
+
+            # Economic calendar events (needed for straddle/strangle strategy)
+            upcoming_events: list = []
+            recent_events: list = []
+            try:
+                from shared.economic_calendar import EconomicCalendar
+                econ = EconomicCalendar()
+                upcoming_events = econ.get_upcoming_events(days_ahead=2)
+                recent_events = econ.get_recent_events(days_back=2)
+            except Exception as e:
+                logger.debug("Economic calendar unavailable: %s", e)
+
+            snapshot = build_live_market_snapshot(
                 ticker=ticker,
-                option_chain=options_chain,
-                technical_signals=technical_signals,
+                price_data=price_data,
+                current_price=current_price,
                 iv_data=iv_data,
-                current_price=current_price
+                technical_signals=technical_signals,
+                regime=regime,
+                vix_data=vix_data,
+                upcoming_events=upcoming_events,
+                recent_events=recent_events,
             )
 
-            # Scores from rules-based scoring + combo regime + COMPASS are used directly.
-            # ML pipeline is intentionally disconnected (not validated in backtesting).
+            # Generate signals from all enabled strategies
+            all_signals = []
+            for strat in self.unified_strategies:
+                try:
+                    signals = strat.generate_signals(snapshot)
+                    all_signals.extend(signals)
+                except Exception as e:
+                    logger.warning(
+                        "%s: %s.generate_signals() failed: %s",
+                        ticker, strat.__class__.__name__, e,
+                    )
+
+            # Score each signal using the 5-component scoring system
+            for sig in all_signals:
+                sig.score = score_signal(sig, iv_rank=iv_data.get('iv_rank', 25.0), technical_signals=technical_signals)
+
+            # Re-price from real options chain when available
+            if not options_chain.empty:
+                all_signals = reprice_signals_from_chain(all_signals, options_chain)
+
+            # Convert Signal objects → opportunity dicts for AlertRouter / paper trader
+            opportunities = []
+            for sig in all_signals:
+                try:
+                    opp = signal_to_opportunity(sig, current_price)
+                    opportunities.append(opp)
+                except Exception as e:
+                    logger.warning("signal_to_opportunity failed for %s: %s", sig.ticker, e)
+
             return opportunities
 
         except Exception as e:

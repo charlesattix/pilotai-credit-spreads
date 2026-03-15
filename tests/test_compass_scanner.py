@@ -418,55 +418,73 @@ class TestAnalyzeTickerRegimeInjection:
         options_analyzer.calculate_iv_rank.return_value = {'iv_rank': 30}
         sys.options_analyzer = options_analyzer
 
-        # Mock strategy.evaluate_spread_opportunity
+        # Mock strategy.evaluate_spread_opportunity (legacy path)
         strategy.evaluate_spread_opportunity.return_value = []
+
+        # Unified strategy path — empty list so generate_signals loop is no-op
+        sys.unified_strategies = []
 
         sys.ml_pipeline = None
 
         return sys
 
-    def test_bull_put_override_injects_bull_regime(self):
+    @patch('main.build_live_market_snapshot')
+    def test_bull_put_override_injects_bull_regime(self, mock_snapshot):
         """direction_override='bull_put' → combo_regime='BULL' in technical_signals."""
+        from unittest.mock import MagicMock as MM
+        mock_snapshot.return_value = MM()
+
         sys = self._make_system(_compass_config())
         captured_signals = {}
 
-        def capture_eval(ticker, option_chain, technical_signals, iv_data, current_price):
-            captured_signals.update(technical_signals)
-            return []
-
-        sys.strategy.evaluate_spread_opportunity.side_effect = capture_eval
+        orig_build = mock_snapshot
+        def capture_snapshot(**kwargs):
+            captured_signals.update(kwargs.get('technical_signals', {}))
+            return MM()
+        mock_snapshot.side_effect = capture_snapshot
 
         sys._analyze_ticker('XLK', direction_override='bull_put', rrg_quadrant='Leading')
 
         assert captured_signals.get('combo_regime') == 'BULL'
         assert captured_signals.get('compass_rrg_quadrant') == 'Leading'
 
-    def test_bear_call_override_injects_bear_regime(self):
+    @patch('main.build_live_market_snapshot')
+    def test_bear_call_override_injects_bear_regime(self, mock_snapshot):
         """direction_override='bear_call' → combo_regime='BEAR' in technical_signals."""
+        from unittest.mock import MagicMock as MM
+        mock_snapshot.return_value = MM()
+
         sys = self._make_system(_compass_config())
         captured_signals = {}
 
-        def capture_eval(ticker, option_chain, technical_signals, iv_data, current_price):
-            captured_signals.update(technical_signals)
-            return []
-
-        sys.strategy.evaluate_spread_opportunity.side_effect = capture_eval
+        def capture_snapshot(**kwargs):
+            captured_signals.update(kwargs.get('technical_signals', {}))
+            return MM()
+        mock_snapshot.side_effect = capture_snapshot
 
         sys._analyze_ticker('XLE', direction_override='bear_call', rrg_quadrant='Lagging')
 
         assert captured_signals.get('combo_regime') == 'BEAR'
         assert captured_signals.get('compass_rrg_quadrant') == 'Lagging'
 
-    def test_compass_override_skips_combo_regime_detector(self):
+    @patch('main.build_live_market_snapshot')
+    def test_compass_override_skips_combo_regime_detector(self, mock_snapshot):
         """When direction_override is set, ComboRegimeDetector must NOT be called."""
+        from unittest.mock import MagicMock as MM
+        mock_snapshot.return_value = MM()
+
         sys = self._make_system(_compass_config())
 
         sys._analyze_ticker('XLK', direction_override='bull_put', rrg_quadrant='Leading')
 
         sys.strategy._combo_regime_detector.compute_regime_series.assert_not_called()
 
-    def test_no_override_runs_combo_regime_detector(self):
+    @patch('main.build_live_market_snapshot')
+    def test_no_override_runs_combo_regime_detector(self, mock_snapshot):
         """Without direction_override (SPY), ComboRegimeDetector IS invoked."""
+        from unittest.mock import MagicMock as MM
+        mock_snapshot.return_value = MM()
+
         sys = self._make_system(_compass_config())
 
         # Provide a mock regime series result
