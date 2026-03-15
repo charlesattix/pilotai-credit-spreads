@@ -42,8 +42,8 @@ All experiments are tracked here. Every new experiment gets an ID and entry.
 - **Validation:** WF 3/3 (0.93/0.58/0.84) | Monte Carlo 10K passed | Slippage passed | Tail risk passed
 - **Year-by-year:** 2020: +24.1% | 2021: +107.4% | 2022: +8.1% | 2023: +43.2% | 2024: +26.4% | 2025: +35.0%
 - **After slippage:** 2020: +13.5% | 2021: +84.0% | 2022: +2.2% | 2023: +27.9% | 2024: +11.2% | 2025: +22.4%
-- **Paper trader support:** ❌ Straddle/strangle not wired into live system yet
-- **Blocker:** Paper trader needs straddle/strangle order types, position monitoring, exit logic
+- **Paper trader support:** ✅ Full — Operation Unified Front completed (straddle/strangle wired, unified entry+exit paths)
+- **Branch:** `maximus/unified-front`
 
 ### Retired / Failed Experiments
 
@@ -68,6 +68,7 @@ All experiments are tracked here. Every new experiment gets an ID and entry.
 | 4 | Regime Switching | ✅ COMPLETE | Dynamic allocation: +40.7% avg, -7.0% DD |
 | 5 | Final Validation | ✅ COMPLETE | WF 3/3, MC 10K, slippage, tail risk — ALL PASS |
 | 6 | Paper Trading | 🔄 IN PROGRESS | EXP-400 ready, EXP-401 needs wiring |
+| 6.5 | Operation Unified Front | ✅ COMPLETE | Entry + exit paths unified. All strategies use same code as backtester. |
 
 ---
 
@@ -82,7 +83,7 @@ All experiments are tracked here. Every new experiment gets an ID and entry.
 6. ⬜ 8-week validation period
 
 ### Next (EXP-401 — The Blend)
-1. ⬜ Wire straddle/strangle into paper trader (new order types, exit logic)
+1. ✅ Wire straddle/strangle into paper trader (Operation Unified Front)
 2. ⬜ Create paper_exp401.yaml config
 3. ⬜ Deploy as second paper experiment alongside EXP-400
 4. ⬜ 8-week validation period
@@ -125,13 +126,40 @@ scripts/
 ├── test_position_sizing.py    ← Phase 2 sizing experiments
 ├── portfolio_blend.py         ← Phase 3 blending
 ├── regime_switching.py        ← Phase 4 regime optimization
-└── run_optimization.py        ← Original optimization harness
+├── run_optimization.py        ← Original optimization harness
+├── validate_signal_alignment.py  ← Op Unified Front: live vs backtester signal comparison
+└── validate_exit_alignment.py    ← Op Unified Front: exit param pipeline validation
 ```
 
 ### GitHub
 - **Repo:** `charlesattix/pilotai-credit-spreads`
 - **Main branch:** Production code + alignment fixes
 - **maximus/champion-config:** EXP-400 config + all Phase 0-5 results
+
+### Operation Unified Front (Completed 2026-03-15)
+Unified the entry and exit paths so the live paper trader uses the **exact same strategy classes** as the portfolio backtester. Eliminates signal drift between backtest and live.
+
+**Phase 1 — Entry Path Unification:**
+- Rewired `main.py._analyze_ticker()` to call `build_live_market_snapshot()` → `strategy.generate_signals()` → `score_signal()` → `reprice_signals_from_chain()` → `signal_to_opportunity()`
+- Created bridge modules: `shared/snapshot_builder.py`, `shared/strategy_factory.py`, `shared/signal_scorer.py`
+- Added straddle/strangle support to AlertSchema + AlertRouter
+- Enhanced dedup key to include alert type (prevents IC/straddle collision)
+- 26 tests in `tests/test_unified_entry.py`
+
+**Phase 2 — Exit Path Unification:**
+- Fixed BUG-A: per-trade `profit_target_pct`/`stop_loss_pct` now used (not global config)
+- Added strategy dispatch in PositionMonitor: `trade_dict_to_position()` → `strategy.manage_position()`
+- Added `CLOSE_DTE` enum + DTE management to all 3 strategies
+- Added spread-width 90% safety cap to CS + IC
+- Added straddle event-aware exit + 3x credit hard stop
+- Fixed `trade_dict_to_position()` default mismatches
+- 14 tests in `tests/test_unified_exit.py`
+
+**Phase 5 — Validation:**
+- `scripts/validate_signal_alignment.py`: backtester vs live scanner signal overlap (target ≥90%)
+- `scripts/validate_exit_alignment.py`: per-trade exit params pipeline roundtrip (CS=1.25x, IC=2.5x, SS=0.5x+3x)
+- All 1121 tests pass (40 new tests added)
+- Branch: `maximus/unified-front`
 
 ### Safety Rails (Paper Trading)
 - `paper_mode: true` — blocks live API URLs
