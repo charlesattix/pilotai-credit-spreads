@@ -2,8 +2,6 @@
 
 import time
 
-import pytest
-
 from shared.database import (
     close_trade,
     get_latest_alerts,

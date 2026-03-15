@@ -375,8 +375,8 @@ class AlertPositionSizer:
         weekly_loss_breach: bool,
     ) -> SizeResult:
         """Original IV-rank based dynamic sizing (pre-exp_154)."""
-        from shared.constants import MAX_RISK_PER_TRADE
         from ml.position_sizer import calculate_dynamic_risk, get_contract_size
+        from shared.constants import MAX_RISK_PER_TRADE
 
         dollar_risk = calculate_dynamic_risk(account_value, iv_rank, current_portfolio_risk)
 

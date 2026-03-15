@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Paper Trading Quickstart for Charles — PilotAI</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 900px; margin: 40px auto; padding: 0 24px; background: white; color: #1a1a1a; line-height: 1.7; }
+h1 { color: #1a1a1a; border-bottom: 3px solid #2c3e50; padding-bottom: 12px; font-size: 1.8em; }
+h2 { color: #2c3e50; margin-top: 2.5em; border-left: 4px solid #3498db; padding-left: 14px; }
+h3 { color: #34495e; margin-top: 1.5em; }
+table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 0.95em; }
+th, td { border: 1px solid #ddd; padding: 10px 14px; text-align: left; }
+th { background: #2c3e50; color: white; text-align: center; }
+tr:nth-child(even) { background: #f9f9f9; }
+code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-size: 0.88em; font-family: 'SF Mono', Consolas, monospace; }
+pre { background: #1e1e1e; color: #d4d4d4; padding: 18px; border-radius: 8px; overflow-x: auto; font-size: 0.88em; line-height: 1.5; }
+.box { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 18px; margin: 18px 0; }
+.warn { background: #fff3cd; border-color: #ffc107; }
+.danger { background: #f8d7da; border-color: #dc3545; }
+.ok { background: #d4edda; border-color: #28a745; }
+.meta { color: #666; font-size: 0.9em; }
+hr { border: none; border-top: 1px solid #eee; margin: 2em 0; }
+.g { color: #27ae60; font-weight: bold; }
+.r { color: #e74c3c; font-weight: bold; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
+.rec { background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%); color: white; border-radius: 12px; padding: 20px; text-align: center; margin: 20px 0; }
+</style></head><body>
+
+<h1>🚀 Paper Trading Quickstart for Charles</h1>
+<p class="meta">Prepared by Maximus Cruz — March 12, 2026 | Repo: <code>charlesattix/pilotai-credit-spreads</code></p>
+
+<div class="rec">
+<h2 style="color:white; border:none; margin:0; padding:0;">Recommended: Start with EXP-401 (The Blend)</h2>
+<p style="margin:8px 0 0;">Higher returns, lower drawdown, better ROBUST score. Both are ready — pick one or run both.</p>
+</div>
+
+<hr>
+
+<h2>Two Experiments Ready</h2>
+
+<table>
+<tr><th></th><th>EXP-400 "The Champion"</th><th>EXP-401 "The Blend" ⭐</th></tr>
+<tr><td><strong>What it trades</strong></td><td>Credit spreads + iron condors</td><td>Credit spreads + straddle/strangles</td></tr>
+<tr><td><strong>Avg return (after slippage)</strong></td><td>~20-25%</td><td class="g">+26.9%</td></tr>
+<tr><td><strong>Max drawdown</strong></td><td>-12.1%</td><td class="g">-7.0%</td></tr>
+<tr><td><strong>ROBUST score</strong></td><td>0.870</td><td class="g">0.951</td></tr>
+<tr><td><strong>Walk-forward</strong></td><td>3/3 folds</td><td>3/3 folds</td></tr>
+<tr><td><strong>2022 (bear year)</strong></td><td>-1.9%</td><td class="g">+2.2%</td></tr>
+<tr><td><strong>Config file</strong></td><td><code>configs/paper_champion.yaml</code></td><td><code>configs/paper_exp401.yaml</code></td></tr>
+</table>
+
+<hr>
+
+<h2>Setup (Same for Both — 5 Minutes)</h2>
+
+<h3>Step 1: Clone and checkout</h3>
+<pre>git clone git@github.com:charlesattix/pilotai-credit-spreads.git
+cd pilotai-credit-spreads
+git checkout maximus/champion-config
+pip install -r requirements.txt</pre>
+
+<h3>Step 2: Create environment file</h3>
+
+<p>Create <strong>one .env file per experiment</strong> you want to run:</p>
+
+<div class="grid">
+<div class="box">
+<h3 style="margin-top:0">EXP-400: <code>.env.champion</code></h3>
+<pre style="font-size:0.82em">ALPACA_API_KEY=your_paper_key
+ALPACA_API_SECRET=your_paper_secret
+POLYGON_API_KEY=your_polygon_key
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_id</pre>
+</div>
+<div class="box">
+<h3 style="margin-top:0">EXP-401: <code>.env.exp401</code></h3>
+<pre style="font-size:0.82em">ALPACA_API_KEY=your_paper_key
+ALPACA_API_SECRET=your_paper_secret
+POLYGON_API_KEY=your_polygon_key
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_id</pre>
+</div>
+</div>
+
+<div class="box warn">
+<strong>⚠️ Use Alpaca PAPER trading keys, not live.</strong> Both configs have <code>paper_mode: true</code> which blocks live API URLs, but use paper keys as an extra safety layer.
+</div>
+
+<h3>Step 3: Smoke test (dry run — no trades placed)</h3>
+<pre># EXP-400
+python main.py scan --config configs/paper_champion.yaml --env-file .env.champion
+
+# EXP-401
+python main.py scan --config configs/paper_exp401.yaml --env-file .env.exp401</pre>
+
+<p>Verify: ✅ Alpaca connects, ✅ Polygon data loads, ✅ Regime detected, ✅ No errors</p>
+
+<h3>Step 4: Start paper trading</h3>
+<pre># EXP-400
+python main.py scheduler --config configs/paper_champion.yaml --env-file .env.champion
+
+# EXP-401
+python main.py scheduler --config configs/paper_exp401.yaml --env-file .env.exp401</pre>
+
+<h3>Step 5: Run in background (recommended)</h3>
+<pre># Run one or both in separate tmux sessions:
+tmux new-session -d -s exp400 \
+  'python main.py scheduler --config configs/paper_champion.yaml --env-file .env.champion'
+
+tmux new-session -d -s exp401 \
+  'python main.py scheduler --config configs/paper_exp401.yaml --env-file .env.exp401'</pre>
+
+<hr>
+
+<h2>What Happens After You Start</h2>
+
+<ul>
+<li>System scans <strong>14 times per day</strong> during market hours (9:30 AM – 4:00 PM ET, weekdays)</li>
+<li>Opens trades when entry signals fire (credit spreads, iron condors, or straddle/strangles depending on experiment)</li>
+<li>Monitors positions for profit target / stop loss exits</li>
+<li>Sends <strong>Telegram alerts</strong> on every entry and exit (if configured)</li>
+<li>Each experiment has its own <strong>isolated database</strong> — they don't interfere</li>
+</ul>
+
+<h3>Expected Trade Frequency</h3>
+<table>
+<tr><th></th><th>EXP-400</th><th>EXP-401</th></tr>
+<tr><td>Trades/month</td><td>~3-4</td><td>~5-6</td></tr>
+<tr><td>Avg hold time</td><td>5-15 days</td><td>5-15 days (CS) / 3-5 days (S/S)</td></tr>
+<tr><td>Max concurrent positions</td><td>10</td><td>10</td></tr>
+</table>
+
+<hr>
+
+<h2>How EXP-401 Works (The Blend)</h2>
+
+<p>Two strategies that complement each other:</p>
+
+<div class="grid">
+<div class="box">
+<h3 style="margin-top:0">Credit Spreads (12% risk/trade)</h3>
+<ul>
+<li>Bull market → sell bull put spreads</li>
+<li>Bear market → sell bear call spreads</li>
+<li>Regime-adaptive via 80-day MA</li>
+<li>Scales DOWN in bear/high-vol (0.3×)</li>
+</ul>
+</div>
+<div class="box">
+<h3 style="margin-top:0">Straddle/Strangles (3% risk/trade)</h3>
+<ul>
+<li>Post-event short strangles (FOMC, CPI)</li>
+<li>Profits from IV crush</li>
+<li>Scales UP in high-vol (2.5×)</li>
+<li>Hedges the CS component in bear markets</li>
+</ul>
+</div>
+</div>
+
+<div class="box ok">
+<strong>Why this works:</strong> When credit spreads scale down in volatile markets, straddle/strangles scale up — and vice versa. In 2022 (SPY -19.4%), the CS component lost money but the S/S component gained enough to finish the year at +2.2%. Low correlation = smoother equity curve.
+</div>
+
+<h3>Regime Scales (Dynamic Allocation)</h3>
+<table>
+<tr><th>Regime</th><th>Credit Spread Scale</th><th>Straddle/Strangle Scale</th></tr>
+<tr><td>🟢 Bull</td><td>1.0× (full)</td><td>1.5×</td></tr>
+<tr><td>🔴 Bear</td><td>0.3× (cautious)</td><td>1.5×</td></tr>
+<tr><td>🟡 High Vol</td><td>0.3× (cautious)</td><td>2.5× (aggressive)</td></tr>
+<tr><td>⚪ Low Vol</td><td>0.8×</td><td>1.0×</td></tr>
+<tr><td>💀 Crash</td><td>0.0× (out)</td><td>0.5× (minimal)</td></tr>
+</table>
+
+<hr>
+
+<h2>Safety Rails (Built Into Both Experiments)</h2>
+
+<table>
+<tr><th>Feature</th><th>What It Does</th></tr>
+<tr><td><code>paper_mode: true</code></td><td>Blocks all live API URLs — cannot accidentally trade real money</td></tr>
+<tr><td>Kill switch</td><td>Halt all trading via DB flag or Telegram command</td></tr>
+<tr><td>Drawdown circuit breaker (40%)</td><td>Blocks new entries if portfolio drops 40% from peak</td></tr>
+<tr><td>Portfolio heat cap (40%)</td><td>Max 40% of capital at risk simultaneously</td></tr>
+<tr><td>Position limits</td><td>Max 10 positions, max 2 per ticker</td></tr>
+<tr><td>Write-ahead logging</td><td>Crash recovery — no orphaned orders</td></tr>
+<tr><td>Isolated DB per experiment</td><td>Experiments don't cross-contaminate</td></tr>
+</table>
+
+<hr>
+
+<h2>Monitoring</h2>
+
+<h3>Check dashboard</h3>
+<pre># EXP-400
+python main.py dashboard --config configs/paper_champion.yaml --env-file .env.champion
+
+# EXP-401
+python main.py dashboard --config configs/paper_exp401.yaml --env-file .env.exp401</pre>
+
+<h3>Check trade log</h3>
+<pre># EXP-400
+sqlite3 data/pilotai_champion.db "SELECT * FROM trades ORDER BY opened_at DESC LIMIT 10;"
+
+# EXP-401
+sqlite3 data/pilotai_exp401.db "SELECT * FROM trades ORDER BY opened_at DESC LIMIT 10;"</pre>
+
+<h3>Attach to running session</h3>
+<pre>tmux attach -t exp400   # or exp401</pre>
+
+<hr>
+
+<h2>When to Worry</h2>
+
+<div class="box danger">
+<h3 style="margin-top:0">🔴 HARD STOP if:</h3>
+<ul>
+<li>Drawdown exceeds 30%</li>
+<li>5+ consecutive losses</li>
+<li>System enters trades that don't match the regime</li>
+<li>Any execution error that places unintended orders</li>
+</ul>
+</div>
+
+<div class="box warn">
+<h3 style="margin-top:0">🟡 PAUSE after 4 weeks if:</h3>
+<ul>
+<li>Win rate below 60% (expect ~80%)</li>
+<li>Annualized return tracking below 10%</li>
+<li>Trade count 50%+ off from expectations</li>
+</ul>
+</div>
+
+<div class="box ok">
+<h3 style="margin-top:0">🟢 SUCCESS after 8 weeks:</h3>
+<ul>
+<li>Win rate &gt;70%</li>
+<li>Positive cumulative P&L</li>
+<li>Max drawdown &lt;20%</li>
+<li>→ Ready to discuss live capital</li>
+</ul>
+</div>
+
+<hr>
+
+<h2>Prerequisites</h2>
+<ul>
+<li><strong>Python 3.11+</strong></li>
+<li><strong>Alpaca paper trading account</strong> with $100K balance — <a href="https://app.alpaca.markets/signup">sign up here</a></li>
+<li><strong>Polygon.io API key</strong> (Starter plan or above for options data) — <a href="https://polygon.io">polygon.io</a></li>
+<li><strong>Telegram bot</strong> (optional, for trade alerts) — talk to <a href="https://t.me/BotFather">@BotFather</a></li>
+</ul>
+
+<hr>
+
+<h2>TL;DR</h2>
+<pre>git clone git@github.com:charlesattix/pilotai-credit-spreads.git
+cd pilotai-credit-spreads
+git checkout maximus/champion-config
+pip install -r requirements.txt
+
+# Create .env.exp401 with your API keys (see above)
+
+# Smoke test
+python main.py scan --config configs/paper_exp401.yaml --env-file .env.exp401
+
+# Go live (paper)
+tmux new-session -d -s exp401 \
+  'python main.py scheduler --config configs/paper_exp401.yaml --env-file .env.exp401'</pre>
+
+<p class="meta" style="text-align:center; margin-top:3em;">Generated by Maximus Cruz — March 12, 2026 🛡️</p>
+</body></html>

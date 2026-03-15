@@ -23,8 +23,15 @@ logger = logging.getLogger(__name__)
 _BOT_TOKEN: Optional[str] = os.environ.get("TELEGRAM_BOT_TOKEN")
 _CHAT_ID: Optional[str] = os.environ.get("TELEGRAM_CHAT_ID")
 _TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
+_EXPERIMENT_ID: Optional[str] = os.environ.get("EXPERIMENT_ID")
 
 _warned_not_configured = False
+
+
+def set_experiment_id(experiment_id: str) -> None:
+    """Set the experiment ID prefix for all outgoing messages."""
+    global _EXPERIMENT_ID
+    _EXPERIMENT_ID = experiment_id or None
 
 
 def is_configured() -> bool:
@@ -47,6 +54,9 @@ def send_message(text: str, parse_mode: str = "HTML") -> bool:
             )
             _warned_not_configured = True
         return False
+
+    if _EXPERIMENT_ID:
+        text = f"[{_EXPERIMENT_ID}] {text}"
 
     try:
         resp = requests.post(
@@ -115,8 +125,8 @@ def notify_daily_summary(
 ) -> bool:
     """Build and send the daily summary via the existing formatter."""
     try:
-        from scripts.daily_report import get_daily_summary_metrics
         from alerts.formatters.telegram import TelegramAlertFormatter
+        from scripts.daily_report import get_daily_summary_metrics
 
         metrics = get_daily_summary_metrics(
             report_date=report_date, account_size=account_size

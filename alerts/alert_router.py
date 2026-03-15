@@ -22,11 +22,11 @@ import os
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-from shared.database import insert_alert, upsert_dedup_entry, load_dedup_entries, delete_old_dedup_entries
-from alerts.alert_schema import Alert, AlertType
-from alerts.risk_gate import RiskGate
 from alerts.alert_position_sizer import AlertPositionSizer
+from alerts.alert_schema import Alert, AlertType
 from alerts.formatters.telegram import TelegramAlertFormatter
+from alerts.risk_gate import RiskGate
+from shared.database import delete_old_dedup_entries, insert_alert, load_dedup_entries, upsert_dedup_entry
 
 logger = logging.getLogger(__name__)
 
@@ -258,8 +258,8 @@ class AlertRouter:
             d["type"] = "bull_put" if alert.direction.value == "bullish" else "bear_call"
 
         # --- strikes: extract sell leg → short, buy leg → long ---
-        sell_legs = [l for l in legs if l.get("action") == "sell"]
-        buy_legs = [l for l in legs if l.get("action") == "buy"]
+        sell_legs = [leg for leg in legs if leg.get("action") == "sell"]
+        buy_legs = [leg for leg in legs if leg.get("action") == "buy"]
         if sell_legs and not d.get("short_strike"):
             d["short_strike"] = sell_legs[0].get("strike", 0)
         if buy_legs and not d.get("long_strike"):
@@ -271,12 +271,12 @@ class AlertRouter:
 
         # --- iron condor: extract per-wing strikes from legs ---
         if "condor" in alert_type_val:
-            put_legs = [l for l in legs if l.get("option_type") == "put"]
-            call_legs = [l for l in legs if l.get("option_type") == "call"]
-            ps = next((l for l in put_legs if l.get("action") == "sell"), None)
-            pb = next((l for l in put_legs if l.get("action") == "buy"), None)
-            cs = next((l for l in call_legs if l.get("action") == "sell"), None)
-            cb = next((l for l in call_legs if l.get("action") == "buy"), None)
+            put_legs = [leg for leg in legs if leg.get("option_type") == "put"]
+            call_legs = [leg for leg in legs if leg.get("option_type") == "call"]
+            ps = next((leg for leg in put_legs if leg.get("action") == "sell"), None)
+            pb = next((leg for leg in put_legs if leg.get("action") == "buy"), None)
+            cs = next((leg for leg in call_legs if leg.get("action") == "sell"), None)
+            cb = next((leg for leg in call_legs if leg.get("action") == "buy"), None)
             if ps:
                 d["put_short_strike"] = ps["strike"]
             if pb:

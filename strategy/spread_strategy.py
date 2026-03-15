@@ -6,6 +6,7 @@ Implements bull put spreads and bear call spreads with high probability setups.
 import logging
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
+
 import pandas as pd
 
 from shared.types import IronCondorOpportunity, ScoredSpreadOpportunity, SpreadOpportunity
@@ -42,7 +43,7 @@ class CreditSpreadStrategy:
     def __init__(self, config: Dict):
         """
         Initialize strategy with configuration.
-        
+
         Args:
             config: Configuration dictionary
         """
@@ -81,7 +82,7 @@ class CreditSpreadStrategy:
     ) -> List[Dict]:
         """
         Evaluate potential credit spread opportunities.
-        
+
         Args:
             ticker: Stock ticker symbol
             option_chain: Options chain data
@@ -90,7 +91,7 @@ class CreditSpreadStrategy:
             current_price: Current underlying price
             as_of_date: Optional date to use for DTE calculation (for backtesting).
                         Defaults to datetime.now() for live scanning.
-            
+
         Returns:
             List of scored spread opportunities
         """
@@ -151,7 +152,7 @@ class CreditSpreadStrategy:
 
     def _filter_by_dte(self, option_chain: pd.DataFrame, as_of_date: Optional[datetime] = None) -> List[datetime]:
         """Filter expirations by DTE range.
-        
+
         Args:
             option_chain: Options chain DataFrame
             as_of_date: Date to calculate DTE from. Defaults to now() for live scanning.
@@ -177,11 +178,11 @@ class CreditSpreadStrategy:
     ) -> bool:
         """
         Check if conditions favor bull put spreads.
-        
+
         Args:
             technical_signals: Technical analysis signals
             iv_data: IV rank/percentile data
-            
+
         Returns:
             True if conditions are favorable
         """
@@ -296,8 +297,8 @@ class CreditSpreadStrategy:
         rsi_min = condor_config.get('rsi_min', 30)
         rsi_max = condor_config.get('rsi_max', 70)
         min_combined_credit_pct = condor_config.get('min_combined_credit_pct', 25)
-        prefer_in_low_iv = condor_config.get('prefer_in_low_iv', True)
-        low_iv_threshold = condor_config.get('low_iv_threshold', 30)
+        condor_config.get('prefer_in_low_iv', True)
+        condor_config.get('low_iv_threshold', 30)
 
         iv_rank = iv_data.get('iv_rank', 0)
 
@@ -572,7 +573,7 @@ class CreditSpreadStrategy:
     ) -> List[Dict]:
         """
         Score and rank spread opportunities.
-        
+
         Scoring criteria:
         - Higher credit (better)
         - Better risk/reward ratio

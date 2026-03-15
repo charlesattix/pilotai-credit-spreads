@@ -20,7 +20,6 @@ Lookahead prevention:
 """
 
 import logging
-import os
 import sqlite3
 import time
 from contextlib import contextmanager

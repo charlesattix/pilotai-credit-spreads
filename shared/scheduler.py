@@ -14,8 +14,8 @@ Schedule (all times ET, Mon-Fri):
 import logging
 import os
 import threading
-import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Tuple

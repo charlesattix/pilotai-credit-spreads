@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bug Report — DB Isolation &amp; Dedup Failures</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #fff; color: #1a1a1a; line-height: 1.6; padding: 40px; max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 24px; margin-bottom: 8px; color: #c0392b; }
+  h2 { font-size: 18px; margin: 28px 0 12px; color: #2c3e50; border-bottom: 2px solid #ecf0f1; padding-bottom: 6px; }
+  h3 { font-size: 15px; margin: 20px 0 8px; color: #34495e; }
+  .subtitle { color: #7f8c8d; font-size: 14px; margin-bottom: 24px; }
+  .severity { display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
+  .critical { background: #e74c3c; color: #fff; }
+  .high { background: #e67e22; color: #fff; }
+  .medium { background: #f39c12; color: #fff; }
+  p { margin: 8px 0; font-size: 14px; }
+  code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-size: 13px; font-family: 'SF Mono', Monaco, Consolas, monospace; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 6px; overflow-x: auto; margin: 12px 0; font-size: 13px; line-height: 1.5; }
+  pre .comment { color: #6a9955; }
+  pre .highlight { color: #e74c3c; font-weight: bold; }
+  pre .fix { color: #4ec9b0; font-weight: bold; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+  th { background: #2c3e50; color: #fff; text-align: left; padding: 8px 12px; }
+  td { padding: 8px 12px; border-bottom: 1px solid #ecf0f1; }
+  tr:nth-child(even) { background: #f8f9fa; }
+  .impact { background: #fdf2f2; border-left: 4px solid #e74c3c; padding: 12px 16px; margin: 12px 0; border-radius: 0 4px 4px 0; }
+  .fix-box { background: #f0fdf4; border-left: 4px solid #27ae60; padding: 12px 16px; margin: 12px 0; border-radius: 0 4px 4px 0; }
+  .workaround { background: #fffbeb; border-left: 4px solid #f39c12; padding: 12px 16px; margin: 12px 0; border-radius: 0 4px 4px 0; }
+  hr { border: none; border-top: 1px solid #ecf0f1; margin: 24px 0; }
+</style>
+</head>
+<body>
+
+<h1>🐛 Bug Report: DB Isolation &amp; Dedup Failures</h1>
+<p class="subtitle">PilotAI Credit Spreads — Filed by Charles · March 13, 2026 · Branch: <code>maximus/champion-config</code></p>
+
+<p>Three related bugs preventing multi-experiment paper trading from working correctly. All stem from the same root cause: <strong>the YAML <code>db_path</code> config field is never read by the application.</strong></p>
+
+<hr>
+
+<h2>Bug #1: DB Isolation Broken <span class="severity critical">CRITICAL</span></h2>
+
+<h3>Summary</h3>
+<p>Every experiment writes to the shared <code>data/pilotai.db</code> regardless of what <code>db_path</code> is set in the YAML config. This means experiments cross-contaminate each other's trade records, dedup state, and position tracking.</p>
+
+<h3>Evidence</h3>
+<p>Config file <code>paper_exp401.yaml</code> specifies:</p>
+<pre>db_path: "data/pilotai_exp401.db"</pre>
+<p>But the scheduler logs show:</p>
+<pre>Database initialized at /Users/charlesbot/projects/pilotai-credit-spreads/data/<span class="highlight">pilotai.db</span></pre>
+
+<h3>Root Cause</h3>
+<p>The application reads DB path from <strong>two sources only</strong>:</p>
+<ol style="margin: 8px 0 8px 24px; font-size: 14px;">
+  <li><code>--db-path</code> CLI argument → sets <code>os.environ['PILOTAI_DB_PATH']</code></li>
+  <li><code>PILOTAI_DB_PATH</code> environment variable (checked at module import time)</li>
+</ol>
+<p>The YAML <code>db_path</code> field is <strong>never read</strong>. Here's the chain:</p>
+
+<pre><span class="comment"># shared/database.py:19 — hardcoded fallback at import time</span>
+DB_PATH = Path(os.environ.get('PILOTAI_DB_PATH', str(Path(DATA_DIR) / <span class="highlight">"pilotai.db"</span>)))
+
+<span class="comment"># main.py:824-826 — only CLI arg sets the env var</span>
+if args.db_path:
+    os.environ['PILOTAI_DB_PATH'] = args.db_path
+
+<span class="comment"># The YAML config['db_path'] is NEVER passed to any component</span></pre>
+
+<p>All downstream components (<code>ExecutionEngine</code>, <code>PositionMonitor</code>, <code>AlertRouter</code>, <code>PositionReconciler</code>) receive <code>db_path=os.environ.get('PILOTAI_DB_PATH')</code>, which defaults to <code>pilotai.db</code>.</p>
+
+<div class="impact">
+  <strong>Impact:</strong> All experiments share one database. Trade records from exp400 and exp401 co-mingle. PositionMonitor in one experiment can see and act on trades from another. P&L tracking is unreliable. This defeats the entire purpose of isolated experiments.
+</div>
+
+<h3>Proposed Fix</h3>
+<div class="fix-box">
+In <code>main.py:create_system()</code>, after <code>load_config()</code>, read the YAML <code>db_path</code> and set the env var:
+
+<pre><span class="fix">config = load_config(config_file, env_file=env_file)
+if not os.environ.get('PILOTAI_DB_PATH') and config.get('db_path'):
+    os.environ['PILOTAI_DB_PATH'] = config['db_path']</span></pre>
+
+This respects CLI arg priority (already set) but falls back to YAML config before the hardcoded default.
+</div>
+
+<div class="workaround">
+  <strong>Current workaround:</strong> Pass <code>--db-path data/pilotai_exp401.db</code> on the command line, or add <code>PILOTAI_DB_PATH=data/pilotai_exp401.db</code> to the <code>.env.exp*</code> file.
+</div>
+
+<hr>
+
+<h2>Bug #2: alert_dedup Table Missing <code>direction</code> Column <span class="severity high">HIGH</span></h2>
+
+<h3>Summary</h3>
+<p>The <code>AlertRouter</code> tries to persist dedup entries with a <code>direction</code> column, but the <code>alert_dedup</code> table schema doesn't include it. This causes a non-fatal warning on every scan and prevents cross-restart dedup from working.</p>
+
+<h3>Evidence</h3>
+<pre>AlertRouter: could not persist dedup entry (non-fatal): table alert_dedup has no column named <span class="highlight">direction</span>
+AlertRouter: could not load dedup entries from DB (non-fatal): no such column: <span class="highlight">direction</span></pre>
+
+<h3>Root Cause</h3>
+<p>The dedup persistence code (added in BUG #17 fix) calls <code>upsert_dedup_entry(ticker, direction, ...)</code> which writes to the <code>alert_dedup</code> table. But the DB migration that creates/alters this table never added the <code>direction</code> column. The table was likely created before the direction-aware dedup was implemented.</p>
+
+<h3>Consequence</h3>
+<p>Without persistent dedup, every scheduler restart resets the dedup ledger. Combined with Bug #3, this means the same trade gets resubmitted every scan after a restart.</p>
+
+<div class="fix-box">
+<strong>Fix:</strong> Add a migration in <code>shared/database.py</code>'s <code>init_db()</code>:
+<pre><span class="fix">ALTER TABLE alert_dedup ADD COLUMN direction TEXT DEFAULT '';</span></pre>
+Or update the CREATE TABLE statement if the table is created fresh.
+</div>
+
+<hr>
+
+<h2>Bug #3: client_order_id Collision on Resubmit <span class="severity high">HIGH</span></h2>
+
+<h3>Summary</h3>
+<p>The <code>ExecutionEngine</code> generates a deterministic <code>client_order_id</code> from trade fields. If the same opportunity appears on the next scan (because dedup failed — see Bug #2), it tries to submit with the same <code>client_order_id</code>. Alpaca rejects it with:</p>
+
+<pre>APIError: {"code":40010001,"message":"<span class="highlight">client_order_id must be unique</span>"}</pre>
+
+<h3>Root Cause</h3>
+<p>The <code>client_order_id</code> is built deterministically:</p>
+<pre><span class="comment"># execution/execution_engine.py:80-81</span>
+raw_id = f"{ticker}-{spread_type}-{expiration}-{short_strike}-{long_strike}"
+client_id = "cs-" + hashlib.sha256(raw_id.encode()).hexdigest()[:16]</pre>
+
+<p>This is <em>intentionally</em> deterministic for idempotency. The problem isn't here — it's that the dedup layer (Bug #2) fails to prevent the resubmission in the first place.</p>
+
+<h3>Consequence</h3>
+<p>Every scan that finds the same opportunity logs an error and fails to submit. The existing position is safe (Alpaca rejects duplicates), but the error log is noisy and masks real issues. For iron condors, if the put wing succeeds but the call wing resubmit fails, the IC is incomplete.</p>
+
+<div class="fix-box">
+<strong>Fix:</strong> Fixing Bug #2 (dedup persistence) eliminates this. As defense-in-depth, the <code>ExecutionEngine</code> should also check if a trade with this <code>client_order_id</code> already exists in the DB before submitting:
+<pre><span class="fix"># Before submitting to Alpaca:
+existing = get_trade_by_client_id(client_id, path=self.db_path)
+if existing and existing['status'] not in ('rejected', 'cancelled'):
+    logger.info("Trade %s already exists (status=%s), skipping", client_id, existing['status'])
+    return {"status": "duplicate", "client_order_id": client_id}</span></pre>
+</div>
+
+<hr>
+
+<h2>Summary &amp; Priority</h2>
+
+<table>
+  <tr><th>Bug</th><th>Severity</th><th>Fix Complexity</th><th>Impact</th></tr>
+  <tr>
+    <td>#1 DB Isolation</td>
+    <td><span class="severity critical">CRITICAL</span></td>
+    <td>~5 lines in <code>main.py</code></td>
+    <td>All experiments cross-contaminate</td>
+  </tr>
+  <tr>
+    <td>#2 Dedup Column</td>
+    <td><span class="severity high">HIGH</span></td>
+    <td>1 ALTER TABLE migration</td>
+    <td>Dedup resets on restart, causes Bug #3</td>
+  </tr>
+  <tr>
+    <td>#3 Order ID Collision</td>
+    <td><span class="severity high">HIGH</span></td>
+    <td>~10 lines in <code>execution_engine.py</code></td>
+    <td>Error spam, potential incomplete ICs</td>
+  </tr>
+</table>
+
+<h3>Recommended Fix Order</h3>
+<ol style="margin: 8px 0 8px 24px; font-size: 14px;">
+  <li><strong>Bug #1</strong> first — everything else depends on correct DB isolation</li>
+  <li><strong>Bug #2</strong> next — restores dedup persistence</li>
+  <li><strong>Bug #3</strong> last — defense-in-depth against future dedup failures</li>
+</ol>
+
+<hr>
+
+<h2>Additional Config Gaps Found (Non-Bugs)</h2>
+<p>The <code>paper_exp401.yaml</code> config generated by the optimization pipeline was missing three fields required by the current <code>main</code> branch code:</p>
+
+<table>
+  <tr><th>Missing Field</th><th>Section</th><th>Required By</th><th>Default Used</th></tr>
+  <tr><td><code>logging</code> (entire section)</td><td>top-level</td><td><code>validate_config()</code></td><td>None — crashes</td></tr>
+  <tr><td><code>min_delta</code> / <code>max_delta</code></td><td><code>strategy</code></td><td><code>validate_config()</code></td><td>None — crashes</td></tr>
+  <tr><td><code>min_credit_pct</code></td><td><code>risk</code></td><td><code>spread_strategy.py:522</code></td><td>None — KeyError at runtime</td></tr>
+</table>
+
+<p><strong>Recommendation:</strong> Add a config schema validator or generate configs from a template that includes all required fields. The optimization pipeline should produce configs that pass <code>validate_config()</code> without manual patching.</p>
+
+<hr>
+<p style="color: #95a5a6; font-size: 12px; margin-top: 24px;">Filed by Charles 🤖 · March 13, 2026 · Ref: pilotai-credit-spreads/maximus/champion-config</p>
+
+</body>
+</html>

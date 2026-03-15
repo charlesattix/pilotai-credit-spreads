@@ -9,14 +9,18 @@ Hardening Pass 2 — tests for remaining checklist categories:
 """
 
 import json
-import threading
 import time
 import urllib.request
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from typing import Dict
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
+
+try:
+    from alpaca.trading.requests import OptionLegRequest  # noqa: F401
+except ImportError:
+    pytest.skip("OptionLegRequest not available in this alpaca-py version", allow_module_level=True)
 
 # ---------------------------------------------------------------------------
 # Helpers shared across tests
@@ -151,8 +155,9 @@ class TestEarlyCloseCalendar:
 
     def test_market_hours_false_after_1pm_on_early_close_day(self):
         """_is_market_hours() should return False at 1:30 PM on an early-close day."""
-        from execution.position_monitor import PositionMonitor
         from zoneinfo import ZoneInfo
+
+        from execution.position_monitor import PositionMonitor
         # Thanksgiving eve 2026 at 1:30 PM ET — after early close
         early_close_dt = datetime(2026, 11, 25, 13, 30, tzinfo=ZoneInfo("America/New_York"))
         with patch("execution.position_monitor.datetime") as mock_dt:
@@ -162,8 +167,9 @@ class TestEarlyCloseCalendar:
 
     def test_market_hours_true_at_noon_on_early_close_day(self):
         """_is_market_hours() should return True at 12:00 PM on an early-close day."""
-        from execution.position_monitor import PositionMonitor
         from zoneinfo import ZoneInfo
+
+        from execution.position_monitor import PositionMonitor
         # Thanksgiving eve 2026 at noon — before early close at 1 PM
         midday_dt = datetime(2026, 11, 25, 12, 0, tzinfo=ZoneInfo("America/New_York"))
         with patch("execution.position_monitor.datetime") as mock_dt:
@@ -173,8 +179,9 @@ class TestEarlyCloseCalendar:
 
     def test_market_hours_false_on_holiday(self):
         """_is_market_hours() should return False on market holidays."""
-        from execution.position_monitor import PositionMonitor
         from zoneinfo import ZoneInfo
+
+        from execution.position_monitor import PositionMonitor
         # Good Friday 2026 at 11:00 AM — market is closed all day
         holiday_dt = datetime(2026, 4, 3, 11, 0, tzinfo=ZoneInfo("America/New_York"))
         with patch("execution.position_monitor.datetime") as mock_dt:
@@ -183,8 +190,9 @@ class TestEarlyCloseCalendar:
         assert result is False
 
     def test_market_hours_false_on_thanksgiving(self):
-        from execution.position_monitor import PositionMonitor
         from zoneinfo import ZoneInfo
+
+        from execution.position_monitor import PositionMonitor
         thanksgiving_dt = datetime(2026, 11, 26, 12, 0, tzinfo=ZoneInfo("America/New_York"))
         with patch("execution.position_monitor.datetime") as mock_dt:
             mock_dt.now.return_value = thanksgiving_dt
@@ -369,8 +377,9 @@ class TestOrphanDetection:
 class TestStaleCloseOrderWarning:
 
     def _pending_close_pos(self, submitted_minutes_ago: float, db_path: str) -> Dict:
-        from shared.database import upsert_trade
         from datetime import timedelta
+
+        from shared.database import upsert_trade
         submitted_at = (
             datetime.now(timezone.utc) - timedelta(minutes=submitted_minutes_ago)
         ).isoformat()
@@ -432,7 +441,7 @@ class TestStaleCloseOrderWarning:
 
     def test_close_order_submitted_at_stored_on_position_close(self, tmp_path):
         """_close_position must store close_order_submitted_at for stale detection."""
-        from shared.database import upsert_trade, get_trades
+        from shared.database import get_trades, upsert_trade
         monitor, db = _make_monitor(tmp_path)
 
         pos = {
@@ -486,7 +495,7 @@ class TestCommissionTracking:
         return pos, order
 
     def test_commission_deducted_when_configured(self, tmp_path):
-        from shared.database import close_trade, init_db
+        from shared.database import init_db
         db = str(tmp_path / "trades.db")
         init_db(db)
         # $0.65/contract commission configured
@@ -515,7 +524,7 @@ class TestCommissionTracking:
         assert abs(actual_pnl - 144.80) < 0.01
 
     def test_no_commission_when_not_configured(self, tmp_path):
-        from shared.database import init_db, upsert_trade, get_trades
+        from shared.database import get_trades, init_db, upsert_trade
         db = str(tmp_path / "trades.db")
         init_db(db)
         monitor, _ = _make_monitor(tmp_path)  # no execution.commission_per_contract
@@ -533,7 +542,7 @@ class TestCommissionTracking:
 
     def test_iron_condor_uses_4_legs_for_commission(self, tmp_path):
         """IC has 4 legs (2 wings × 2 legs each) = 4 legs per side."""
-        from shared.database import init_db, upsert_trade, get_trades
+        from shared.database import get_trades, init_db, upsert_trade
         db = str(tmp_path / "trades.db")
         init_db(db)
         cfg = {
@@ -578,6 +587,7 @@ class TestNotifier:
 
     def test_critical_logs_at_critical_level(self, caplog):
         import logging
+
         from shared.notifier import Notifier
         n = Notifier()  # no config = logging only
         with caplog.at_level(logging.CRITICAL):
@@ -587,6 +597,7 @@ class TestNotifier:
 
     def test_warning_logs_at_warning_level(self, caplog):
         import logging
+
         from shared.notifier import Notifier
         n = Notifier()
         with caplog.at_level(logging.WARNING):
@@ -595,6 +606,7 @@ class TestNotifier:
 
     def test_info_logs_at_info_level(self, caplog):
         import logging
+
         from shared.notifier import Notifier
         n = Notifier()
         with caplog.at_level(logging.INFO):
@@ -625,7 +637,7 @@ class TestDailyReport:
 
     def _populate_db(self, db_path: str) -> None:
         """Insert sample trades: 1 open, 2 closed today, 1 closed yesterday."""
-        from shared.database import upsert_trade, close_trade, init_db
+        from shared.database import close_trade, init_db, upsert_trade
         init_db(db_path)
         today_str = datetime.now(timezone.utc).date().isoformat()
         yesterday = datetime.now(timezone.utc).replace(day=datetime.now(timezone.utc).day - 1)

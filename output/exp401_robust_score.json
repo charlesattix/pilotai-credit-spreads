@@ -1,0 +1,302 @@
+{
+  "experiment": "EXP-401",
+  "description": "Phase 4 regime-optimized blend: CS(12%) + SS(3%)",
+  "generated": "2026-03-12T23:22:13.411735",
+  "config": {
+    "tickers": [
+      "SPY"
+    ],
+    "starting_capital": 100000,
+    "cs_base_risk": 0.12,
+    "ss_base_risk": 0.03,
+    "cs_regime_scales": {
+      "regime_scale_bull": 1.0,
+      "regime_scale_bear": 0.3,
+      "regime_scale_high_vol": 0.3,
+      "regime_scale_low_vol": 0.8,
+      "regime_scale_crash": 0.0
+    },
+    "ss_regime_scales": {
+      "regime_scale_bull": 1.5,
+      "regime_scale_bear": 1.5,
+      "regime_scale_high_vol": 2.5,
+      "regime_scale_low_vol": 1.0,
+      "regime_scale_crash": 0.5
+    }
+  },
+  "baseline_yearly": {
+    "2020": {
+      "return_pct": 24.07,
+      "max_drawdown": -6.61,
+      "total_trades": 51,
+      "win_rate": 78.43,
+      "sharpe_ratio": 1.93
+    },
+    "2021": {
+      "return_pct": 107.4,
+      "max_drawdown": -3.67,
+      "total_trades": 86,
+      "win_rate": 89.53,
+      "sharpe_ratio": 6.78
+    },
+    "2022": {
+      "return_pct": 8.11,
+      "max_drawdown": -6.96,
+      "total_trades": 39,
+      "win_rate": 74.36,
+      "sharpe_ratio": 0.59
+    },
+    "2023": {
+      "return_pct": 43.18,
+      "max_drawdown": -3.62,
+      "total_trades": 60,
+      "win_rate": 86.67,
+      "sharpe_ratio": 3.94
+    },
+    "2024": {
+      "return_pct": 26.44,
+      "max_drawdown": -6.6,
+      "total_trades": 62,
+      "win_rate": 79.03,
+      "sharpe_ratio": 2.73
+    },
+    "2025": {
+      "return_pct": 34.97,
+      "max_drawdown": -3.56,
+      "total_trades": 55,
+      "win_rate": 90.91,
+      "sharpe_ratio": 3.74
+    }
+  },
+  "checks": {
+    "H_data_consistency": {
+      "check": "H_data_consistency",
+      "inconsistencies": [],
+      "zero_trade_years": [],
+      "score": 1.0,
+      "passed": true,
+      "note": "All metrics internally consistent"
+    },
+    "A_consistency": {
+      "check": "A_consistency",
+      "years_profitable": 6,
+      "years_total": 6,
+      "score": 1.0,
+      "passed": true,
+      "note": "6/6 years profitable"
+    },
+    "B_walkforward": {
+      "check": "B_walkforward",
+      "folds": [
+        {
+          "train_years": [
+            "2020",
+            "2021",
+            "2022"
+          ],
+          "test_year": "2023",
+          "train_avg": 46.53,
+          "test_return": 43.18,
+          "ratio": 0.928,
+          "passed": true
+        },
+        {
+          "train_years": [
+            "2020",
+            "2021",
+            "2022",
+            "2023"
+          ],
+          "test_year": "2024",
+          "train_avg": 45.69,
+          "test_return": 26.44,
+          "ratio": 0.579,
+          "passed": true
+        },
+        {
+          "train_years": [
+            "2020",
+            "2021",
+            "2022",
+            "2023",
+            "2024"
+          ],
+          "test_year": "2025",
+          "train_avg": 41.84,
+          "test_return": 34.97,
+          "ratio": 0.836,
+          "passed": true
+        }
+      ],
+      "folds_passed": 3,
+      "folds_total": 3,
+      "median_ratio": 0.836,
+      "score": 0.836,
+      "passed": true,
+      "note": "Rolling WF: 3/3 folds pass (median ratio=0.84) \u2713"
+    },
+    "C_sensitivity": {
+      "check": "C_sensitivity",
+      "base_avg_return": 40.7,
+      "jitter_avg_return": 40.67,
+      "score": 0.999,
+      "passed": true,
+      "cliff_params": [],
+      "jitter_runs": [
+        {
+          "label": "cs_risk=0.096 (-20%)",
+          "avg_return": 40.5
+        },
+        {
+          "label": "cs_risk=0.144 (+20%)",
+          "avg_return": 40.71
+        },
+        {
+          "label": "ss_risk=0.024 (-20%)",
+          "avg_return": 40.03
+        },
+        {
+          "label": "ss_risk=0.036 (+20%)",
+          "avg_return": 41.26
+        },
+        {
+          "label": "cs_regime_scale_bull=0.8 (-20%)",
+          "avg_return": 40.58
+        },
+        {
+          "label": "cs_regime_scale_bull=1.2 (+20%)",
+          "avg_return": 40.7
+        },
+        {
+          "label": "cs_regime_scale_bear=0.24 (-20%)",
+          "avg_return": 40.68
+        },
+        {
+          "label": "cs_regime_scale_bear=0.36 (+20%)",
+          "avg_return": 40.71
+        },
+        {
+          "label": "cs_regime_scale_high_vol=0.24 (-20%)",
+          "avg_return": 40.66
+        },
+        {
+          "label": "cs_regime_scale_high_vol=0.36 (+20%)",
+          "avg_return": 40.7
+        },
+        {
+          "label": "cs_regime_scale_low_vol=0.64 (-20%)",
+          "avg_return": 40.65
+        },
+        {
+          "label": "cs_regime_scale_low_vol=0.96 (+20%)",
+          "avg_return": 40.7
+        },
+        {
+          "label": "ss_regime_scale_bull=1.2 (-20%)",
+          "avg_return": 40.46
+        },
+        {
+          "label": "ss_regime_scale_bull=1.8 (+20%)",
+          "avg_return": 40.85
+        },
+        {
+          "label": "ss_regime_scale_bear=1.2 (-20%)",
+          "avg_return": 40.46
+        },
+        {
+          "label": "ss_regime_scale_bear=1.8 (+20%)",
+          "avg_return": 40.88
+        },
+        {
+          "label": "ss_regime_scale_high_vol=2.0 (-20%)",
+          "avg_return": 40.5
+        },
+        {
+          "label": "ss_regime_scale_high_vol=3.0 (+20%)",
+          "avg_return": 40.91
+        },
+        {
+          "label": "ss_regime_scale_low_vol=0.8 (-20%)",
+          "avg_return": 40.7
+        },
+        {
+          "label": "ss_regime_scale_low_vol=1.2 (+20%)",
+          "avg_return": 40.7
+        },
+        {
+          "label": "ss_regime_scale_crash=0.4 (-20%)",
+          "avg_return": 40.7
+        },
+        {
+          "label": "ss_regime_scale_crash=0.6 (+20%)",
+          "avg_return": 40.7
+        }
+      ],
+      "total_jitter_runs": 22,
+      "note": "Jitter avg=+40.7% vs base=+40.7% (ratio=0.999)"
+    },
+    "D_trade_count": {
+      "check": "D_trade_count",
+      "per_year": {
+        "2020": {
+          "trades": 51,
+          "passed": true
+        },
+        "2021": {
+          "trades": 86,
+          "passed": true
+        },
+        "2022": {
+          "trades": 39,
+          "passed": true
+        },
+        "2023": {
+          "trades": 60,
+          "passed": true
+        },
+        "2024": {
+          "trades": 62,
+          "passed": true
+        },
+        "2025": {
+          "trades": 55,
+          "passed": true
+        }
+      },
+      "years_passing": 6,
+      "years_total": 6,
+      "score": 1.0,
+      "passed": true,
+      "low_trade_years": [],
+      "note": "6/6 years with \u226530 trades"
+    },
+    "E_regime_diversity": {
+      "check": "E_regime_diversity",
+      "per_year_month_coverage": {
+        "2020": 1.0,
+        "2021": 1.0,
+        "2022": 1.0,
+        "2023": 1.0,
+        "2024": 1.0,
+        "2025": 1.0
+      },
+      "score": 1.0,
+      "passed": true,
+      "concentration_flags": [],
+      "note": "Avg monthly coverage: 100%"
+    },
+    "F_drawdown": {
+      "check": "F_drawdown",
+      "dd_violations": [],
+      "streak_violations": [],
+      "max_dd_limit": -50.0,
+      "max_streak_limit": 15,
+      "score": 1.0,
+      "passed": true,
+      "note": "No violations"
+    }
+  },
+  "overfit_score": 0.951,
+  "verdict": "ROBUST",
+  "gates_failed": []
+}

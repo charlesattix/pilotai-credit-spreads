@@ -9,17 +9,24 @@ Each strategy implements BaseStrategy with:
 """
 
 from strategies.base import (
-    BaseStrategy, Signal, Position, TradeLeg, ParamDef,
-    MarketSnapshot, PortfolioState,
-    TradeDirection, PositionAction, LegType,
+    BaseStrategy,
+    LegType,
+    MarketSnapshot,
+    ParamDef,
+    PortfolioState,
+    Position,
+    PositionAction,
+    Signal,
+    TradeDirection,
+    TradeLeg,
 )
-from strategies.credit_spread import CreditSpreadStrategy
-from strategies.iron_condor import IronCondorStrategy
-from strategies.gamma_lotto import GammaLottoStrategy
-from strategies.straddle_strangle import StraddleStrangleStrategy
-from strategies.debit_spread import DebitSpreadStrategy
 from strategies.calendar_spread import CalendarSpreadStrategy
+from strategies.credit_spread import CreditSpreadStrategy
+from strategies.debit_spread import DebitSpreadStrategy
+from strategies.gamma_lotto import GammaLottoStrategy
+from strategies.iron_condor import IronCondorStrategy
 from strategies.momentum_swing import MomentumSwingStrategy
+from strategies.straddle_strangle import StraddleStrangleStrategy
 
 # Registry: name -> class
 STRATEGY_REGISTRY = {

@@ -10,7 +10,7 @@ using a trailing stop state machine:
 """
 
 import logging
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Set
 
 logger = logging.getLogger(__name__)
 

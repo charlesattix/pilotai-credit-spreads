@@ -6,17 +6,19 @@ Base URL: https://api.polygon.io
 
 import logging
 import os
-import time
 import threading
+import time
+from datetime import datetime, timedelta, timezone
+from typing import Dict, List, Optional
+
+import numpy as np
+import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional
-from shared.exceptions import ProviderError
+
 from shared.circuit_breaker import CircuitBreaker
+from shared.exceptions import ProviderError
 from shared.indicators import calculate_iv_rank as _shared_iv_rank
 
 logger = logging.getLogger(__name__)

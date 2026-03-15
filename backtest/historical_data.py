@@ -6,12 +6,12 @@ Supports both daily OHLCV bars and intraday 5-min bars for realistic backtesting
 
 import logging
 import os
+import random
 import signal
 import sqlite3
 import time
-import random
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import pytz
 import requests
@@ -25,7 +25,7 @@ ET = pytz.timezone("America/New_York")
 logger = logging.getLogger(__name__)
 
 
-class _PolygonAPITimeout(Exception):
+class _PolygonAPITimeoutError(Exception):
     """Raised by SIGALRM handler when a Polygon API call exceeds the hard timeout."""
 
 
@@ -683,7 +683,7 @@ class HistoricalOptionsData:
 
         # Install SIGALRM hard-timeout handler (save existing handler to restore after)
         def _timeout_handler(signum, frame):
-            raise _PolygonAPITimeout()
+            raise _PolygonAPITimeoutError()
 
         old_handler = None
         alarm_set = False
@@ -695,7 +695,7 @@ class HistoricalOptionsData:
         try:
             resp = self.session.get(url, params=p, timeout=15)
             resp.raise_for_status()
-        except _PolygonAPITimeout:
+        except _PolygonAPITimeoutError:
             logger.warning(
                 "Polygon API timed out after %ds (%s) — skipping (no sentinel stored)",
                 self._API_HARD_TIMEOUT, path,
@@ -710,7 +710,7 @@ class HistoricalOptionsData:
                 try:
                     resp = self.session.get(url, params=p, timeout=15)
                     resp.raise_for_status()
-                except _PolygonAPITimeout:
+                except _PolygonAPITimeoutError:
                     logger.warning("Polygon API timed out on 429 retry (%s) — skipping", path)
                     return None  # timeout on retry — no sentinel
                 except requests.exceptions.RequestException as e2:

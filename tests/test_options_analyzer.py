@@ -1,12 +1,12 @@
 """Tests for OptionsAnalyzer."""
-import pytest
-import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import numpy as np
+import pandas as pd
+import pytest
 
 from strategy.options_analyzer import OptionsAnalyzer
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -180,7 +180,7 @@ class TestDTEFiltering:
         mock_ticker_cls.return_value = mock_ticker
 
         analyzer = OptionsAnalyzer(_make_config())
-        result = analyzer._get_chain_yfinance('SPY')
+        analyzer._get_chain_yfinance('SPY')
 
         # option_chain should only be called once (for exp_close)
         assert mock_ticker.option_chain.call_count == 1

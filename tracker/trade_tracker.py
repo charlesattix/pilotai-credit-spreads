@@ -7,9 +7,13 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
+
 import pandas as pd
-from shared.constants import DATA_DIR as _DATA_DIR, OUTPUT_DIR as _OUTPUT_DIR
-from shared.database import init_db, upsert_trade, batch_upsert_trades, get_trades as db_get_trades
+
+from shared.constants import DATA_DIR as _DATA_DIR
+from shared.constants import OUTPUT_DIR as _OUTPUT_DIR
+from shared.database import batch_upsert_trades, init_db
+from shared.database import get_trades as db_get_trades
 
 logger = logging.getLogger(__name__)
 
@@ -83,10 +87,10 @@ class TradeTracker:
     def add_position(self, position: Dict) -> str:
         """
         Add a new position.
-        
+
         Args:
             position: Position data
-            
+
         Returns:
             Position ID
         """
@@ -114,7 +118,7 @@ class TradeTracker:
     ):
         """
         Close an existing position.
-        
+
         Args:
             position_id: Position identifier
             exit_price: Exit price
@@ -161,7 +165,7 @@ class TradeTracker:
     def update_position(self, position_id: str, updates: Dict):
         """
         Update an existing position.
-        
+
         Args:
             position_id: Position identifier
             updates: Dictionary of fields to update
@@ -178,7 +182,7 @@ class TradeTracker:
     def get_open_positions(self) -> List[Dict]:
         """
         Get all open positions.
-        
+
         Returns:
             List of open positions
         """
@@ -187,10 +191,10 @@ class TradeTracker:
     def get_position(self, position_id: str) -> Optional[Dict]:
         """
         Get a specific position.
-        
+
         Args:
             position_id: Position identifier
-            
+
         Returns:
             Position data or None
         """
@@ -202,7 +206,7 @@ class TradeTracker:
     def get_closed_trades(self) -> List[Dict]:
         """
         Get all closed trades.
-        
+
         Returns:
             List of closed trades
         """
@@ -211,7 +215,7 @@ class TradeTracker:
     def get_statistics(self) -> Dict:
         """
         Calculate trading statistics.
-        
+
         Returns:
             Dictionary with statistics
         """
@@ -249,7 +253,7 @@ class TradeTracker:
     def export_to_csv(self, filename: str = 'trades_export.csv'):
         """
         Export trades to CSV.
-        
+
         Args:
             filename: Output filename
         """

@@ -11,7 +11,11 @@ from datetime import datetime, timezone
 from typing import Dict
 
 from strategies.base import (
-    LegType, Position, Signal, TradeLeg, TradeDirection,
+    LegType,
+    Position,
+    Signal,
+    TradeDirection,
+    TradeLeg,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,8 +34,17 @@ def signal_to_opportunity(signal: Signal, current_price: float) -> Dict:
         and LegType.SHORT_CALL in leg_types
     )
 
-    if is_condor:
+    is_straddle_strangle = (
+        (LegType.LONG_CALL in leg_types and LegType.LONG_PUT in leg_types
+         and LegType.SHORT_CALL not in leg_types)  # long straddle/strangle
+        or (LegType.SHORT_CALL in leg_types and LegType.SHORT_PUT in leg_types
+            and LegType.LONG_CALL not in leg_types)  # short straddle/strangle
+    )
+
+    if is_condor and not is_straddle_strangle:
         spread_type = "iron_condor"
+    elif is_straddle_strangle:
+        spread_type = signal.metadata.get("spread_type", "short_straddle")
     elif LegType.SHORT_PUT in leg_types:
         spread_type = "bull_put_spread"
     elif LegType.SHORT_CALL in leg_types:
@@ -41,11 +54,20 @@ def signal_to_opportunity(signal: Signal, current_price: float) -> Dict:
     else:
         spread_type = signal.metadata.get("spread_type", "credit_spread")
 
-    # Extract short/long strikes for the primary spread
+    # Extract strikes
     short_strike = 0.0
     long_strike = 0.0
+    call_strike = 0.0
+    put_strike = 0.0
 
-    if spread_type == "protective_put":
+    if is_straddle_strangle:
+        # Both legs face same direction — store as call_strike / put_strike
+        for leg in signal.legs:
+            if "call" in leg.leg_type.value:
+                call_strike = leg.strike
+            elif "put" in leg.leg_type.value:
+                put_strike = leg.strike
+    elif spread_type == "protective_put":
         # Single long put — no short leg
         for leg in signal.legs:
             if leg.leg_type == LegType.LONG_PUT:
@@ -85,7 +107,7 @@ def signal_to_opportunity(signal: Signal, current_price: float) -> Dict:
     }
 
     # Iron condor call-side fields
-    if is_condor:
+    if is_condor and not is_straddle_strangle:
         for leg in signal.legs:
             if leg.leg_type == LegType.SHORT_CALL:
                 opp["call_short_strike"] = leg.strike
@@ -94,6 +116,16 @@ def signal_to_opportunity(signal: Signal, current_price: float) -> Dict:
 
         opp["put_credit"] = signal.metadata.get("put_credit", 0)
         opp["call_credit"] = signal.metadata.get("call_credit", 0)
+
+    # Straddle/strangle fields
+    if is_straddle_strangle:
+        opp["call_strike"] = call_strike
+        opp["put_strike"] = put_strike
+        is_long = (LegType.LONG_CALL in leg_types)
+        opp["is_debit"] = is_long
+        if is_long:
+            # Debit position — credit field carries negative net_credit
+            opp["credit"] = signal.net_credit  # negative for debit
 
     # IV rank if available in metadata
     if "iv_rank" in signal.metadata:
@@ -128,7 +160,58 @@ def trade_dict_to_position(trade: Dict) -> Position:
     contracts = trade.get("contracts", 1)
     credit = trade.get("credit", 0)
 
+    # Parse entry date (needed by all branches)
+    entry_date = None
+    entry_str = trade.get("entry_date")
+    if entry_str:
+        try:
+            entry_date = datetime.fromisoformat(str(entry_str))
+            if entry_date.tzinfo is None:
+                entry_date = entry_date.replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+
     legs = []
+
+    if "straddle" in spread_type or "strangle" in spread_type:
+        # Straddle/strangle: 2 legs, both same direction
+        call_strike = trade.get("call_strike", 0)
+        put_strike = trade.get("put_strike", 0)
+        is_long = spread_type.startswith("long_")
+
+        if is_long:
+            legs = [
+                TradeLeg(LegType.LONG_CALL, call_strike, expiration),
+                TradeLeg(LegType.LONG_PUT, put_strike, expiration),
+            ]
+            direction = TradeDirection.LONG
+        else:
+            legs = [
+                TradeLeg(LegType.SHORT_CALL, call_strike, expiration),
+                TradeLeg(LegType.SHORT_PUT, put_strike, expiration),
+            ]
+            direction = TradeDirection.SHORT
+
+        # max_loss: debit paid (long) or credit * 3 (short, matches strategy)
+        if is_long:
+            max_loss = abs(credit)
+        else:
+            max_loss = trade.get("max_loss_per_spread", credit * 3)
+
+        return Position(
+            id=trade.get("id", ""),
+            strategy_name=trade.get("strategy_name", ""),
+            ticker=ticker,
+            direction=direction,
+            legs=legs,
+            contracts=contracts,
+            entry_date=entry_date,
+            net_credit=credit,
+            max_loss_per_unit=max_loss,
+            max_profit_per_unit=abs(credit) if is_long else credit,
+            profit_target_pct=trade.get("profit_target_pct", 0.55),
+            stop_loss_pct=trade.get("stop_loss_pct", 0.45),
+        )
 
     if "condor" in spread_type:
         # Iron condor: 4 legs
@@ -162,17 +245,6 @@ def trade_dict_to_position(trade: Dict) -> Position:
             TradeLeg(LegType.LONG_PUT, long_strike, expiration),
         ]
         direction = TradeDirection.SHORT
-
-    # Parse entry date
-    entry_date = None
-    entry_str = trade.get("entry_date")
-    if entry_str:
-        try:
-            entry_date = datetime.fromisoformat(str(entry_str))
-            if entry_date.tzinfo is None:
-                entry_date = entry_date.replace(tzinfo=timezone.utc)
-        except ValueError:
-            pass
 
     spread_width = abs(short_strike - long_strike)
     max_loss = trade.get("max_loss_per_spread", spread_width - credit)

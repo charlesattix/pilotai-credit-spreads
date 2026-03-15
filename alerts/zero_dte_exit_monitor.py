@@ -6,7 +6,7 @@ profit targets (50% of credit) or stop losses (2x credit) are hit.
 """
 
 import logging
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Set
 
 logger = logging.getLogger(__name__)
 

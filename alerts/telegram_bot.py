@@ -12,10 +12,10 @@ logger = logging.getLogger(__name__)
 class TelegramBot:
     """
     Telegram bot for sending trade alerts.
-    
+
     NOTE: This is a placeholder implementation.
     To use Telegram alerts:
-    
+
     1. Create a bot via @BotFather on Telegram
     2. Get your bot token
     3. Get your chat ID (use @userinfobot)
@@ -27,7 +27,7 @@ class TelegramBot:
     def __init__(self, config: Dict):
         """
         Initialize Telegram bot.
-        
+
         Args:
             config: Configuration dictionary
         """
@@ -70,10 +70,10 @@ class TelegramBot:
     def send_alert(self, message: str) -> bool:
         """
         Send an alert message via Telegram.
-        
+
         Args:
             message: Message to send (supports HTML formatting)
-            
+
         Returns:
             True if sent successfully
         """
@@ -99,11 +99,11 @@ class TelegramBot:
     def send_alerts(self, opportunities: List[Dict], formatter) -> int:
         """
         Send multiple alerts.
-        
+
         Args:
             opportunities: List of opportunities
             formatter: AlertGenerator instance for formatting
-            
+
         Returns:
             Number of alerts sent successfully
         """

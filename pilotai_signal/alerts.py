@@ -12,9 +12,8 @@ Also sends a daily digest of top-N tickers.
 """
 
 import logging
-import os
-from datetime import date, datetime
-from typing import Dict, List, Optional, Tuple
+from datetime import date
+from typing import Dict, List, Optional
 
 import requests
 

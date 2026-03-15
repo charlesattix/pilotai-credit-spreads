@@ -1,19 +1,19 @@
 """Tests for alerts.alert_schema — Alert creation, validation, conversion."""
 
+from datetime import datetime, timezone
+
 import pytest
-from datetime import datetime, timedelta, timezone
 
 from alerts.alert_schema import (
     Alert,
-    AlertType,
     AlertStatus,
+    AlertType,
     Confidence,
     Direction,
     Leg,
     SizeResult,
     TimeSensitivity,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

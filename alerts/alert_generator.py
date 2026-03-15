@@ -10,8 +10,9 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List
-from shared.database import init_db, insert_alert
+
 from shared.constants import OUTPUT_DIR as _OUTPUT_DIR
+from shared.database import init_db, insert_alert
 
 logger = logging.getLogger(__name__)
 

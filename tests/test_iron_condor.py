@@ -1,9 +1,10 @@
 """Tests for iron condor strategy in CreditSpreadStrategy."""
-import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
-from strategy.spread_strategy import CreditSpreadStrategy
 
+import numpy as np
+import pandas as pd
+
+from strategy.spread_strategy import CreditSpreadStrategy
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -17,6 +18,8 @@ def _make_config():
             'min_delta': 0.10,
             'max_delta': 0.20,
             'spread_width': 5,
+            'spread_width_high_iv': 5,
+            'spread_width_low_iv': 5,
             'min_iv_rank': 25,
             'min_iv_percentile': 25,
             'iron_condor': {
@@ -142,23 +145,27 @@ class TestFindIronCondorsNeutralMarket:
 
 
 class TestFindIronCondorsTrendingMarket:
-    """test_find_iron_condors_trending_market — bullish/bearish trend → no condors."""
+    """Trend alone does NOT block condors — RSI filter is the guard.
 
-    def test_bullish_no_condors(self):
+    See spread_strategy.py lines 312-317: trend filter intentionally removed,
+    condors are allowed in any trend as long as RSI is in range.
+    """
+
+    def test_bullish_with_rangebound_rsi_still_finds(self):
         strategy = CreditSpreadStrategy(_make_config())
         chain = _make_option_chain()
         condors = strategy.find_iron_condors(
             'SPY', chain, 450.0, {'trend': 'bullish', 'rsi': 50}, _elevated_iv()
         )
-        assert len(condors) == 0
+        assert len(condors) > 0  # RSI 50 is in range → condors allowed
 
-    def test_bearish_no_condors(self):
+    def test_extreme_rsi_blocks_condors(self):
         strategy = CreditSpreadStrategy(_make_config())
         chain = _make_option_chain()
         condors = strategy.find_iron_condors(
-            'SPY', chain, 450.0, {'trend': 'bearish', 'rsi': 50}, _elevated_iv()
+            'SPY', chain, 450.0, {'trend': 'neutral', 'rsi': 80}, _elevated_iv()
         )
-        assert len(condors) == 0
+        assert len(condors) == 0  # RSI 80 > rsi_max(65) → blocked
 
 
 class TestCondorNonOverlapping:
@@ -229,12 +236,12 @@ class TestCondorScoringNeutralTrend:
 
 
 class TestCondorScoringTrending:
-    """test_condor_scoring_trending — no condors when market is trending."""
+    """Condors blocked by extreme RSI, not by trend label."""
 
-    def test_no_condors_in_trending(self):
+    def test_no_condors_when_rsi_extreme(self):
         strategy = CreditSpreadStrategy(_make_config())
         chain = _make_option_chain()
-        tech = {'trend': 'bullish', 'rsi': 60}
+        tech = {'trend': 'bullish', 'rsi': 75}  # rsi > rsi_max(65)
         iv = {'iv_rank': 50, 'iv_percentile': 50}
         results = strategy.evaluate_spread_opportunity(
             'SPY', chain, tech, iv, 450.0

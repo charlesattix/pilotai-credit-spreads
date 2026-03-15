@@ -1,7 +1,7 @@
 """TypedDict definitions for major data shapes used across the system."""
 
-from typing import TypedDict, List
 from datetime import datetime
+from typing import List, TypedDict
 
 
 class PositionSizeResult(TypedDict):

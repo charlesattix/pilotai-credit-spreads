@@ -1,10 +1,10 @@
 """Tests for the Backtester class."""
-import pytest
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
-from backtest.backtester import Backtester
+import pytest
 
+from backtest.backtester import Backtester
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -979,7 +979,6 @@ class TestIntradayBacktest:
 
     def test_backtester_attempts_all_scan_times_on_trading_day(self):
         """In real-data mode, backtester should attempt all 14 scan times per day."""
-        from shared.scheduler import MARKET_SCAN_TIMES as SCAN_TIMES
         import pandas as pd
 
         # Need >= 20 rows so the MA20 check passes on the target date.
@@ -1026,8 +1025,9 @@ class TestIntradayBacktest:
         If continue were at the _want_puts indent level (outside if new_position:),
         _find_bear_call_opportunity would never be called and this assertion fails.
         """
-        import pandas as pd
         from unittest.mock import patch
+
+        import pandas as pd
 
         dates = pd.date_range('2024-11-18', periods=35, freq='B')
         prices = [450.0 + i * 2 for i in range(len(dates))]
@@ -1127,8 +1127,8 @@ class TestIntradayHistoricalData:
     @patch('backtest.historical_data.requests.Session')
     def test_fetch_and_cache_intraday_stores_bars(self, mock_session_cls, tmp_path):
         """Intraday bars are converted from UTC ms timestamps to ET and cached."""
-        import pytz
         from datetime import timezone as tz
+
         from backtest.historical_data import HistoricalOptionsData
 
         # 2025-01-06 09:45 ET = 14:45 UTC = 1736171100000 ms
@@ -1346,7 +1346,8 @@ class TestProbabilityOfRuin:
     """Unit tests for scripts/prob_of_ruin.py utility functions."""
 
     def _import(self):
-        import importlib.util, os, sys
+        import importlib.util
+        import os
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         spec = importlib.util.spec_from_file_location(
             "prob_of_ruin", os.path.join(root, "scripts", "prob_of_ruin.py")
@@ -1746,8 +1747,8 @@ class TestIronCondorExpiration:
         assert result['contracts'] == expected   # 12
         assert result['contracts'] == 12         # explicit sanity check
 
-        # IC entry deducts commission for 4 legs (2 per wing, no per-contract scaling).
-        ic_commission = bt.commission * 4  # = 0.65 * 4 = 2.60
+        # IC entry deducts commission for 4 legs × contract count.
+        ic_commission = bt.commission * 4 * result['contracts']  # = 0.65 * 4 * 12 = 31.20
         assert bt.capital == pytest.approx(100_000 - ic_commission, rel=1e-6)
 
     def test_ic_intraday_exit_applies_double_slippage(self):
@@ -1898,8 +1899,9 @@ class TestHeuristicModeGate:
     """
 
     def test_exclude_months_blocks_heuristic_entries(self):
-        import pandas as pd
         from unittest.mock import patch
+
+        import pandas as pd
 
         # Monday 2025-01-06; exclude_months=['2025-01'] → gate must fire.
         cfg = _make_config()

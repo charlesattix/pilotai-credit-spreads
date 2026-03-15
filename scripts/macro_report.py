@@ -18,9 +18,7 @@ The report covers:
 """
 
 import argparse
-import json
 import logging
-import sqlite3
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -34,8 +32,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
-from shared.macro_state_db import get_db, get_latest_snapshot_date, MACRO_DB_PATH
-from shared.macro_event_gate import get_upcoming_events, compute_composite_scaling
+from shared.macro_event_gate import compute_composite_scaling, get_upcoming_events
+from shared.macro_state_db import get_db
 
 QUADRANT_EMOJI = {
     "Leading":   "✅",
@@ -171,8 +169,8 @@ def generate_markdown(data: Dict, events: List[Dict]) -> str:
 
     if overall is not None:
         lines += [
-            f"| Dimension | Score | Bar | 52-Week Percentile |",
-            f"|-----------|-------|-----|--------------------|",
+            "| Dimension | Score | Bar | 52-Week Percentile |",
+            "|-----------|-------|-----|--------------------|",
         ]
         for dim, field in [
             ("Growth",       "growth"),
@@ -189,8 +187,8 @@ def generate_markdown(data: Dict, events: List[Dict]) -> str:
             "",
             "### Key Indicators",
             "",
-            f"| Indicator | Value |",
-            f"|-----------|-------|",
+            "| Indicator | Value |",
+            "|-----------|-------|",
         ]
         indicator_map = [
             ("VIX",              "vix",              "{:.2f}"),
@@ -244,16 +242,16 @@ def generate_markdown(data: Dict, events: List[Dict]) -> str:
         "",
         "## 3. RRG Quadrant Summary",
         "",
-        f"**Leading** ✅ (strong RS, gaining momentum): "
+        "**Leading** ✅ (strong RS, gaining momentum): "
         + (", ".join(r["ticker"] for r in leading) or "None"),
         "",
-        f"**Improving** ↗️ (weak RS, gaining momentum): "
+        "**Improving** ↗️ (weak RS, gaining momentum): "
         + (", ".join(r["ticker"] for r in improving) or "None"),
         "",
-        f"**Weakening** ↘️ (strong RS, losing momentum): "
+        "**Weakening** ↘️ (strong RS, losing momentum): "
         + (", ".join(r["ticker"] for r in weakening) or "None"),
         "",
-        f"**Lagging** ❌ (weak RS, losing momentum): "
+        "**Lagging** ❌ (weak RS, losing momentum): "
         + (", ".join(r["ticker"] for r in lagging) or "None"),
     ]
 
@@ -283,7 +281,7 @@ def generate_markdown(data: Dict, events: List[Dict]) -> str:
         lines.append("No scheduled events in the next 14 days. Scaling factor: **1.00x**")
 
     # Trade ideas
-    from shared.macro_state_db import get_eligible_underlyings, get_event_scaling_factor
+    from shared.macro_state_db import get_eligible_underlyings
     eligible = get_eligible_underlyings(regime="BULL" if (overall or 50) >= 55 else "NEUTRAL")
 
     lines += [
@@ -304,7 +302,7 @@ def generate_markdown(data: Dict, events: List[Dict]) -> str:
         lines.append("**Macro bias:** NEUTRAL — standard bull put spreads on SPY/QQQ/IWM")
 
     if leading:
-        lines.append(f"\n**Top conviction plays (Leading + top RS):**")
+        lines.append("\n**Top conviction plays (Leading + top RS):**")
         for r in leading[:3]:
             if r.get("rs_3m") is not None and r["rs_3m"] > 3:
                 lines.append(f"  - **{r['ticker']}** ({r['name']}): RS 3M = {r['rs_3m']:+.1f}%, {r['rrg_quadrant']}")
@@ -328,8 +326,8 @@ def generate_markdown(data: Dict, events: List[Dict]) -> str:
                 "",
                 "## 6. Historical Context (52 Weeks)",
                 "",
-                f"| Metric | Value |",
-                f"|--------|-------|",
+                "| Metric | Value |",
+                "|--------|-------|",
                 f"| Current overall score | {overall:.1f} |",
                 f"| 52-week average | {avg_score:.1f} |",
                 f"| 52-week percentile | {pct:.0f}% |",

@@ -8,17 +8,9 @@ Covers:
   - Backward compatibility: compass.rrg_filter=false (default) ignores quadrants
 """
 
-import pytest
-from datetime import datetime, timedelta, timezone
 
 from alerts.alert_schema import Alert, AlertType, Direction, Leg
 from alerts.risk_gate import RiskGate
-from shared.constants import (
-    COOLDOWN_AFTER_STOP,
-    MAX_RISK_PER_TRADE,
-    MAX_TOTAL_EXPOSURE,
-)
-
 
 # ---------------------------------------------------------------------------
 # Helpers

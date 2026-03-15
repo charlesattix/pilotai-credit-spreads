@@ -12,23 +12,24 @@ This module:
 6. Scans for event risk
 """
 
+import logging
 import threading
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from typing import Dict, Optional
 
 import pandas as pd
-from collections import Counter
-from typing import Dict, Optional
-from datetime import datetime, timezone
-import logging
 
-from .regime_detector import RegimeDetector
-from .iv_analyzer import IVAnalyzer
-from .feature_engine import FeatureEngine
-from .signal_model import SignalModel
-from .position_sizer import PositionSizer
-from .sentiment_scanner import SentimentScanner
-from shared.types import TradeAnalysis
 from shared.exceptions import ModelError
+from shared.types import TradeAnalysis
+
+from .feature_engine import FeatureEngine
+from .iv_analyzer import IVAnalyzer
+from .position_sizer import PositionSizer
+from .regime_detector import RegimeDetector
+from .sentiment_scanner import SentimentScanner
+from .signal_model import SignalModel
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 class MLPipeline:
     """
     Main ML pipeline for credit spread trading.
-    
+
     Orchestrates all ML components to provide enhanced trade analysis.
     """
 
@@ -86,10 +87,10 @@ class MLPipeline:
     def initialize(self, force_retrain: bool = False) -> bool:
         """
         Initialize all ML models (train if needed).
-        
+
         Args:
             force_retrain: Force model retraining
-            
+
         Returns:
             True if successful
         """
@@ -145,7 +146,7 @@ class MLPipeline:
     ) -> TradeAnalysis:
         """
         Comprehensive ML-enhanced trade analysis.
-        
+
         Args:
             ticker: Stock ticker
             current_price: Current stock price
@@ -273,7 +274,7 @@ class MLPipeline:
     def _calculate_enhanced_score(self, analysis: Dict) -> float:
         """
         Calculate enhanced trade score (0-100).
-        
+
         Combines:
         - ML probability
         - Regime favorability
@@ -522,7 +523,7 @@ class MLPipeline:
     def retrain_models(self) -> Dict:
         """
         Retrain all ML models.
-        
+
         Returns:
             Dictionary with retraining results
         """
@@ -579,10 +580,10 @@ class MLPipeline:
     def get_summary_report(self, analysis: Dict) -> str:
         """
         Generate human-readable summary report.
-        
+
         Args:
             analysis: Result from analyze_trade()
-            
+
         Returns:
             Formatted report string
         """

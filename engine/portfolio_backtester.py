@@ -24,12 +24,12 @@ from strategies.base import (
     BaseStrategy,
     LegType,
     MarketSnapshot,
-    Position,
     PortfolioState,
+    Position,
     PositionAction,
     Signal,
 )
-from strategies.pricing import bs_price, calculate_rsi, estimate_spread_value
+from strategies.pricing import calculate_rsi, estimate_spread_value
 
 logger = logging.getLogger(__name__)
 

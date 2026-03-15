@@ -16,8 +16,8 @@ from typing import Dict, List, Optional
 import pandas as pd
 
 from alerts.earnings_config import (
-    build_earnings_config,
     EARNINGS_LOOKAHEAD_DAYS,
+    build_earnings_config,
 )
 from shared.earnings_calendar import EarningsCalendar
 from strategy import OptionsAnalyzer

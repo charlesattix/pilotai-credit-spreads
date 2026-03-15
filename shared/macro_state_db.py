@@ -20,9 +20,9 @@ Integration API (read-only, called by scanner/backtester):
 import json
 import logging
 import sqlite3
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from shared.constants import DATA_DIR
 

@@ -7,15 +7,24 @@ Prefers low-volatility environments.
 """
 
 from __future__ import annotations
-import logging
-from typing import Any, Dict, List
 
-from strategies.base import (
-    BaseStrategy, LegType, MarketSnapshot, ParamDef, PortfolioState,
-    Position, PositionAction, Signal, TradeLeg, TradeDirection,
-)
-from strategies.pricing import bs_price, nearest_friday_expiration, estimate_spread_value
+import logging
+from typing import List
+
 from shared.constants import DEFAULT_RISK_FREE_RATE
+from strategies.base import (
+    BaseStrategy,
+    LegType,
+    MarketSnapshot,
+    ParamDef,
+    PortfolioState,
+    Position,
+    PositionAction,
+    Signal,
+    TradeDirection,
+    TradeLeg,
+)
+from strategies.pricing import bs_price, estimate_spread_value, nearest_friday_expiration
 
 logger = logging.getLogger(__name__)
 

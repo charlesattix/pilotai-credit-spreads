@@ -2,8 +2,8 @@
 
 from datetime import datetime, timezone
 
-from strategies.base import LegType, Signal, TradeLeg, TradeDirection
 from shared.strategy_adapter import signal_to_opportunity, trade_dict_to_position
+from strategies.base import LegType, Signal, TradeDirection, TradeLeg
 
 
 def _make_credit_spread_signal():
@@ -225,3 +225,167 @@ class TestTradeDictToPosition:
         pos = trade_dict_to_position(trade)
         assert pos.legs[0].leg_type == LegType.SHORT_CALL
         assert pos.legs[1].leg_type == LegType.LONG_CALL
+
+    def test_long_straddle_position(self):
+        trade = {
+            "id": "PT-lstrad",
+            "ticker": "SPY",
+            "type": "long_straddle",
+            "call_strike": 550.0,
+            "put_strike": 550.0,
+            "expiration": "2026-04-17",
+            "contracts": 1,
+            "credit": -3.80,  # debit paid (negative)
+            "strategy_name": "StraddleStrangleStrategy",
+        }
+        pos = trade_dict_to_position(trade)
+        assert pos.direction == TradeDirection.LONG
+        assert len(pos.legs) == 2
+        assert pos.legs[0].leg_type == LegType.LONG_CALL
+        assert pos.legs[0].strike == 550.0
+        assert pos.legs[1].leg_type == LegType.LONG_PUT
+        assert pos.legs[1].strike == 550.0
+        assert pos.net_credit == -3.80
+        assert pos.max_loss_per_unit == 3.80  # abs(debit)
+
+    def test_short_strangle_position(self):
+        trade = {
+            "id": "PT-sstrng",
+            "ticker": "SPY",
+            "type": "short_strangle",
+            "call_strike": 560.0,
+            "put_strike": 540.0,
+            "expiration": "2026-04-17",
+            "contracts": 2,
+            "credit": 2.50,
+            "strategy_name": "StraddleStrangleStrategy",
+        }
+        pos = trade_dict_to_position(trade)
+        assert pos.direction == TradeDirection.SHORT
+        assert len(pos.legs) == 2
+        assert pos.legs[0].leg_type == LegType.SHORT_CALL
+        assert pos.legs[0].strike == 560.0
+        assert pos.legs[1].leg_type == LegType.SHORT_PUT
+        assert pos.legs[1].strike == 540.0
+        assert pos.net_credit == 2.50
+        assert pos.max_loss_per_unit == 7.50  # credit * 3
+
+    def test_straddle_round_trip(self):
+        """Signal → opportunity → trade dict → Position round-trip for straddle."""
+        exp = datetime(2026, 4, 17, tzinfo=timezone.utc)
+        sig = Signal(
+            strategy_name="StraddleStrangleStrategy",
+            ticker="SPY",
+            direction=TradeDirection.SHORT,
+            legs=[
+                TradeLeg(LegType.SHORT_CALL, 555.0, exp, entry_price=1.30),
+                TradeLeg(LegType.SHORT_PUT, 545.0, exp, entry_price=1.20),
+            ],
+            net_credit=2.50,
+            max_loss=7.50,
+            max_profit=2.50,
+            profit_target_pct=0.55,
+            stop_loss_pct=0.45,
+            score=60.0,
+            signal_date=datetime(2026, 3, 6, tzinfo=timezone.utc),
+            expiration=exp,
+            dte=42,
+            metadata={"spread_type": "short_strangle"},
+        )
+        opp = signal_to_opportunity(sig, current_price=550.0)
+        assert opp["type"] == "short_strangle"
+        assert opp["call_strike"] == 555.0
+        assert opp["put_strike"] == 545.0
+        assert opp["is_debit"] is False
+
+        trade = {
+            "id": "PT-rt",
+            "ticker": opp["ticker"],
+            "type": opp["type"],
+            "call_strike": opp["call_strike"],
+            "put_strike": opp["put_strike"],
+            "expiration": opp["expiration"],
+            "contracts": 1,
+            "credit": opp["credit"],
+            "profit_target_pct": opp["profit_target_pct"],
+            "stop_loss_pct": opp["stop_loss_pct"],
+        }
+        pos = trade_dict_to_position(trade)
+        assert pos.profit_target_pct == 0.55
+        assert pos.stop_loss_pct == 0.45
+        assert pos.legs[0].leg_type == LegType.SHORT_CALL
+        assert pos.legs[1].leg_type == LegType.SHORT_PUT
+
+
+class TestStraddleSignalToOpportunity:
+    def test_long_straddle_signal(self):
+        exp = datetime(2026, 4, 17, tzinfo=timezone.utc)
+        sig = Signal(
+            strategy_name="StraddleStrangleStrategy",
+            ticker="SPY",
+            direction=TradeDirection.LONG,
+            legs=[
+                TradeLeg(LegType.LONG_CALL, 550.0, exp, entry_price=2.00),
+                TradeLeg(LegType.LONG_PUT, 550.0, exp, entry_price=1.80),
+            ],
+            net_credit=-3.80,  # debit
+            max_loss=3.80,
+            max_profit=100.0,
+            profit_target_pct=0.55,
+            stop_loss_pct=0.45,
+            score=65.0,
+            signal_date=datetime(2026, 3, 6, tzinfo=timezone.utc),
+            expiration=exp,
+            dte=42,
+            metadata={"spread_type": "long_straddle"},
+        )
+        opp = signal_to_opportunity(sig, current_price=550.0)
+        assert opp["type"] == "long_straddle"
+        assert opp["call_strike"] == 550.0
+        assert opp["put_strike"] == 550.0
+        assert opp["is_debit"] is True
+        assert opp["credit"] == -3.80  # negative for debit
+
+    def test_short_strangle_signal(self):
+        exp = datetime(2026, 4, 17, tzinfo=timezone.utc)
+        sig = Signal(
+            strategy_name="StraddleStrangleStrategy",
+            ticker="SPY",
+            direction=TradeDirection.SHORT,
+            legs=[
+                TradeLeg(LegType.SHORT_CALL, 560.0, exp, entry_price=1.30),
+                TradeLeg(LegType.SHORT_PUT, 540.0, exp, entry_price=1.20),
+            ],
+            net_credit=2.50,
+            max_loss=7.50,
+            dte=5,
+            metadata={"spread_type": "short_strangle"},
+        )
+        opp = signal_to_opportunity(sig, current_price=550.0)
+        assert opp["type"] == "short_strangle"
+        assert opp["call_strike"] == 560.0
+        assert opp["put_strike"] == 540.0
+        assert opp["is_debit"] is False
+        assert opp["credit"] == 2.50
+
+    def test_straddle_no_iron_condor_fields(self):
+        """Straddle should NOT get iron condor fields like call_short_strike."""
+        exp = datetime(2026, 4, 17, tzinfo=timezone.utc)
+        sig = Signal(
+            strategy_name="StraddleStrangleStrategy",
+            ticker="SPY",
+            direction=TradeDirection.SHORT,
+            legs=[
+                TradeLeg(LegType.SHORT_CALL, 555.0, exp),
+                TradeLeg(LegType.SHORT_PUT, 545.0, exp),
+            ],
+            net_credit=2.00,
+            max_loss=6.00,
+            dte=5,
+            metadata={"spread_type": "short_strangle"},
+        )
+        opp = signal_to_opportunity(sig, current_price=550.0)
+        assert "call_short_strike" not in opp
+        assert "call_long_strike" not in opp
+        assert "call_strike" in opp
+        assert "put_strike" in opp

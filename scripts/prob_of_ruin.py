@@ -17,7 +17,6 @@ Usage:
 import argparse
 import json
 import logging
-import os
 import random
 import sys
 from pathlib import Path
@@ -273,7 +272,7 @@ def main():
     # of the stop loss. We inject p_gap probability per trade for realism.
     max_loss_equity_frac = risk_per_trade / 100.0  # full max_loss = 100% of risk cap
 
-    print(f"\n── Gap-Risk Stress Test (backtester can't see overnight gaps) ──────────")
+    print("\n── Gap-Risk Stress Test (backtester can't see overnight gaps) ──────────")
     print(f"  Max loss if gap occurs: {max_loss_equity_frac:.2%} of equity per trade")
     print(f"  {'Gap rate':>8}  {'POR@1000':>10}  {'Median@1000':>14}  {'P5@1000':>10}")
     print(f"  {'-'*8}  {'-'*10}  {'-'*14}  {'-'*10}")

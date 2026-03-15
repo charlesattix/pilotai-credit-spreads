@@ -1,7 +1,7 @@
 """Tests for spread opportunity scoring in CreditSpreadStrategy."""
 import pytest
-from strategy.spread_strategy import CreditSpreadStrategy
 
+from strategy.spread_strategy import CreditSpreadStrategy
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -104,7 +104,7 @@ class TestSpreadScoring:
         strategy = _make_strategy()
         iv = {'iv_rank': 40}
 
-        opp = _make_opp(opp_type='bull_put_spread')
+        _make_opp(opp_type='bull_put_spread')
 
         scored_bullish = strategy._score_opportunities(
             [_make_opp(opp_type='bull_put_spread')],

@@ -6,15 +6,24 @@ Debit strategy with 0.5% max risk per MASTERPLAN cap.
 """
 
 from __future__ import annotations
-import logging
-from typing import Any, Dict, List
 
+import logging
+from typing import Dict, List
+
+from shared.constants import DEFAULT_RISK_FREE_RATE
 from strategies.base import (
-    BaseStrategy, LegType, MarketSnapshot, ParamDef, PortfolioState,
-    Position, PositionAction, Signal, TradeLeg, TradeDirection,
+    BaseStrategy,
+    LegType,
+    MarketSnapshot,
+    ParamDef,
+    PortfolioState,
+    Position,
+    PositionAction,
+    Signal,
+    TradeDirection,
+    TradeLeg,
 )
 from strategies.pricing import bs_price, nearest_friday_expiration
-from shared.constants import DEFAULT_RISK_FREE_RATE
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +33,7 @@ class GammaLottoStrategy(BaseStrategy):
 
     def generate_signals(self, market_data: MarketSnapshot) -> List[Signal]:
         signals = []
-        days_before = self._p("days_before_event", 1)
+        self._p("days_before_event", 1)
         event_types = self._p("event_types", "all")
 
         # Check for upcoming events

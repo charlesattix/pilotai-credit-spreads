@@ -9,12 +9,14 @@ Based on research:
 - Bollen & Whaley (2004): "Does Net Buying Pressure Affect the Shape of Implied Volatility Functions?"
 """
 
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import Dict, Optional
+
 import numpy as np
 import pandas as pd
-from typing import Dict, Optional
-from datetime import datetime, timedelta, timezone
-import logging
 import yfinance as yf
+
 from shared.indicators import calculate_iv_rank as _shared_iv_rank
 
 logger = logging.getLogger(__name__)
@@ -23,7 +25,7 @@ logger = logging.getLogger(__name__)
 class IVAnalyzer:
     """
     Advanced implied volatility surface analyzer.
-    
+
     Analyzes:
     - Skew steepness (25-delta put vs call IV)
     - Term structure slope (near-term vs far-term IV)
@@ -54,12 +56,12 @@ class IVAnalyzer:
     ) -> Dict:
         """
         Comprehensive IV surface analysis.
-        
+
         Args:
             ticker: Stock ticker
             options_chain: Options chain DataFrame
             current_price: Current stock price
-            
+
         Returns:
             Dictionary with IV metrics and signals
         """
@@ -100,7 +102,7 @@ class IVAnalyzer:
     def _compute_skew_metrics(self, options_chain: pd.DataFrame, current_price: float) -> Dict:
         """
         Compute volatility skew metrics.
-        
+
         Key metric: Put skew / Call skew ratio
         - Ratio > 1.1: Steep put skew (good for bull put spreads)
         - Ratio < 0.9: Steep call skew (good for bear call spreads)
@@ -181,7 +183,7 @@ class IVAnalyzer:
     def _compute_term_structure(self, options_chain: pd.DataFrame, current_price: float) -> Dict:
         """
         Analyze IV term structure (near-term vs far-term).
-        
+
         Contango (near < far): Normal, favor selling near-term
         Backwardation (near > far): Fear, avoid new trades or adjust
         """
@@ -291,7 +293,7 @@ class IVAnalyzer:
     def _get_iv_history(self, ticker: str) -> Optional[pd.Series]:
         """
         Get historical implied volatility (using HV as proxy).
-        
+
         Caches results for 1 day.
         """
         # Check cache
@@ -336,7 +338,7 @@ class IVAnalyzer:
     ) -> Dict:
         """
         Generate trading signals from IV analysis.
-        
+
         Returns:
             Dictionary with signals for bull put and bear call spreads
         """

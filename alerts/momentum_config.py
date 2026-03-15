@@ -8,7 +8,7 @@ high-beta, liquid-options names.
 
 import copy
 from datetime import time
-from typing import Dict, List
+from typing import List
 
 # 28 high-beta, liquid-options tickers for momentum scanning
 MOMENTUM_TICKERS: List[str] = [

@@ -1,7 +1,7 @@
 """Tests for TelegramBot."""
 from unittest.mock import MagicMock
-from alerts.telegram_bot import TelegramBot
 
+from alerts.telegram_bot import TelegramBot
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -49,7 +49,7 @@ class TestTelegramBot:
         bot.bot = mock_bot
         bot.chat_id = '12345'
 
-        result = bot.send_alert("Hello")
+        bot.send_alert("Hello")
         mock_bot.send_message.assert_called_once()
         call_kwargs = mock_bot.send_message.call_args
         assert call_kwargs.kwargs.get('read_timeout') == 10

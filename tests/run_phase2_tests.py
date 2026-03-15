@@ -11,7 +11,6 @@ Mocks third-party dependencies (same pattern as Phase 1) and exercises:
 
 import sys
 import types
-import copy
 
 # ---------------------------------------------------------------------------
 # Mock third-party modules before any project imports
@@ -131,8 +130,6 @@ sys.path.insert(0, ".")
 # Pre-load ml.position_sizer (same trick as Phase 1)
 import importlib.util
 
-import shared.constants
-
 ml_pkg = types.ModuleType("ml")
 ml_pkg.__path__ = ["."]
 sys.modules["ml"] = ml_pkg
@@ -146,14 +143,15 @@ sys.modules["ml.position_sizer"] = _ps_mod
 _ps_spec.loader.exec_module(_ps_mod)
 
 # ----- Import modules under test -----
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
-from alerts.zero_dte_config import build_zero_dte_config, SPX_PROPERTIES
-from alerts.zero_dte_scanner import ZeroDTEScanner
-from alerts.zero_dte_exit_monitor import ZeroDTEExitMonitor
 from alerts.alert_schema import (
-    Alert, AlertType, Confidence, Direction, Leg, TimeSensitivity,
+    Alert,
+    TimeSensitivity,
 )
+from alerts.zero_dte_config import SPX_PROPERTIES, build_zero_dte_config
+from alerts.zero_dte_exit_monitor import ZeroDTEExitMonitor
+from alerts.zero_dte_scanner import ZeroDTEScanner
 
 print("All Phase 2 modules imported successfully\n")
 

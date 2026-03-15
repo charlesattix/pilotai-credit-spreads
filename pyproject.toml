@@ -14,4 +14,9 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
-ignore = ["E501"]
+ignore = [
+  "E501",   # line too long (handled by formatter)
+  "E402",   # module-level import not at top (sys.path pattern required)
+  "N803",   # argument name should be lowercase (Black-Scholes: X, S, K, T)
+  "N806",   # variable in function should be lowercase (financial constants: _BULL, _BEAR, _MWF)
+]

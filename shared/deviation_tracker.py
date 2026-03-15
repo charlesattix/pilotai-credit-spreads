@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from shared.database import get_db, DB_PATH
+from shared.database import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +35,10 @@ def record_deviation_snapshot(
     Returns None if no live trades exist.
     """
     from scripts.live_vs_backtest import (
-        load_live_trades,
-        compute_live_metrics,
-        run_backtest_for_range,
         compare_metrics,
+        compute_live_metrics,
+        load_live_trades,
+        run_backtest_for_range,
     )
 
     config = Path(config_path) if config_path else DEFAULT_CONFIG

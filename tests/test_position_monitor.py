@@ -6,18 +6,20 @@
   +    : Market hours gate
 """
 
-import sqlite3
+import pytest
+
+try:
+    from alpaca.trading.requests import OptionLegRequest  # noqa: F401
+except ImportError:
+    pytest.skip("OptionLegRequest not available in this alpaca-py version", allow_module_level=True)
+
 import tempfile
-import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from execution.position_monitor import PositionMonitor
 from shared.database import get_trades, init_db, upsert_trade
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -45,7 +47,7 @@ def _make_alpaca(positions: List[Dict] = None, order_status: Dict = None):
     # Mirror _build_occ_symbol from real provider
     def _build_occ(ticker, expiration, strike, opt_type):
         cp = "C" if opt_type.lower().startswith("c") else "P"
-        strike_int = int(float(strike) * 1000)
+        strike_int = int(round(float(strike) * 1000))
         # simplify: just ticker+cp+strike for test readability
         return f"{ticker.upper()}{cp}{strike_int:08d}"
     mock._build_occ_symbol.side_effect = _build_occ
@@ -551,7 +553,7 @@ class TestMarketHoursGate:
     def test_market_open_weekday(self):
         # Patch to Wednesday 10:30 ET
         with patch("execution.position_monitor.datetime") as mock_dt:
-            wednesday_1030 = datetime(2026, 3, 4, 10, 30, tzinfo=None)   # weekday=2
+            datetime(2026, 3, 4, 10, 30, tzinfo=None)   # weekday=2
             mock_dt.now.return_value = MagicMock(
                 weekday=lambda: 2,  # Wednesday
                 hour=10, minute=30,
@@ -682,3 +684,345 @@ class TestFullIcCycle:
         assert t["status"] == "closed_profit"
         # pnl = (2.00 - 0.80) * 2 * 100 = 240
         assert abs(t["pnl"] - 240.0) < 0.01
+
+
+# ---------------------------------------------------------------------------
+# Straddle/Strangle support
+# ---------------------------------------------------------------------------
+
+def _make_straddle_trade(
+    trade_id: str = "ss1",
+    ticker: str = "SPY",
+    strategy_type: str = "short_straddle",
+    call_strike: float = 500.0,
+    put_strike: float = 500.0,
+    expiration: str = "2099-12-31",
+    credit: float = 5.00,
+    contracts: int = 1,
+    is_debit: bool = False,
+    **extra,
+) -> Dict:
+    t = dict(
+        id=trade_id,
+        ticker=ticker,
+        strategy_type=strategy_type,
+        status="open",
+        call_strike=call_strike,
+        put_strike=put_strike,
+        expiration=expiration,
+        credit=credit,
+        contracts=contracts,
+        is_debit=is_debit,
+        entry_date=datetime.now(timezone.utc).isoformat(),
+    )
+    t.update(extra)
+    return t
+
+
+class TestStraddleValuation:
+    """_get_straddle_value pricing for long and short straddles."""
+
+    def test_short_straddle_value(self):
+        """Short straddle: cost to close = sum of absolute market values."""
+        exp = "2099-12-31"
+        alpaca = _make_alpaca()
+        mon = _monitor(alpaca=alpaca)
+
+        pos = _make_straddle_trade(
+            strategy_type="short_straddle",
+            call_strike=500.0, put_strike=500.0,
+            credit=5.00, contracts=2,
+        )
+
+        call_sym = mon.alpaca._build_occ_symbol("SPY", exp, 500.0, "call")
+        put_sym = mon.alpaca._build_occ_symbol("SPY", exp, 500.0, "put")
+        alpaca_positions = {
+            call_sym: _alpaca_pos(call_sym, -300.0),  # short call liability
+            put_sym: _alpaca_pos(put_sym, -200.0),     # short put liability
+        }
+
+        val = mon._get_straddle_value(pos, alpaca_positions)
+        # (300 + 200) / (2 * 100) = 2.50 per share
+        assert val is not None
+        assert abs(val - 2.50) < 0.01
+
+    def test_long_straddle_value(self):
+        """Long straddle: value = sum of market values (assets we hold)."""
+        exp = "2099-12-31"
+        alpaca = _make_alpaca()
+        mon = _monitor(alpaca=alpaca)
+
+        pos = _make_straddle_trade(
+            strategy_type="long_straddle",
+            call_strike=500.0, put_strike=500.0,
+            credit=-4.00, contracts=1, is_debit=True,
+        )
+
+        call_sym = mon.alpaca._build_occ_symbol("SPY", exp, 500.0, "call")
+        put_sym = mon.alpaca._build_occ_symbol("SPY", exp, 500.0, "put")
+        alpaca_positions = {
+            call_sym: _alpaca_pos(call_sym, 350.0),   # long call asset
+            put_sym: _alpaca_pos(put_sym, 200.0),      # long put asset
+        }
+
+        val = mon._get_straddle_value(pos, alpaca_positions)
+        # (350 + 200) / (1 * 100) = 5.50 per share
+        assert val is not None
+        assert abs(val - 5.50) < 0.01
+
+    def test_straddle_value_none_when_leg_missing(self):
+        """Returns None when one leg is absent from Alpaca."""
+        exp = "2099-12-31"
+        alpaca = _make_alpaca()
+        mon = _monitor(alpaca=alpaca)
+
+        pos = _make_straddle_trade()
+        call_sym = mon.alpaca._build_occ_symbol("SPY", exp, 500.0, "call")
+        # Only call leg present, put missing
+        alpaca_positions = {call_sym: _alpaca_pos(call_sym, -100.0)}
+
+        val = mon._get_straddle_value(pos, alpaca_positions)
+        assert val is None
+
+    def test_spread_value_routes_to_straddle(self):
+        """_get_spread_value routes straddle/strangle types correctly."""
+        exp = "2099-12-31"
+        alpaca = _make_alpaca()
+        mon = _monitor(alpaca=alpaca)
+
+        for stype in ["short_straddle", "long_strangle", "short_strangle"]:
+            pos = _make_straddle_trade(strategy_type=stype)
+            call_sym = mon.alpaca._build_occ_symbol("SPY", exp, 500.0, "call")
+            put_sym = mon.alpaca._build_occ_symbol("SPY", exp, 500.0, "put")
+            alpaca_positions = {
+                call_sym: _alpaca_pos(call_sym, -100.0),
+                put_sym: _alpaca_pos(put_sym, -100.0),
+            }
+            val = mon._get_spread_value(pos, alpaca_positions)
+            assert val is not None
+
+
+class TestStraddleExitConditions:
+    """Exit logic for credit (short) and debit (long) straddle positions."""
+
+    def test_short_straddle_profit_target(self):
+        """Short straddle hits PT when spread value drops below credit."""
+        exp = "2099-12-31"
+        alpaca = _make_alpaca()
+        mon = _monitor(alpaca=alpaca, profit_target=50.0)
+
+        pos = _make_straddle_trade(
+            strategy_type="short_straddle", credit=5.00, contracts=1,
+        )
+
+        call_sym = mon.alpaca._build_occ_symbol("SPY", exp, 500.0, "call")
+        put_sym = mon.alpaca._build_occ_symbol("SPY", exp, 500.0, "put")
+        # value = (100+50)/100 = 1.50; pnl_pct = (5.00-1.50)/5.00 = 70% > 50% PT
+        alpaca_positions = {
+            call_sym: _alpaca_pos(call_sym, -100.0),
+            put_sym: _alpaca_pos(put_sym, -50.0),
+        }
+
+        reason = mon._check_exit_conditions(pos, alpaca_positions)
+        assert reason == "profit_target"
+
+    def test_short_straddle_no_exit(self):
+        """Short straddle within thresholds — no exit."""
+        exp = "2099-12-31"
+        alpaca = _make_alpaca()
+        mon = _monitor(alpaca=alpaca, profit_target=50.0)
+
+        pos = _make_straddle_trade(
+            strategy_type="short_straddle", credit=5.00, contracts=1,
+        )
+
+        call_sym = mon.alpaca._build_occ_symbol("SPY", exp, 500.0, "call")
+        put_sym = mon.alpaca._build_occ_symbol("SPY", exp, 500.0, "put")
+        # value = (200+200)/100 = 4.00; pnl_pct = (5.00-4.00)/5.00 = 20% < 50% PT
+        alpaca_positions = {
+            call_sym: _alpaca_pos(call_sym, -200.0),
+            put_sym: _alpaca_pos(put_sym, -200.0),
+        }
+
+        reason = mon._check_exit_conditions(pos, alpaca_positions)
+        assert reason is None
+
+    def test_long_straddle_profit_target(self):
+        """Long straddle hits PT when value exceeds debit paid by target %."""
+        exp = "2099-12-31"
+        alpaca = _make_alpaca()
+        mon = _monitor(alpaca=alpaca, profit_target=50.0)
+
+        pos = _make_straddle_trade(
+            strategy_type="long_straddle", credit=-4.00, contracts=1,
+            is_debit=True, profit_target_pct=50.0,
+        )
+
+        call_sym = mon.alpaca._build_occ_symbol("SPY", exp, 500.0, "call")
+        put_sym = mon.alpaca._build_occ_symbol("SPY", exp, 500.0, "put")
+        # value = (500+300)/100 = 8.00; debit=4.00; profit_pct = (8-4)/4 = 100% > 50%
+        alpaca_positions = {
+            call_sym: _alpaca_pos(call_sym, 500.0),
+            put_sym: _alpaca_pos(put_sym, 300.0),
+        }
+
+        reason = mon._check_exit_conditions(pos, alpaca_positions)
+        assert reason == "profit_target"
+
+    def test_long_straddle_stop_loss(self):
+        """Long straddle hits SL when value drops below debit by stop %."""
+        exp = "2099-12-31"
+        alpaca = _make_alpaca()
+        mon = _monitor(alpaca=alpaca, sl_mult=3.5)
+
+        pos = _make_straddle_trade(
+            strategy_type="long_straddle", credit=-4.00, contracts=1,
+            is_debit=True, stop_loss_pct=50.0,
+        )
+
+        call_sym = mon.alpaca._build_occ_symbol("SPY", exp, 500.0, "call")
+        put_sym = mon.alpaca._build_occ_symbol("SPY", exp, 500.0, "put")
+        # value = (50+50)/100 = 1.00; debit=4.00; loss_pct = (4-1)/4 = 75% > 50%
+        alpaca_positions = {
+            call_sym: _alpaca_pos(call_sym, 50.0),
+            put_sym: _alpaca_pos(put_sym, 50.0),
+        }
+
+        reason = mon._check_exit_conditions(pos, alpaca_positions)
+        assert reason == "stop_loss"
+
+    def test_long_straddle_no_exit(self):
+        """Long straddle within thresholds — no exit."""
+        exp = "2099-12-31"
+        alpaca = _make_alpaca()
+        mon = _monitor(alpaca=alpaca)
+
+        pos = _make_straddle_trade(
+            strategy_type="long_straddle", credit=-4.00, contracts=1,
+            is_debit=True, profit_target_pct=50.0, stop_loss_pct=50.0,
+        )
+
+        call_sym = mon.alpaca._build_occ_symbol("SPY", exp, 500.0, "call")
+        put_sym = mon.alpaca._build_occ_symbol("SPY", exp, 500.0, "put")
+        # value = (250+150)/100 = 4.00; debit=4.00; pnl=0% — flat
+        alpaca_positions = {
+            call_sym: _alpaca_pos(call_sym, 250.0),
+            put_sym: _alpaca_pos(put_sym, 150.0),
+        }
+
+        reason = mon._check_exit_conditions(pos, alpaca_positions)
+        assert reason is None
+
+
+class TestStraddleExternalCloseDetection:
+    """_all_legs_missing and _detect_orphans for straddle positions."""
+
+    def test_straddle_all_legs_missing(self):
+        alpaca = _make_alpaca()
+        mon = _monitor(alpaca=alpaca)
+
+        pos = _make_straddle_trade(expiration="2025-06-20")
+        result = mon._all_legs_missing(pos, {})
+        assert result is True
+
+    def test_straddle_one_leg_present(self):
+        exp = "2025-06-20"
+        alpaca = _make_alpaca()
+        mon = _monitor(alpaca=alpaca)
+
+        pos = _make_straddle_trade(expiration=exp)
+        call_sym = mon.alpaca._build_occ_symbol("SPY", exp, 500.0, "call")
+        alpaca_positions = {call_sym: _alpaca_pos(call_sym, -100.0)}
+
+        result = mon._all_legs_missing(pos, alpaca_positions)
+        assert result is False
+
+    def test_straddle_both_legs_present(self):
+        exp = "2025-06-20"
+        alpaca = _make_alpaca()
+        mon = _monitor(alpaca=alpaca)
+
+        pos = _make_straddle_trade(expiration=exp)
+        call_sym = mon.alpaca._build_occ_symbol("SPY", exp, 500.0, "call")
+        put_sym = mon.alpaca._build_occ_symbol("SPY", exp, 500.0, "put")
+        alpaca_positions = {
+            call_sym: _alpaca_pos(call_sym, -100.0),
+            put_sym: _alpaca_pos(put_sym, -100.0),
+        }
+
+        result = mon._all_legs_missing(pos, alpaca_positions)
+        assert result is False
+
+
+class TestStraddleCloseAndPnL:
+    """Closing and P&L recording for straddle positions."""
+
+    def _setup_db(self):
+        f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        db = f.name
+        f.close()
+        init_db(db)
+        return db
+
+    def test_close_routes_to_submit_straddle_close(self):
+        """_close_position routes straddle to _submit_straddle_close."""
+        db = self._setup_db()
+        alpaca = _make_alpaca()
+        alpaca.submit_single_leg.return_value = {"status": "submitted", "order_id": "sl-001"}
+        mon = _monitor(alpaca=alpaca, db_path=db)
+
+        pos = _make_straddle_trade(trade_id="ss-close-1")
+        upsert_trade(pos, source="execution", path=db)
+
+        mon._close_position(pos, "profit_target")
+
+        # Should call submit_single_leg for call AND put
+        assert alpaca.submit_single_leg.call_count == 2
+
+    def test_debit_pnl_recording(self):
+        """P&L for a debit (long) straddle: pnl = (fill_price - debit_paid) * contracts * 100."""
+        db = self._setup_db()
+        alpaca = _make_alpaca(order_status={
+            "status": "filled",
+            "filled_avg_price": "6.50",
+        })
+        mon = _monitor(alpaca=alpaca, db_path=db)
+
+        pos = _make_straddle_trade(
+            trade_id="ss-pnl-1", strategy_type="long_straddle",
+            credit=-4.00, contracts=2, is_debit=True,
+            status="pending_close", close_order_id="ord-ss-001",
+        )
+        upsert_trade(pos, source="execution", path=db)
+
+        mon._reconcile_pending_closes()
+
+        trades = get_trades(path=db)
+        t = trades[0]
+        assert t["status"] == "closed_profit"
+        # pnl = (6.50 - 4.00) * 2 * 100 = 500
+        assert abs(t["pnl"] - 500.0) < 0.01
+
+    def test_credit_pnl_recording_for_short_straddle(self):
+        """P&L for a credit (short) straddle: pnl = (credit - fill_price) * contracts * 100."""
+        db = self._setup_db()
+        alpaca = _make_alpaca(order_status={
+            "status": "filled",
+            "filled_avg_price": "2.00",
+        })
+        mon = _monitor(alpaca=alpaca, db_path=db)
+
+        pos = _make_straddle_trade(
+            trade_id="ss-pnl-2", strategy_type="short_straddle",
+            credit=5.00, contracts=1,
+            status="pending_close", close_order_id="ord-ss-002",
+        )
+        upsert_trade(pos, source="execution", path=db)
+
+        mon._reconcile_pending_closes()
+
+        trades = get_trades(path=db)
+        t = trades[0]
+        assert t["status"] == "closed_profit"
+        # pnl = (5.00 - 2.00) * 1 * 100 = 300
+        assert abs(t["pnl"] - 300.0) < 0.01

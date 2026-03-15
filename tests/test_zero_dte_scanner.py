@@ -9,20 +9,22 @@ Covers:
 - Backtest validator (zero_dte_backtest.py)
 """
 
-import copy
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from alerts.zero_dte_config import build_zero_dte_config, SPX_PROPERTIES
-from alerts.zero_dte_scanner import ZeroDTEScanner
-from alerts.zero_dte_exit_monitor import ZeroDTEExitMonitor
-from alerts.zero_dte_backtest import ZeroDTEBacktestValidator
 from alerts.alert_schema import (
-    Alert, AlertType, Confidence, Direction, Leg, TimeSensitivity,
+    Alert,
+    AlertType,
+    Confidence,
+    Direction,
+    TimeSensitivity,
 )
-
+from alerts.zero_dte_backtest import ZeroDTEBacktestValidator
+from alerts.zero_dte_config import SPX_PROPERTIES, build_zero_dte_config
+from alerts.zero_dte_exit_monitor import ZeroDTEExitMonitor
+from alerts.zero_dte_scanner import ZeroDTEScanner
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -41,6 +43,16 @@ def _base_config():
             "min_iv_rank": 20,
             "min_iv_percentile": 20,
             "iron_condor": {"enabled": True},
+            "technical": {
+                "use_trend_filter": True,
+                "use_rsi_filter": False,
+                "use_support_resistance": False,
+                "fast_ma": 20,
+                "slow_ma": 50,
+                "rsi_period": 14,
+                "rsi_oversold": 30,
+                "rsi_overbought": 70,
+            },
         },
         "risk": {
             "stop_loss_multiplier": 2.5,
@@ -531,7 +543,7 @@ class TestZeroDTEBacktestValidator:
         mock_backtester = MagicMock()
         mock_backtester.run_backtest.return_value = None
 
-        with patch("alerts.zero_dte_backtest.Backtester", return_value=mock_backtester):
+        with patch("backtest.Backtester", return_value=mock_backtester):
             results = validator.run(ticker="SPY", lookback_days=30)
 
         assert results["validation"]["passed"] is False
@@ -547,7 +559,7 @@ class TestZeroDTEBacktestValidator:
             "total_pnl": 3000,
         }
 
-        with patch("alerts.zero_dte_backtest.Backtester", return_value=mock_backtester):
+        with patch("backtest.Backtester", return_value=mock_backtester):
             results = validator.run(ticker="SPY", lookback_days=30)
 
         assert results["validation"]["passed"] is True

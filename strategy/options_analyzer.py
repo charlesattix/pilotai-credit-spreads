@@ -6,9 +6,11 @@ Handles options chain data, Greeks calculation, and IV analysis.
 import logging
 from datetime import datetime, timezone
 from typing import Dict, Optional
+
 import numpy as np
 import pandas as pd
 import yfinance as yf
+
 from shared.constants import DEFAULT_RISK_FREE_RATE
 from shared.indicators import calculate_iv_rank as _shared_iv_rank
 from shared.provider_protocol import DataProvider
@@ -91,11 +93,11 @@ class OptionsAnalyzer:
             min_dte = max(self.config['strategy'].get('min_dte', 30) - 5, 0)
             max_dte = self.config['strategy'].get('max_dte', 45) + 5
             chain = provider.get_full_chain(ticker, min_dte=min_dte, max_dte=max_dte)
-            
+
             if chain.empty:
                 logger.warning(f"{provider_name} returned no data for {ticker}, falling back to yfinance")
                 return self._get_chain_yfinance(ticker)
-            
+
             # Check data quality - Polygon contracts endpoint doesn't have bid/ask pricing
             # If we have strikes but no meaningful pricing, fall back to yfinance
             if 'bid' in chain.columns and 'ask' in chain.columns:
@@ -103,7 +105,7 @@ class OptionsAnalyzer:
                 if valid_pricing < len(chain) * 0.1:  # Less than 10% have real prices
                     logger.warning(f"{provider_name} returned {len(chain)} options but insufficient pricing data for {ticker}, falling back to yfinance")
                     return self._get_chain_yfinance(ticker)
-            
+
             logger.info(f"Retrieved {len(chain)} options for {ticker} via {provider_name} (real-time)")
             return chain
         except Exception as e:
@@ -278,7 +280,7 @@ class OptionsAnalyzer:
     def get_current_iv(self, options_chain: pd.DataFrame) -> float:
         """
         Get current implied volatility from options chain.
-        
+
         Uses ATM options for most accurate reading.
         """
         if options_chain.empty:

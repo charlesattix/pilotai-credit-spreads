@@ -13,9 +13,8 @@ so it can be used inside the portfolio backtester's day loop.
 """
 
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import Dict
 
-import numpy as np
 import pandas as pd
 
 

@@ -10,14 +10,14 @@ Coverage:
   6. Backward compatibility (compass_portfolio_mode=false = zero change)
 """
 
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
+import pytest
+
+from alerts.alert_position_sizer import _MACRO_FEAR_SCALE, _MACRO_GREED_SCALE, AlertPositionSizer
 from alerts.alert_schema import Alert, AlertType, Direction, Leg, SizeResult
-from alerts.alert_position_sizer import AlertPositionSizer, _MACRO_FEAR_SCALE, _MACRO_GREED_SCALE
 from alerts.portfolio_heat_tracker import PortfolioHeatTracker
 from alerts.risk_gate import RiskGate
-
 
 # ============================================================================
 # Fixtures & helpers
@@ -274,7 +274,7 @@ class TestMacroScoreScaling:
 
     def test_neutral_macro_no_scaling(self):
         """macro_score 45–75 → scale = 1.0."""
-        sizer = AlertPositionSizer(config=None)  # uses _macro_scale directly
+        AlertPositionSizer(config=None)  # uses _macro_scale directly
         sizer_portfolio = AlertPositionSizer(config=_make_compass_config())
 
         scale = sizer_portfolio._macro_scale(60.0)
@@ -752,7 +752,7 @@ class TestBackwardCompatibility:
         # Legacy sizer requires ml.position_sizer — mock it
         with patch("alerts.alert_position_sizer.AlertPositionSizer._legacy_size") as mock_legacy:
             mock_legacy.return_value = SizeResult(risk_pct=0.02, contracts=5, dollar_risk=1_000, max_loss=1_000)
-            result = sizer.size(
+            sizer.size(
                 alert=alert, account_value=100_000, iv_rank=30, current_portfolio_risk=0
             )
             mock_legacy.assert_called_once()

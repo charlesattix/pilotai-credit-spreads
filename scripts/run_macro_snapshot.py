@@ -46,16 +46,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+from shared.macro_event_gate import get_upcoming_events, run_daily_event_check
 from shared.macro_snapshot_engine import MacroSnapshotEngine
 from shared.macro_state_db import (
+    get_latest_snapshot_date,
+    get_snapshot_count,
     init_db,
     save_snapshot,
     set_state,
-    get_snapshot_count,
-    get_latest_snapshot_date,
-    MACRO_DB_PATH,
 )
-from shared.macro_event_gate import run_daily_event_check, get_upcoming_events
 
 HISTORICAL_SNAPSHOTS_DIR = PROJECT_ROOT / "output" / "historical_snapshots"
 

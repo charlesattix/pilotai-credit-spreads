@@ -3,8 +3,7 @@
 import pandas as pd
 import pytest
 
-from shared.vix_regime import VixSizingResult, compute_vrp, vix_sizing_factor
-
+from shared.vix_regime import compute_vrp, vix_sizing_factor
 
 # -----------------------------------------------------------------------
 # TestComputeVRP

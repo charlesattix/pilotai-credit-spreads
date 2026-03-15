@@ -1,11 +1,10 @@
 """Tests for shared/live_snapshot.py — MarketSnapshot builder from live data."""
 
-import math
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from datetime import datetime
+from unittest.mock import MagicMock
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from shared.live_snapshot import build_live_snapshot
 

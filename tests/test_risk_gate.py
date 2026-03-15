@@ -5,7 +5,6 @@ values.  There are no configurable overrides — all limits come from
 hard-coded constants.
 """
 
-import pytest
 from datetime import datetime, timedelta, timezone
 
 from alerts.alert_schema import Alert, AlertType, Direction, Leg
@@ -18,7 +17,6 @@ from shared.constants import (
     MAX_TOTAL_EXPOSURE,
     WEEKLY_LOSS_LIMIT,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

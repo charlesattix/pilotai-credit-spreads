@@ -7,7 +7,6 @@ Targets 4-10 DTE weekly options on an expanded ticker list.
 """
 
 import copy
-from typing import Dict
 
 # Entry/exit day-of-week constants (Monday=0 … Friday=4)
 ENTRY_DAYS = {0, 1}    # Monday, Tuesday  (req 3.6)

@@ -6,7 +6,7 @@ and exposes simple query methods for the gamma scanner.
 """
 
 import logging
-from datetime import datetime, date, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from shared.constants import FOMC_DATES

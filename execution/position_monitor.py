@@ -9,7 +9,8 @@ Runs every 5 minutes during market hours (Mon–Fri 9:30–16:00 ET) and:
        b. Profit target:  close when P&L >= profit_target_pct% of credit (default 50%)
        c. Stop loss:      close when spread value >= stop_loss_mult * credit (default 3.5x)
 
-Supports both 2-leg credit spreads (bull_put / bear_call) and 4-leg iron condors.
+Supports 2-leg credit spreads, 4-leg iron condors, and 2-leg straddles/strangles
+(both long/debit and short/credit).
 
 P&L reconciliation (Bug 2 fix):
   After submitting a close order, the order_id is stored in the trade record.
@@ -31,7 +32,7 @@ try:
 except ImportError:                        # pragma: no cover — Python < 3.9
     from backports.zoneinfo import ZoneInfo  # type: ignore
 
-from shared.database import close_trade, get_trades, upsert_trade, init_db
+from shared.database import close_trade, get_trades, init_db, upsert_trade
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +136,7 @@ _STALE_CLOSE_MINUTES = 10
 
 
 class PositionMonitor:
-    """Background daemon that manages open credit spread and iron condor positions.
+    """Background daemon that manages open credit spreads, iron condors, and straddles/strangles.
 
     Usage::
 
@@ -343,6 +344,46 @@ class PositionMonitor:
             return None  # Cannot price — skip this cycle
 
         credit = float(pos.get("credit") or 0)
+        spread_type = str(pos.get("strategy_type", pos.get("type", ""))).lower()
+        is_debit = pos.get("is_debit", False) or credit < 0
+
+        if is_debit:
+            # --- Debit (long) position P&L ---
+            # pnl = current_value - debit_paid; pnl_pct relative to debit cost
+            debit_paid = abs(credit)
+            if debit_paid <= 0:
+                return None
+            pnl = current_value - debit_paid
+            pnl_pct = (pnl / debit_paid) * 100
+
+            # Use per-trade targets (set by strategy adapter from Signal)
+            pt_pct = float(pos.get("profit_target_pct", self.profit_target_pct))
+            sl_pct = float(pos.get("stop_loss_pct", 50.0))
+
+            # Profit target
+            if pnl_pct >= pt_pct:
+                logger.info(
+                    "PositionMonitor: %s debit profit target hit: %.1f%% >= %.0f%% → closing",
+                    pos.get("id"), pnl_pct, pt_pct,
+                )
+                return "profit_target"
+
+            # Stop loss: value dropped below debit by stop %
+            loss_pct = (-pnl / debit_paid) * 100
+            if loss_pct >= sl_pct:
+                logger.warning(
+                    "PositionMonitor: %s debit stop loss hit: loss=%.1f%% >= %.0f%% → closing",
+                    pos.get("id"), loss_pct, sl_pct,
+                )
+                return "stop_loss"
+
+            logger.debug(
+                "PositionMonitor: %s OK (debit) | val=%.4f debit=%.4f pnl=%.1f%%",
+                pos.get("id"), current_value, debit_paid, pnl_pct,
+            )
+            return None
+
+        # --- Credit position P&L (existing logic) ---
         if credit <= 0:
             logger.warning(
                 "PositionMonitor: %s has zero credit — skipping PT/SL checks", pos.get("id")
@@ -366,39 +407,35 @@ class PositionMonitor:
         #   (a) Loss-based (matches backtester semantics):
         #       Fires when LOSS (current_value - credit) >= stop_loss_mult × credit
         #       i.e., current_value >= (1 + mult) × credit
-        #       For credit=$1.50, mult=3.5: fires at current_value=$6.75
-        #       On a $5 spread this is unreachable by design — the SL acts as an
-        #       emergency backstop for unusual scenarios (wide spreads, pricing errors).
         #
         #   (b) Spread-width cap (safety backstop):
         #       Fires at 90% of the spread width regardless of credit amount.
-        #       Ensures the SL always fires before absolute max loss, even for narrow
-        #       spreads where the formula-based threshold would never be reached.
-        #       For a $5 spread: fires when current_value >= $4.50.
+        #       Skipped for straddles/strangles (no defined spread width).
         #
         #   The effective SL threshold is the LOWER of (a) and (b).
         loss_based_threshold = (1.0 + self.stop_loss_mult) * credit
 
         spread_width = 0.0
-        try:
-            spread_type = str(pos.get("strategy_type", pos.get("type", ""))).lower()
-            if "condor" in spread_type:
-                # For ICs, use the wider wing
-                put_w = abs(
-                    float(pos.get("put_short_strike") or pos.get("short_strike") or 0)
-                    - float(pos.get("put_long_strike") or pos.get("long_strike") or 0)
-                )
-                call_w = abs(
-                    float(pos.get("call_short_strike") or pos.get("short_strike") or 0)
-                    - float(pos.get("call_long_strike") or pos.get("long_strike") or 0)
-                )
-                spread_width = max(put_w, call_w)
-            else:
-                spread_width = abs(
-                    float(pos.get("short_strike") or 0) - float(pos.get("long_strike") or 0)
-                )
-        except (TypeError, ValueError):
-            pass
+        is_straddle = "straddle" in spread_type or "strangle" in spread_type
+        if not is_straddle:
+            try:
+                if "condor" in spread_type:
+                    # For ICs, use the wider wing
+                    put_w = abs(
+                        float(pos.get("put_short_strike") or pos.get("short_strike") or 0)
+                        - float(pos.get("put_long_strike") or pos.get("long_strike") or 0)
+                    )
+                    call_w = abs(
+                        float(pos.get("call_short_strike") or pos.get("short_strike") or 0)
+                        - float(pos.get("call_long_strike") or pos.get("long_strike") or 0)
+                    )
+                    spread_width = max(put_w, call_w)
+                else:
+                    spread_width = abs(
+                        float(pos.get("short_strike") or 0) - float(pos.get("long_strike") or 0)
+                    )
+            except (TypeError, ValueError):
+                pass
 
         sl_threshold = loss_based_threshold
         if spread_width > 0:
@@ -424,8 +461,10 @@ class PositionMonitor:
     # ------------------------------------------------------------------
 
     def _get_spread_value(self, pos: Dict, alpaca_positions: Dict) -> Optional[float]:
-        """Current cost-to-close per share. Routes to IC or 2-leg path."""
+        """Current cost-to-close per share. Routes to IC, straddle/strangle, or 2-leg path."""
         spread_type = str(pos.get("strategy_type", pos.get("type", ""))).lower()
+        if "straddle" in spread_type or "strangle" in spread_type:
+            return self._get_straddle_value(pos, alpaca_positions)
         if "condor" in spread_type:
             return self._get_ic_value(pos, alpaca_positions)
         opt_type = "call" if "call" in spread_type else "put"
@@ -504,6 +543,55 @@ class PositionMonitor:
 
         return put_val + call_val
 
+    def _get_straddle_value(self, pos: Dict, alpaca_positions: Dict) -> Optional[float]:
+        """Current value per share for a straddle/strangle position.
+
+        For long: value = combined market value of both legs (what we'd get selling).
+        For short: value = cost to buy back both legs.
+        Returns per-share value (divided by contracts * 100).
+        """
+        ticker = pos.get("ticker", "")
+        expiration_str = str(pos.get("expiration", "")).split(" ")[0]
+        contracts = int(pos.get("contracts", 1))
+        call_strike = pos.get("call_strike")
+        put_strike = pos.get("put_strike")
+
+        if not all([ticker, expiration_str, call_strike, put_strike]):
+            logger.warning("PositionMonitor: %s missing straddle fields for pricing", pos.get("id"))
+            return None
+
+        try:
+            call_sym = self.alpaca._build_occ_symbol(ticker, expiration_str, call_strike, "call")
+            put_sym = self.alpaca._build_occ_symbol(ticker, expiration_str, put_strike, "put")
+        except Exception as e:
+            logger.warning("PositionMonitor: OCC symbol error for straddle %s: %s", pos.get("id"), e)
+            return None
+
+        call_pos = alpaca_positions.get(call_sym)
+        put_pos = alpaca_positions.get(put_sym)
+
+        if not call_pos or not put_pos:
+            return None
+
+        try:
+            call_mv = float(call_pos["market_value"])
+            put_mv = float(put_pos["market_value"])
+
+            spread_type = str(pos.get("strategy_type", pos.get("type", ""))).lower()
+            is_long = spread_type.startswith("long_")
+
+            if is_long:
+                # Long position: both MVs positive (assets we hold)
+                value = (call_mv + put_mv) / (contracts * 100) if contracts > 0 else 0.0
+            else:
+                # Short position: both MVs negative (liabilities)
+                value = (abs(call_mv) + abs(put_mv)) / (contracts * 100) if contracts > 0 else 0.0
+
+            return max(0.0, value)
+        except (ValueError, TypeError, ZeroDivisionError) as e:
+            logger.warning("PositionMonitor: straddle value error for %s: %s", pos.get("id"), e)
+            return None
+
     # ------------------------------------------------------------------
     # External close detection — Bug 3 fix
     # ------------------------------------------------------------------
@@ -522,7 +610,16 @@ class PositionMonitor:
             return False
 
         try:
-            if "condor" in spread_type:
+            if "straddle" in spread_type or "strangle" in spread_type:
+                call_strike = pos.get("call_strike")
+                put_strike = pos.get("put_strike")
+                if not all([call_strike, put_strike]):
+                    return False
+                syms = [
+                    self.alpaca._build_occ_symbol(ticker, expiration_str, call_strike, "call"),
+                    self.alpaca._build_occ_symbol(ticker, expiration_str, put_strike, "put"),
+                ]
+            elif "condor" in spread_type:
                 put_short = pos.get("put_short_strike") or pos.get("short_strike")
                 put_long = pos.get("put_long_strike") or pos.get("long_strike")
                 call_short = pos.get("call_short_strike")
@@ -605,6 +702,8 @@ class PositionMonitor:
         try:
             if "condor" in spread_type:
                 result = self._submit_ic_close(pos, contracts, expiration_str)
+            elif "straddle" in spread_type or "strangle" in spread_type:
+                result = self._submit_straddle_close(pos, contracts, expiration_str)
             else:
                 result = self.alpaca.close_spread(
                     ticker=ticker,
@@ -680,6 +779,67 @@ class PositionMonitor:
             contracts=contracts,
             limit_price=None,
         )
+
+    def _submit_straddle_close(self, pos: Dict, contracts: int, expiration_str: str) -> Dict:
+        """Close a straddle/strangle by submitting two single-leg close orders.
+
+        For long: sell-to-close call + sell-to-close put.
+        For short: buy-to-close call + buy-to-close put.
+        """
+        ticker = pos.get("ticker", "")
+        call_strike = pos.get("call_strike")
+        put_strike = pos.get("put_strike")
+        spread_type = str(pos.get("strategy_type", pos.get("type", ""))).lower()
+        is_long = spread_type.startswith("long_")
+
+        if not all([call_strike, put_strike]):
+            return {"status": "error", "message": "Straddle missing strikes — cannot close"}
+
+        close_side = "sell" if is_long else "buy"
+
+        call_result = self.alpaca.submit_single_leg(
+            ticker=ticker,
+            strike=call_strike,
+            expiration=expiration_str,
+            option_type="call",
+            side=close_side,
+            contracts=contracts,
+            limit_price=None,
+            client_order_id=f"{pos.get('id', '')}-close-call",
+        )
+
+        if call_result.get("status") != "submitted":
+            return {"status": "error", "message": f"Call close failed: {call_result}"}
+
+        put_result = self.alpaca.submit_single_leg(
+            ticker=ticker,
+            strike=put_strike,
+            expiration=expiration_str,
+            option_type="put",
+            side=close_side,
+            contracts=contracts,
+            limit_price=None,
+            client_order_id=f"{pos.get('id', '')}-close-put",
+        )
+
+        if put_result.get("status") != "submitted":
+            # Attempt to cancel call close
+            call_order_id = call_result.get("order_id")
+            if call_order_id:
+                try:
+                    self.alpaca.cancel_order(call_order_id)
+                except Exception:
+                    logger.error(
+                        "PositionMonitor: CRITICAL — call close cancel FAILED for %s",
+                        pos.get("id"),
+                    )
+            return {"status": "error", "message": f"Put close failed: {put_result}"}
+
+        return {
+            "status": "submitted",
+            "order_id": call_result.get("order_id"),
+            "put_order_id": put_result.get("order_id"),
+        }
 
     # ------------------------------------------------------------------
     # Pending-open reconciliation (intra-day fill tracking)
@@ -760,7 +920,16 @@ class PositionMonitor:
             if not ticker or not exp:
                 continue
             try:
-                if "condor" in spread_type:
+                if "straddle" in spread_type or "strangle" in spread_type:
+                    for strike, opt_type in [
+                        (pos.get("call_strike"), "call"),
+                        (pos.get("put_strike"), "put"),
+                    ]:
+                        if strike:
+                            managed_symbols.add(
+                                self.alpaca._build_occ_symbol(ticker, exp, strike, opt_type)
+                            )
+                elif "condor" in spread_type:
                     for strike, opt_type in [
                         (pos.get("put_short_strike") or pos.get("short_strike"), "put"),
                         (pos.get("put_long_strike") or pos.get("long_strike"), "put"),
@@ -893,9 +1062,14 @@ class PositionMonitor:
         except (ValueError, TypeError):
             fill_price = 0.0
 
-        # P&L = (credit collected at open) - (debit paid to close)
-        # Multiplied by contracts × 100 (options multiplier) for total dollar P&L
-        pnl = (credit - fill_price) * contracts * 100
+        # P&L depends on whether this is a credit or debit position.
+        # Credit positions: pnl = (credit_received - cost_to_close) * contracts * 100
+        # Debit positions:  pnl = (proceeds_from_close - debit_paid) * contracts * 100
+        is_debit = pos.get("is_debit", False) or credit < 0
+        if is_debit:
+            pnl = (fill_price - abs(credit)) * contracts * 100
+        else:
+            pnl = (credit - fill_price) * contracts * 100
 
         # Commission deduction (default 0 = paper trading; set execution.commission_per_contract
         # in config for live trading, e.g. 0.65 for standard broker rate)

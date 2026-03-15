@@ -2,12 +2,12 @@
 Database layer — SQLite schema, connection management, and query helpers.
 """
 
-import sqlite3
 import logging
+import sqlite3
 from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
-from typing import Iterator, List, Optional, Tuple
+from typing import Iterator, List, Optional
 
 from . import config
 

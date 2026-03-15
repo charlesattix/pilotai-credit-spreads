@@ -6,9 +6,9 @@ utilities.  All five alert types (credit_spread, momentum_swing,
 iron_condor, earnings_play, gamma_lotto) share this schema.
 """
 
-import uuid
 import logging
-from dataclasses import dataclass, field, asdict
+import uuid
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import List, Optional

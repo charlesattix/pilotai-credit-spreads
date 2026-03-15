@@ -15,7 +15,6 @@ Mocks third-party dependencies (same pattern as Phase 1/2/3/4/5) and exercises:
 
 import sys
 import types
-import copy
 
 # ---------------------------------------------------------------------------
 # Mock third-party modules before any project imports
@@ -151,8 +150,6 @@ sys.path.insert(0, ".")
 # Pre-load ml.position_sizer (same trick as Phase 1/2/3/4/5)
 import importlib.util
 
-import shared.constants
-
 ml_pkg = types.ModuleType("ml")
 ml_pkg.__path__ = ["."]
 sys.modules["ml"] = ml_pkg
@@ -166,19 +163,19 @@ sys.modules["ml.position_sizer"] = _ps_mod
 _ps_spec.loader.exec_module(_ps_mod)
 
 # ----- Import modules under test -----
-from datetime import datetime, date, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
-from shared.economic_calendar import EconomicCalendar, EVENT_IMPORTANCE
+from alerts.alert_position_sizer import AlertPositionSizer
+from alerts.alert_schema import Alert, AlertType, Confidence, Direction, Leg, TimeSensitivity
 from alerts.gamma_config import (
-    build_gamma_config,
     GAMMA_TICKERS,
     SCAN_HOURS,
+    build_gamma_config,
 )
-from alerts.gamma_scanner import GammaScanner
 from alerts.gamma_exit_monitor import GammaExitMonitor
-from alerts.alert_schema import Alert, AlertType, Direction, Leg, Confidence, TimeSensitivity
-from alerts.alert_position_sizer import AlertPositionSizer
+from alerts.gamma_scanner import GammaScanner
 from shared.constants import FOMC_DATES, GAMMA_LOTTO_MAX_RISK_PCT
+from shared.economic_calendar import EVENT_IMPORTANCE, EconomicCalendar
 
 print("All Phase 6 modules imported successfully\n")
 
@@ -512,7 +509,7 @@ def _():
     scan_calls = []
     def mock_scan_ticker(ticker, event):
         scan_calls.append(ticker)
-        return [{"ticker": ticker, "type": f"gamma_lotto_call", "score": 70}]
+        return [{"ticker": ticker, "type": "gamma_lotto_call", "score": 70}]
     scanner._scan_ticker = mock_scan_ticker
     result = scanner.scan(now_et=datetime(2026, 3, 2, 10, 0))
     assert len(scan_calls) == 3  # SPY, QQQ, IWM

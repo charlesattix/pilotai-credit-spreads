@@ -16,6 +16,7 @@ from shared.constants import DATA_DIR
 logger = logging.getLogger(__name__)
 
 import os as _os
+
 DB_PATH = Path(_os.environ.get('PILOTAI_DB_PATH', str(Path(DATA_DIR) / "pilotai.db")))
 
 
@@ -113,6 +114,8 @@ def init_db(path: Optional[str] = None) -> None:
             "ALTER TABLE trades ADD COLUMN alpaca_client_order_id TEXT",
             "ALTER TABLE trades ADD COLUMN alpaca_fill_price REAL",
             "ALTER TABLE trades ADD COLUMN alpaca_status TEXT",
+            # Bug #2: existing DBs may have alert_dedup without direction column
+            "ALTER TABLE alert_dedup ADD COLUMN direction TEXT DEFAULT ''",
         ]:
             try:
                 conn.execute(migration_sql)
@@ -233,6 +236,16 @@ def get_trades(
         query += " ORDER BY created_at DESC"
         rows = conn.execute(query, params).fetchall()
         return [_row_to_trade(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_trade_by_id(trade_id: str, path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Fetch a single trade by its id (which doubles as client_order_id)."""
+    conn = get_db(path)
+    try:
+        row = conn.execute("SELECT * FROM trades WHERE id = ?", (trade_id,)).fetchone()
+        return _row_to_trade(row) if row else None
     finally:
         conn.close()
 

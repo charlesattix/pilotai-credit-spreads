@@ -4,31 +4,32 @@ Submits real option spread orders to Alpaca paper trading API.
 Uses alpaca-py SDK for multi-leg option orders.
 """
 
-import logging
-import uuid
-import time
-import random
 import functools
+import logging
+import random
+import time
+import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-from shared.exceptions import ProviderError
-from shared.circuit_breaker import CircuitBreaker, CircuitOpenError
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import (
-    LimitOrderRequest,
-    GetOrdersRequest,
-    GetOptionContractsRequest,
-    OptionLegRequest,
-)
 from alpaca.trading.enums import (
+    ContractType,
     OrderClass,
     OrderSide,
-    TimeInForce,
-    QueryOrderStatus,
-    ContractType,
     PositionIntent,
+    QueryOrderStatus,
+    TimeInForce,
 )
+from alpaca.trading.requests import (
+    GetOptionContractsRequest,
+    GetOrdersRequest,
+    LimitOrderRequest,
+    OptionLegRequest,
+)
+
+from shared.circuit_breaker import CircuitBreaker, CircuitOpenError
+from shared.exceptions import ProviderError
 
 logger = logging.getLogger(__name__)
 
@@ -193,7 +194,7 @@ class AlpacaProvider:
 
         date_str = exp_dt.strftime("%y%m%d")
         cp = "C" if option_type.lower().startswith("c") else "P"
-        strike_int = int(strike * 1000)
+        strike_int = int(round(strike * 1000))
         return f"{ticker.upper():<6}{date_str}{cp}{strike_int:08d}".replace(" ", "")
 
     def find_option_symbol(self, ticker: str, expiration: str, strike: float, option_type: str) -> Optional[str]:
@@ -201,6 +202,9 @@ class AlpacaProvider:
         Look up the actual Alpaca option contract symbol via the API.
         Falls back to OCC symbol construction if lookup fails.
         """
+        # Round strike to avoid floating-point imprecision in API query
+        # (e.g. 682.9999... → "682.9999..." instead of "683.0")
+        strike = round(float(strike), 2)
         try:
             ct = ContractType.CALL if option_type.lower().startswith("c") else ContractType.PUT
             req = GetOptionContractsRequest(
@@ -230,7 +234,7 @@ class AlpacaProvider:
         contracts: int,
         limit_price: Optional[float],
         client_id: str,
-    ) -> "alpaca.trading.models.Order":
+    ) -> "alpaca.trading.models.Order":  # noqa: F821
         """Build and submit a multi-leg option order.
 
         Args:

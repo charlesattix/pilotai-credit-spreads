@@ -9,15 +9,16 @@ Hardening Pass 3 — tests for the final sweep of gaps:
   - Wide bid-ask: all closes use market orders (explicit test)
 """
 
-import json
-import os
-import tempfile
-from datetime import datetime, timedelta, timezone
-from typing import Dict
-from unittest.mock import MagicMock, patch
-
 import pytest
 
+try:
+    from alpaca.trading.requests import OptionLegRequest  # noqa: F401
+except ImportError:
+    pytest.skip("OptionLegRequest not available in this alpaca-py version", allow_module_level=True)
+
+import json
+import os
+from unittest.mock import MagicMock, patch
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -268,7 +269,7 @@ class TestWALRecovery:
 
     def test_wal_replay_returns_unprocessed_entries(self, tmp_path):
         """replay_wal() must return all entries where _processed=False."""
-        from shared.wal import write_wal_entry, replay_wal
+        from shared.wal import replay_wal, write_wal_entry
         wal_file = str(tmp_path / "recovery.wal")
 
         write_wal_entry({"type": "close_trade", "trade_id": "a"}, wal_path=wal_file)
@@ -280,7 +281,7 @@ class TestWALRecovery:
         assert trade_ids == {"a", "b"}
 
     def test_wal_clear_removes_file(self, tmp_path):
-        from shared.wal import write_wal_entry, clear_wal, replay_wal
+        from shared.wal import clear_wal, write_wal_entry
         wal_file = str(tmp_path / "recovery.wal")
         write_wal_entry({"type": "test"}, wal_path=wal_file)
         assert os.path.exists(wal_file)
@@ -313,7 +314,7 @@ class TestStartupReconciliationPhantom:
         return PositionReconciler(alpaca=alpaca, db_path=db)
 
     def test_open_trade_not_in_alpaca_marked_needs_investigation(self, tmp_path):
-        from shared.database import upsert_trade, get_trades, init_db
+        from shared.database import get_trades, init_db, upsert_trade
         db = str(tmp_path / "trades.db")
         init_db(db)
 
@@ -342,7 +343,7 @@ class TestStartupReconciliationPhantom:
         assert t["status"] == "needs_investigation"
 
     def test_open_trade_still_in_alpaca_not_touched(self, tmp_path):
-        from shared.database import upsert_trade, get_trades, init_db
+        from shared.database import get_trades, init_db, upsert_trade
         db = str(tmp_path / "trades.db")
         init_db(db)
 
@@ -379,7 +380,7 @@ class TestStartupReconciliationPhantom:
         assert t["status"] == "open"
 
     def test_multiple_phantoms_all_resolved(self, tmp_path):
-        from shared.database import upsert_trade, get_trades, init_db
+        from shared.database import init_db, upsert_trade
         db = str(tmp_path / "trades.db")
         init_db(db)
 
@@ -467,7 +468,7 @@ class TestStartupReconciliationOrphans:
 
     def test_managed_positions_not_flagged_as_orphans(self, tmp_path):
         """A position in DB and in Alpaca should NOT be flagged as orphan."""
-        from shared.database import upsert_trade, init_db
+        from shared.database import init_db, upsert_trade
         db = str(tmp_path / "trades.db")
         init_db(db)
 

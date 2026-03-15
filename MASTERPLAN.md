@@ -1,228 +1,159 @@
 # MASTERPLAN.md — Operation Crack The Code 🎯
 
 ## Mission
-Achieve **200%+ annual returns** on every year from 2020-2025 through continuous, autonomous backtesting optimization of the credit spread system.
+Build a validated, multi-strategy options trading system on SPY. Data-driven approach: kill losing strategies, optimize winners, follow what the data says. Paper trade the winners, then go live.
 
-## Target Metrics
-| Year | Min Return | Max Drawdown | Min Trades |
-|------|-----------|-------------|------------|
-| 2020 | +200% | <50% | 50+ |
-| 2021 | +200% | <50% | 50+ |
-| 2022 | +200% | <50% | 50+ |
-| 2023 | +200% | <50% | 50+ |
-| 2024 | +200% | <50% | 50+ |
-| 2025 | +200% | <50% | 50+ |
-
-## Current Best (Baseline)
-| Year | Return | Trades | Sharpe | Notes |
-|------|--------|--------|--------|-------|
-| 2025 | +15.11% | 217 | 2.27 | Best year so far |
-| 2024 | TBD | 128 | TBD | After sigma fix |
+## North Star
+- **55% avg annual return** (aspirational)
+- **≤30% max drawdown** in any year
+- **Multi-strategy, research-backed, validated**
+- **All 6 years (2020-2025) profitable**
 
 ---
 
-## THE LOOP (Run This Continuously)
+## 📋 EXPERIMENT REGISTRY
 
-### Step 1: Pick Next Experiment
-- Read `output/leaderboard.json` — find the current best params
-- Read `output/optimization_log.json` — see what's been tried
-- Choose the next experiment based on current phase (see Phases below)
-- Log your hypothesis in the optimization log BEFORE running
+All experiments are tracked here. Every new experiment gets an ID and entry.
 
-### Step 2: Modify & Run Backtest
-- Update backtest parameters (in a config dict, NOT hardcoded)
-- Run: `python3 scripts/run_optimization.py --config <config_name>`
-- If no optimization script exists yet, BUILD IT FIRST (Phase 0)
+### Active Experiments
 
-### Step 3: Record Results
-- Append results to `output/leaderboard.json`
-- Format: `{run_id, timestamp, params, results_by_year, avg_return, max_dd, notes, validation}`
-- If this run beats the current best for ANY year → flag it 🏆
+| ID | Name | Strategy | Avg Return | After Slippage | Max DD | ROBUST | Status |
+|----|------|----------|-----------|----------------|--------|--------|--------|
+| **EXP-400** | **The Champion** | Regime-adaptive CS + IC (SPY) | +32.7% | ~20-25% est | -12.1% | 0.870 | ✅ PAPER TRADE READY |
+| **EXP-401** | **The Blend** | Regime-optimized CS + S/S (SPY) | +40.7% | +26.9% | -7.0% | TBD | ⚠️ VALIDATED — needs paper trader wiring |
 
-### Step 3.5: MANDATORY OVERFIT CHECK (Run EVERY Time) 🛡️
-**No result is real until it passes ALL of these checks. No exceptions.**
+### Experiment Details
 
-#### A. Cross-Year Consistency Test
-- A valid param set must be profitable in **at least 5 of 6 years**
-- If params crush 2021 (+300%) but lose money in 2022 → **OVERFIT, REJECT**
-- Calculate: `consistency_score = years_profitable / 6`
-- Minimum acceptable: **0.83 (5/6 years)**
+#### EXP-400: The Champion
+- **Run ID:** `endless_20260305_053514_ae5c`
+- **Config:** `configs/champion.json`
+- **Paper Config:** `configs/paper_champion.yaml`
+- **Strategies:** Credit spread (regime-adaptive, 8.5% risk) + Iron condor (3.5% risk)
+- **Trend filter:** 80-day MA
+- **Validation:** ROBUST 0.870 | WF 3/3 | Jitter 0.98 | No cliff params
+- **Year-by-year:** 2020: +8.9% | 2021: +101.5% | 2022: -1.9% | 2023: +37.5% | 2024: +23.8% | 2025: +26.5%
+- **Paper trader support:** ✅ Full — alignment-patches PR merged
+- **Branch:** `maximus/champion-config`
 
-#### B. Walk-Forward Validation (Split Test)
-- **Train set**: Optimize params on 2020-2022
-- **Test set**: Run SAME params on 2023-2025 (untouched data)
-- Test set return must be **≥50% of train set return**
-- If train=300% but test=40% → **OVERFIT, REJECT**
-- Log both train and test results in leaderboard
+#### EXP-401: The Blend (Regime-Optimized)
+- **Config:** Credit spread 12% base risk + Straddle/strangle 3% base risk
+- **Regime scales (CS):** bull=1.0, bear=0.3, high_vol=0.3, low_vol=0.8, crash=0.0
+- **Regime scales (S/S):** bull=1.5, bear=1.5, high_vol=2.5, low_vol=1.0, crash=0.5
+- **Validation:** WF 3/3 (0.93/0.58/0.84) | Monte Carlo 10K passed | Slippage passed | Tail risk passed
+- **Year-by-year:** 2020: +24.1% | 2021: +107.4% | 2022: +8.1% | 2023: +43.2% | 2024: +26.4% | 2025: +35.0%
+- **After slippage:** 2020: +13.5% | 2021: +84.0% | 2022: +2.2% | 2023: +27.9% | 2024: +11.2% | 2025: +22.4%
+- **Paper trader support:** ❌ Straddle/strangle not wired into live system yet
+- **Blocker:** Paper trader needs straddle/strangle order types, position monitoring, exit logic
 
-#### C. Parameter Sensitivity Test (Jitter Test)
-- Take winning params and **perturb each by ±10-20%**
-- Run 5 jittered variations (e.g., delta 0.12 → test 0.10, 0.11, 0.13, 0.14)
-- If performance drops >50% from a 10% param change → **FRAGILE/OVERFIT**
-- Robust params should degrade gracefully, not cliff-edge
-- Log: `sensitivity_score = avg_jittered_return / base_return`
-- Minimum acceptable: **0.60 (40% degradation max)**
+### Retired / Failed Experiments
 
-#### D. Minimum Trade Count Gate
-- Any year with **<30 trades** is statistically meaningless → flag as low-confidence
-- Params that achieve 200% on 12 trades = **LUCKY, NOT ROBUST**
-- Target: 50+ trades per year minimum for valid results
-
-#### E. Regime Diversity Check
-- Winning trades must occur across **multiple market regimes**
-- If all profits come from one 2-month window → **OVERFIT TO THAT EVENT**
-- Check: profitable months ≥ 6 per year (don't cluster)
-- Log: `monthly_distribution = [jan_pnl, feb_pnl, ..., dec_pnl]`
-
-#### F. Drawdown Reality Check
-- Max drawdown must be **<50% at all times**
-- Max consecutive losing streak: log it, flag if >10 trades
-- If system requires surviving a 60% drawdown to reach 200% → **NOT VIABLE FOR LIVE**
-- Recovery time: max drawdown recovery should be <60 trading days
-
-#### G. Overfit Score (Composite)
-Calculate after every run:
-```
-overfit_score = (
-    consistency_score * 0.25 +       # Cross-year (0-1)
-    walkforward_ratio * 0.30 +        # Train vs test (0-1, capped)
-    sensitivity_score * 0.25 +        # Param jitter (0-1)
-    trade_count_score * 0.10 +        # Min trades met (0 or 1)
-    regime_diversity_score * 0.10     # Monthly spread (0-1)
-)
-```
-- **≥0.70**: ✅ ROBUST — proceed with confidence
-- **0.50-0.69**: ⚠️ SUSPECT — investigate before accepting
-- **<0.50**: ❌ OVERFIT — reject, try different approach
-
-**Log the overfit_score with every leaderboard entry. Only params with ≥0.70 can become the "current best."**
-
-### Step 4: Analyze & Decide
-- Did it improve AND pass overfit check (≥0.70)? → Save params as new baseline
-- Did it improve but fail overfit check? → Log it as "promising but fragile," investigate why
-- Did it regress? → Revert, log why, try different approach
-- Did it improve some years but hurt others? → Note the tradeoff, consider regime-specific params
-
-### Step 5: Repeat
-- Go back to Step 1
-- NEVER STOP unless explicitly told to by Carlos
-- When context gets full, save state to `output/optimization_state.json` and signal Charles for a fresh session
+| ID | Name | Why Retired |
+|----|------|-------------|
+| EXP-031 | Compound Bull Put | REJECTED — overfit score 0.590 (hard gate failed), DTE cliff, compound sizing artifacts |
+| EXP-036 | Compound 10% Both MA200 | Baseline experiment, superseded by EXP-400 |
+| EXP-059 | Various | Superseded |
+| EXP-154 | Various | Superseded |
+| EXP-305 | COMPASS Portfolio | Multi-ticker experiment, superseded by EXP-400/401 |
 
 ---
 
-## PHASES (Work Through In Order)
+## 📊 PHASE COMPLETION STATUS
 
-### Phase 0: Build the Optimization Harness ⚡ (DO THIS FIRST)
-- [ ] Create `scripts/run_optimization.py` — takes a param config, runs backtest for all years (2020-2025), outputs structured JSON results
-- [ ] Create `scripts/validate_params.py` — runs ALL overfit checks (Step 3.5 A-G) automatically
-- [ ] Create `output/leaderboard.json` — tracks all runs with params, results, AND overfit_score
-- [ ] Create `output/optimization_log.json` — tracks hypotheses and outcomes
-- [ ] Create `output/optimization_state.json` — saves current phase/progress for session recovery
-- [ ] Ensure backtester can run 2020-2025 in a single script
-- [ ] Ensure backtester outputs monthly P&L breakdown (needed for regime diversity check)
-- [ ] Verify baseline results for all 6 years
-- [ ] Benchmark: how long does a full 6-year backtest take?
-- [ ] Benchmark: how long does full validation suite take? (walk-forward + jitter = ~7 extra runs)
-
-### Phase 1: Parameter Sweep 🔍
-Systematically test these parameters:
-- **DTE Range**: [7-14], [14-21], [21-35], [25-50], [7-50]
-- **Delta Target**: 0.08, 0.10, 0.12, 0.15, 0.20, 0.25
-- **Spread Width**: $2, $3, $5, $7, $10
-- **Entry Score Threshold**: 20, 25, 30, 35, 40
-- **Profit Target**: 25%, 50%, 75%, hold-to-exp
-- **Stop Loss**: 100%, 150%, 200%, 300%, none
-- Run each combo → log to leaderboard → find optimal region
-
-### Phase 2: Position Sizing & Compounding 💰
-This is where 200% becomes possible:
-- **Fixed fractional**: 2%, 5%, 10%, 15%, 20% of equity per trade
-- **Kelly criterion**: Full Kelly, Half Kelly, Quarter Kelly
-- **Compound mode**: Reinvest profits into larger positions
-- **Scale-in**: Add to winners on pullbacks
-- **Max concurrent positions**: 5, 10, 15, 20, unlimited
-- Test each sizing strategy with the best params from Phase 1
-
-### Phase 3: Regime-Specific Optimization 🌊
-Different params for different market conditions:
-- **Bull regime**: Aggressive bull puts, wider spreads, higher frequency
-- **Bear regime**: Aggressive bear calls, tighter stops
-- **High vol**: Wider spreads, bigger premiums, more conservative sizing
-- **Low vol**: Iron condors, tighter strikes, higher frequency
-- **Mean-reverting**: Both directions, quick profit-taking
-- Build a regime-param mapping and backtest the dynamic switching
-
-### Phase 4: Multi-Strategy 🔀
-If credit spreads alone can't hit 200%:
-- Add iron condors (simultaneous bull put + bear call)
-- Add naked puts on strong support (higher premium)
-- Add calendar spreads in low vol
-- Portfolio-level optimization across strategy mix
-- Correlation analysis between strategies
-
-### Phase 5: Validation & Stress Testing ✅ (COMPLETE)
-- MA sweep exhausted (MA50/100/150/200) — non-monotonic, no single MA fixes 2023+2024
-- exp_090 (MA200) confirmed champion: avg 34.1%, 5/6 years profitable, worst DD -26.9%
-- 87 experiments completed
-
-### Phase 6: Combo Regime Detector 🧠 (ACTIVE)
-**Goal**: Replace naive MA200 filter with robust multi-signal regime detector
-
-**Architecture (v2 — critique-revised)**:
-- 3 uncorrelated signals: Price vs MA200, RSI(14) momentum, VIX term structure (VIX/VIX3M)
-- Asymmetric voting: BULL needs 2/3, BEAR needs 3/3 unanimous
-- 10-day hysteresis cooldown prevents whipsaw
-- VIX > 40 circuit breaker for extreme events
-- All signals use prior day data (no lookahead)
-
-**Regime → Strategy**:
-- BULL → bull puts only | BEAR → bear calls only | NEUTRAL → bull puts only
-
-**Validation gates**: 2023+2024 pilot → full 6yr → parameter sensitivity sweep
-
-### 🚨 MANDATORY: Regime Detector in ALL Experiments (Phase 6+)
-**Once the combo regime detector v2 passes full 6yr validation:**
-- ALL future backtesting experiments with `direction: both` MUST use `regime_mode: combo`
-- The paper trading scanner MUST use the regime detector for trade direction decisions
-- Bull-put-only experiments are exempt (regime filter is a no-op for those)
-- "Validated" = full 6yr backtest passes Carlos criteria (avg > 30%, worst DD < 40%)
-- NO MORE standalone MA200 filtering for directional decisions
-- This is NON-NEGOTIABLE — Carlos mandate, March 5 2026
+| Phase | Name | Status | Key Result |
+|-------|------|--------|------------|
+| 0 | Strategy Discovery Engine | ✅ COMPLETE | 7 strategies built, champion found |
+| 1 | Parameter Sweep | ✅ COMPLETE | 87 experiments, regime-adaptive winner |
+| 2 | Position Sizing | ✅ COMPLETE | Returns plateau at 10% risk. 8.5% near-optimal for risk-adjusted. |
+| 3 | Portfolio Blending | ✅ COMPLETE | CS+S/S blend beats CS+IC. +39.1% avg, -9.5% DD |
+| 4 | Regime Switching | ✅ COMPLETE | Dynamic allocation: +40.7% avg, -7.0% DD |
+| 5 | Final Validation | ✅ COMPLETE | WF 3/3, MC 10K, slippage, tail risk — ALL PASS |
+| 6 | Paper Trading | 🔄 IN PROGRESS | EXP-400 ready, EXP-401 needs wiring |
 
 ---
 
-## RULES FOR CLAUDE CODE
+## 🎯 CURRENT PRIORITY: Paper Trading
 
-1. **Never stop the loop** — when you finish one experiment, immediately start the next
-2. **Always log before running** — write your hypothesis to the optimization log
-3. **Always log after running** — write results to the leaderboard
-4. **ALWAYS run overfit checks** — Step 3.5 is MANDATORY, never skip it, no exceptions
-5. **Only accept robust results** — overfit_score ≥ 0.70 to become "current best"
-6. **Save state frequently** — update optimization_state.json so sessions can recover
-7. **Think before brute-forcing** — analyze what's working and WHY before trying random combos
-8. **If it looks too good, it probably is** — 500% returns with 15 trades = overfit, not alpha
-9. **Compound interest is king** — Phase 2 is where the magic happens, get there fast
-10. **Report breakthroughs** — if you beat 100%+ on any year WITH overfit_score ≥0.70, output a clear summary
+### Immediate (EXP-400 — The Champion)
+1. ✅ Config created (`configs/paper_champion.yaml`)
+2. ✅ Quickstart guide written (`PAPER_TRADING_QUICKSTART.md`)
+3. ✅ Alignment-patches PR merged (paper trader aligned with backtester)
+4. ✅ Branch pushed (`maximus/champion-config`)
+5. ⬜ Charles deploys paper trading
+6. ⬜ 8-week validation period
 
-## FILE STRUCTURE
-```
-pilotai-credit-spreads/
-├── MASTERPLAN.md            ← This file (sacred blueprint)
-├── CLAUDE.md                ← Coding guidelines
-├── scripts/
-│   ├── run_optimization.py  ← Optimization harness
-│   └── validate_params.py   ← Overfit detection suite
-├── output/
-│   ├── leaderboard.json     ← All run results + overfit_scores
-│   ├── optimization_log.json ← Hypotheses & outcomes
-│   └── optimization_state.json ← Session recovery state
-├── tasks/
-│   ├── todo.md              ← Current task tracking
-│   └── lessons.md           ← Learnings from mistakes
-└── backtest/
-    └── backtester.py        ← Core backtester (already exists)
-```
+### Next (EXP-401 — The Blend)
+1. ⬜ Wire straddle/strangle into paper trader (new order types, exit logic)
+2. ⬜ Create paper_exp401.yaml config
+3. ⬜ Deploy as second paper experiment alongside EXP-400
+4. ⬜ 8-week validation period
+5. ⬜ Compare EXP-400 vs EXP-401 live results
+
+### Victory Conditions for Live Trading
+- Paper trading 8+ weeks with results within 30% of backtest expectations
+- No system errors or unintended trades
+- Win rate >70%
+- Max drawdown <20%
+- → Proceed to live with 10% of intended capital, scale up over 4-8 weeks
 
 ---
 
-*The machine doesn't sleep. The machine doesn't get bored. The machine tries every combination until it finds the answer. Let it run.* 🤖
+## 🔧 INFRASTRUCTURE
+
+### Key Files
+```
+configs/
+├── champion.json              ← EXP-400 raw params
+├── paper_champion.yaml        ← EXP-400 paper trading config
+├── paper_exp036.yaml          ← Legacy experiment
+├── paper_exp059.yaml          ← Legacy experiment
+├── paper_exp154.yaml          ← Legacy experiment
+└── paper_exp305.yaml          ← Legacy experiment
+
+output/
+├── regime_adaptive_validation.json  ← EXP-400 validation
+├── portfolio_blend_results.json     ← EXP-401 Phase 3 results
+├── regime_switching_results.json    ← EXP-401 Phase 4 results
+├── final_validation_results.json    ← EXP-401 Phase 5 results
+├── position_sizing_results.json     ← Phase 2 results
+├── leaderboard.json                 ← All optimization runs
+├── champion_report.html             ← EXP-400 formatted report
+├── paper_trading_proposal.html      ← Deployment plan
+├── exp031_audit_review.html         ← EXP-031 audit (REJECTED)
+└── pr_review_alignment_patches.html ← PR review
+
+scripts/
+├── test_position_sizing.py    ← Phase 2 sizing experiments
+├── portfolio_blend.py         ← Phase 3 blending
+├── regime_switching.py        ← Phase 4 regime optimization
+└── run_optimization.py        ← Original optimization harness
+```
+
+### GitHub
+- **Repo:** `charlesattix/pilotai-credit-spreads`
+- **Main branch:** Production code + alignment fixes
+- **maximus/champion-config:** EXP-400 config + all Phase 0-5 results
+
+### Safety Rails (Paper Trading)
+- `paper_mode: true` — blocks live API URLs
+- Kill switch via DB flag or Telegram
+- 40% drawdown circuit breaker
+- 40% portfolio heat cap
+- Max 10 positions, max 2 per ticker
+- Write-ahead logging for crash recovery
+- Isolated DB per experiment
+
+---
+
+## 📏 RULES
+
+1. **Every experiment gets an ID** — EXP-NNN format, registered in this file
+2. **Never skip validation** — overfit score ≥0.70 to be considered ROBUST
+3. **Always log before AND after** — hypothesis → results → leaderboard
+4. **Regime detector is mandatory** — all directional strategies use combo regime mode
+5. **Paper before live** — nothing touches real money without 8+ weeks paper validation
+6. **Follow the data** — kill losers fast, double down on winners
+7. **MASTERPLAN is sacred** — single source of truth, update with every instruction from Carlos
+
+---
+
+*Victory is not won by the sword alone — it is won by the plan behind it.* 🛡️

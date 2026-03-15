@@ -1,10 +1,12 @@
 """Thread-safe TTL cache for yfinance data."""
+import logging
 import threading
 import time
-import logging
-import yfinance as yf
-import pandas as pd
 from typing import List
+
+import pandas as pd
+import yfinance as yf
+
 from shared.exceptions import DataFetchError
 from shared.metrics import metrics
 

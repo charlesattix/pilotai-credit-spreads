@@ -34,14 +34,13 @@ Usage:
 import argparse
 import json
 import logging
-import os
 import sqlite3
 import sys
 import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))

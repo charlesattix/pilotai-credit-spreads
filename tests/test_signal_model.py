@@ -1,11 +1,11 @@
 """Tests for SignalModel."""
-import pytest
-import pandas as pd
-import numpy as np
 import tempfile
 
-from ml.signal_model import SignalModel
+import numpy as np
+import pandas as pd
+import pytest
 
+from ml.signal_model import SignalModel
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -6,24 +6,76 @@ momentum filter, and Black-Scholes pricing.
 """
 
 from __future__ import annotations
+
 import logging
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import List
 
+from shared.constants import DEFAULT_RISK_FREE_RATE
 from strategies.base import (
-    BaseStrategy, LegType, MarketSnapshot, ParamDef, PortfolioState,
-    Position, PositionAction, Signal, TradeLeg, TradeDirection,
+    BaseStrategy,
+    LegType,
+    MarketSnapshot,
+    ParamDef,
+    PortfolioState,
+    Position,
+    PositionAction,
+    Signal,
+    TradeDirection,
+    TradeLeg,
 )
 from strategies.pricing import (
-    bs_price, estimate_spread_value, nearest_friday_expiration,
+    bs_price,
+    estimate_spread_value,
+    nearest_friday_expiration,
 )
-from shared.constants import DEFAULT_RISK_FREE_RATE
 
 logger = logging.getLogger(__name__)
+
+# Regime → direction mapping for regime_adaptive mode
+DEFAULT_REGIME_DIRECTION_MAP = {
+    "bull": "bull_put",
+    "bear": "bear_call",
+    "high_vol": "bull_put",
+    "low_vol": "both",
+    "crash": "skip",
+}
+
+# Position sizing multipliers per regime
+REGIME_SIZE_SCALE = {
+    "bull": 1.0,
+    "bear": 0.8,
+    "high_vol": 0.6,
+    "low_vol": 1.0,
+    "crash": 0.0,
+}
 
 
 class CreditSpreadStrategy(BaseStrategy):
     """Bull put / bear call credit spreads with MA trend filter."""
+
+    def _resolve_regime_direction(self, regime: str | None) -> str:
+        """Map regime to trade direction, checking per-regime param overrides."""
+        if regime is None:
+            return "both"
+        regime_lower = regime.lower()
+        # Check per-regime param override (e.g. regime_dir_bull="both")
+        override_key = f"regime_dir_{regime_lower}"
+        override = self.params.get(override_key)
+        if override is not None:
+            return override
+        return DEFAULT_REGIME_DIRECTION_MAP.get(regime_lower, "both")
+
+    def _regime_size_scale(self, regime: str | None) -> float:
+        """Get position size multiplier for the given regime.
+
+        Reads per-regime overrides from params (e.g. regime_scale_bull=1.2),
+        falling back to the module-level REGIME_SIZE_SCALE defaults.
+        """
+        if regime is None:
+            return 1.0
+        key = f"regime_scale_{regime.lower()}"
+        return self._p(key, REGIME_SIZE_SCALE.get(regime.lower(), 1.0))
 
     def generate_signals(self, market_data: MarketSnapshot) -> List[Signal]:
         signals = []
@@ -36,6 +88,13 @@ class CreditSpreadStrategy(BaseStrategy):
             return []
 
         direction = self._p("direction", "both")
+
+        # Regime-adaptive: resolve direction from market regime
+        regime = market_data.regime
+        if direction == "regime_adaptive":
+            direction = self._resolve_regime_direction(regime)
+            if direction == "skip":
+                return []
 
         for ticker, price in market_data.prices.items():
             if ticker.startswith("^"):
@@ -65,6 +124,7 @@ class CreditSpreadStrategy(BaseStrategy):
                 if mom_pct >= -abs(mom_filter):
                     sig = self._build_spread(
                         ticker, price, iv, market_data.date, "bull_put",
+                        regime=regime,
                     )
                     if sig:
                         signals.append(sig)
@@ -72,6 +132,7 @@ class CreditSpreadStrategy(BaseStrategy):
             if direction in ("both", "bear_call") and price <= trend_ma:
                 sig = self._build_spread(
                     ticker, price, iv, market_data.date, "bear_call",
+                    regime=regime,
                 )
                 if sig:
                     signals.append(sig)
@@ -81,6 +142,7 @@ class CreditSpreadStrategy(BaseStrategy):
     def _build_spread(
         self, ticker: str, price: float, iv: float,
         date: datetime, spread_type: str,
+        regime: str | None = None,
     ) -> Signal | None:
         target_dte = self._p("target_dte", 35)
         min_dte = self._p("min_dte", 25)
@@ -147,6 +209,7 @@ class CreditSpreadStrategy(BaseStrategy):
                 "short_strike": short_strike,
                 "long_strike": long_strike,
                 "iv": iv,
+                "regime": regime,
             },
         )
 
@@ -188,6 +251,14 @@ class CreditSpreadStrategy(BaseStrategy):
         max_risk_pct = self._p("max_risk_pct", 0.02)
         risk_budget = portfolio_state.equity * max_risk_pct
 
+        # Regime-based sizing adjustment
+        regime = signal.metadata.get("regime") if signal.metadata else None
+        if self._p("direction", "both") == "regime_adaptive":
+            scale = self._regime_size_scale(regime)
+            if scale <= 0:
+                return 0
+            risk_budget *= scale
+
         risk_per_unit = signal.max_loss * 100  # per contract (100 shares)
         if risk_per_unit <= 0:
             return 0
@@ -202,7 +273,7 @@ class CreditSpreadStrategy(BaseStrategy):
     @classmethod
     def get_param_space(cls) -> List[ParamDef]:
         return [
-            ParamDef("direction", "choice", "both", choices=["both", "bull_put", "bear_call"]),
+            ParamDef("direction", "choice", "both", choices=["both", "bull_put", "bear_call", "regime_adaptive"]),
             ParamDef("trend_ma_period", "int", 20, low=10, high=100, step=5),
             ParamDef("target_dte", "int", 35, low=14, high=60, step=5),
             ParamDef("min_dte", "int", 25, low=7, high=45, step=5),
