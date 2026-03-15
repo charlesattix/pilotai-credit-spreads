@@ -131,24 +131,24 @@ def init_db(path: Optional[str] = None) -> None:
         """)
         conn.commit()
 
-        # alert_dedup schema migration: old schema had (ticker, direction) PK;
-        # new schema uses (ticker, expiration, strike_type).  Since dedup data is
+        # alert_dedup schema migration: old schema had (ticker, expiration, strike_type) PK;
+        # new schema uses (ticker, direction, alert_type).  Since dedup data is
         # transient (30-min window), drop-and-recreate is safe.
         try:
             cols = [r[1] for r in conn.execute("PRAGMA table_info(alert_dedup)").fetchall()]
-            if "direction" in cols and "expiration" not in cols:
+            if "expiration" in cols and "alert_type" not in cols:
                 conn.execute("DROP TABLE IF EXISTS alert_dedup")
                 conn.execute("""
                     CREATE TABLE alert_dedup (
                         ticker TEXT NOT NULL,
-                        expiration TEXT NOT NULL,
-                        strike_type TEXT NOT NULL,
+                        direction TEXT NOT NULL,
+                        alert_type TEXT NOT NULL DEFAULT 'credit_spread',
                         last_routed_at TEXT NOT NULL,
-                        PRIMARY KEY (ticker, expiration, strike_type)
+                        PRIMARY KEY (ticker, direction, alert_type)
                     )
                 """)
                 conn.commit()
-                logger.info("Database: migrated alert_dedup to (ticker, expiration, strike_type) PK")
+                logger.info("Database: migrated alert_dedup to (ticker, direction, alert_type) PK")
         except Exception as _mig_err:
             logger.warning("Database: alert_dedup migration check failed (non-fatal): %s", _mig_err)
 
