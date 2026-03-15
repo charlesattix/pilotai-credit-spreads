@@ -10,6 +10,7 @@ Design principles:
 
 import hashlib
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Dict, Optional
 
@@ -473,15 +474,28 @@ class ExecutionEngine:
                 client_id, call_order_id, put_result,
             )
             if call_order_id:
-                try:
-                    self.alpaca.cancel_order(call_order_id)
-                    logger.info("ExecutionEngine: call leg cancel requested for order_id=%s", call_order_id)
-                except Exception as cancel_err:
-                    logger.error(
-                        "ExecutionEngine: CRITICAL — call leg cancel FAILED for order_id=%s: %s. "
-                        "Manual intervention required.",
-                        call_order_id, cancel_err,
-                    )
+                cancel_succeeded = self._cancel_with_retry(
+                    call_order_id,
+                    context=f"straddle call-leg rollback ({ticker}/{client_id})",
+                )
+                if not cancel_succeeded:
+                    # Mark the trade for manual review in DB so ops can see it
+                    try:
+                        upsert_trade(
+                            {
+                                "id": client_id,
+                                "ticker": ticker,
+                                "status": "partial_fill_manual_review",
+                                "exit_reason": "straddle_partial_fill_cancel_failed",
+                            },
+                            source="execution",
+                            path=self.db_path,
+                        )
+                    except Exception as db_err:
+                        logger.error(
+                            "ExecutionEngine: DB mark for manual review failed (%s): %s",
+                            client_id, db_err,
+                        )
             return {"status": "partial_error", "call_result": call_result, "put_result": put_result}
 
         return {
@@ -489,3 +503,51 @@ class ExecutionEngine:
             "order_id": call_result.get("order_id"),
             "put_order_id": put_result.get("order_id"),
         }
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _cancel_with_retry(
+        self,
+        order_id: str,
+        context: str = "",
+        max_attempts: int = 3,
+        backoff_base: float = 2.0,
+    ) -> bool:
+        """Attempt to cancel *order_id* up to *max_attempts* times with exponential backoff.
+
+        Returns True if the cancel succeeded, False if all attempts failed.
+        On total failure, sends a CRITICAL Telegram alert so ops can intervene.
+        """
+        for attempt in range(1, max_attempts + 1):
+            try:
+                self.alpaca.cancel_order(order_id)
+                logger.info(
+                    "ExecutionEngine: cancel succeeded for order_id=%s (attempt %d/%d) [%s]",
+                    order_id, attempt, max_attempts, context,
+                )
+                return True
+            except Exception as err:
+                logger.warning(
+                    "ExecutionEngine: cancel attempt %d/%d failed for order_id=%s [%s]: %s",
+                    attempt, max_attempts, order_id, context, err,
+                )
+                if attempt < max_attempts:
+                    time.sleep(backoff_base ** attempt)  # 2s, 4s
+
+        # All attempts exhausted — send CRITICAL alert
+        logger.critical(
+            "ExecutionEngine: CRITICAL — cancel FAILED after %d attempts "
+            "for order_id=%s [%s]. Manual intervention required.",
+            max_attempts, order_id, context,
+        )
+        try:
+            from shared.telegram_alerts import notify_api_failure
+            notify_api_failure(
+                error_msg=f"cancel_order failed after {max_attempts} retries (order_id={order_id})",
+                context=context,
+            )
+        except Exception as alert_err:
+            logger.error("ExecutionEngine: Telegram alert for cancel failure failed: %s", alert_err)
+        return False

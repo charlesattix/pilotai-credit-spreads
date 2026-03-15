@@ -136,6 +136,8 @@ _EARLY_CLOSE_DATES_2026 = _EARLY_CLOSE_DATES
 
 # Warn when a pending_close order has been unfilled for this many minutes
 _STALE_CLOSE_MINUTES = 10
+# Maximum cancel-and-resubmit retries for stale close orders before alerting
+_STALE_CLOSE_MAX_RETRIES = 3
 
 
 class PositionMonitor:
@@ -1273,25 +1275,96 @@ class PositionMonitor:
             )
 
     def _check_stale_close(self, pos: Dict, order_id: str, order_status: str) -> None:
-        """Warn if a close order has been sitting unfilled for too long."""
+        """Detect stale close orders and auto-retry (cancel + resubmit).
+
+        When a close order has been pending > _STALE_CLOSE_MINUTES:
+        - Attempts to cancel the stale order and resubmit via _close_position().
+        - Tracks retries in pos["close_order_retry_count"].
+        - After _STALE_CLOSE_MAX_RETRIES exhausted, sends a Telegram alert and
+          stops retrying (leaves position in pending_close for manual review).
+        """
         submitted_at_str = pos.get("close_order_submitted_at")
-        if submitted_at_str:
+        if not submitted_at_str:
+            return
+        try:
+            submitted_at = datetime.fromisoformat(submitted_at_str)
+            if submitted_at.tzinfo is None:
+                submitted_at = submitted_at.replace(tzinfo=timezone.utc)
+            age_minutes = (
+                datetime.now(timezone.utc) - submitted_at
+            ).total_seconds() / 60
+        except (ValueError, TypeError):
+            return
+
+        if age_minutes < _STALE_CLOSE_MINUTES:
+            return
+
+        retry_count = int(pos.get("close_order_retry_count", 0))
+        pos_id = pos.get("id", "?")
+
+        if retry_count >= _STALE_CLOSE_MAX_RETRIES:
+            logger.critical(
+                "PositionMonitor: STALE CLOSE — %s exhausted %d retries "
+                "(order_id=%s status=%s age=%.0f min). Manual intervention required.",
+                pos_id, _STALE_CLOSE_MAX_RETRIES, order_id, order_status, age_minutes,
+            )
             try:
-                submitted_at = datetime.fromisoformat(submitted_at_str)
-                if submitted_at.tzinfo is None:
-                    submitted_at = submitted_at.replace(tzinfo=timezone.utc)
-                age_minutes = (
-                    datetime.now(timezone.utc) - submitted_at
-                ).total_seconds() / 60
-                if age_minutes >= _STALE_CLOSE_MINUTES:
-                    logger.warning(
-                        "PositionMonitor: STALE CLOSE ORDER — %s has been pending "
-                        "%.0f min (order_id=%s status=%s). "
-                        "Consider manual intervention or price ladder escalation.",
-                        pos.get("id"), age_minutes, order_id, order_status,
-                    )
-            except (ValueError, TypeError):
-                pass
+                notify_api_failure(
+                    error_msg=(
+                        f"Stale close order unfilled after {retry_count} retries "
+                        f"(order_id={order_id}, age={age_minutes:.0f}min)"
+                    ),
+                    context=f"stale_close_retry ({pos.get('ticker', '?')} / {pos_id})",
+                )
+            except Exception as alert_err:
+                logger.error("PositionMonitor: Telegram alert for stale close failed: %s", alert_err)
+            return
+
+        logger.warning(
+            "PositionMonitor: STALE CLOSE ORDER — %s pending %.0f min "
+            "(order_id=%s status=%s) — cancelling and resubmitting (retry %d/%d)",
+            pos_id, age_minutes, order_id, order_status,
+            retry_count + 1, _STALE_CLOSE_MAX_RETRIES,
+        )
+
+        # Cancel the stale order
+        if self.alpaca:
+            try:
+                self.alpaca.cancel_order(order_id)
+                logger.info(
+                    "PositionMonitor: stale close order cancelled order_id=%s for %s",
+                    order_id, pos_id,
+                )
+            except Exception as cancel_err:
+                logger.warning(
+                    "PositionMonitor: cancel of stale order %s failed: %s — "
+                    "will still attempt resubmit",
+                    order_id, cancel_err,
+                )
+            # Cancel the put order too if this is a dual-leg close
+            put_order_id = pos.get("close_put_order_id")
+            if put_order_id:
+                try:
+                    self.alpaca.cancel_order(put_order_id)
+                except Exception:
+                    pass
+
+        # Clear old order info and increment retry counter
+        exit_reason = pos.get("exit_reason", "stale_retry")
+        pos["close_order_retry_count"] = retry_count + 1
+        pos.pop("close_order_id", None)
+        pos.pop("close_put_order_id", None)
+        pos.pop("close_order_submitted_at", None)
+        pos["status"] = "open"  # _close_position will set it back to pending_close
+        try:
+            upsert_trade(pos, source="execution", path=self.db_path)
+        except Exception as db_err:
+            logger.error(
+                "PositionMonitor: DB update for stale retry failed (%s): %s", pos_id, db_err
+            )
+
+        # Resubmit
+        self._close_position(pos, exit_reason)
 
     def _record_close_pnl(self, pos: Dict, order: Dict) -> None:
         """Calculate realized P&L from fill data and update DB with final closed status."""
