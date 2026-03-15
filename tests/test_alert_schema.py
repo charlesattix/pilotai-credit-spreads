@@ -53,6 +53,7 @@ class TestEnums:
             AlertType.credit_spread,
             AlertType.momentum_swing,
             AlertType.iron_condor,
+            AlertType.straddle_strangle,
             AlertType.earnings_play,
             AlertType.gamma_lotto,
         }

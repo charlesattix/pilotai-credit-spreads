@@ -34,9 +34,10 @@ logger = logging.getLogger(__name__)
 _TYPE_PRIORITY = {
     AlertType.credit_spread: 0,
     AlertType.iron_condor: 1,
-    AlertType.momentum_swing: 2,
-    AlertType.earnings_play: 3,
-    AlertType.gamma_lotto: 4,
+    AlertType.straddle_strangle: 2,
+    AlertType.momentum_swing: 3,
+    AlertType.earnings_play: 4,
+    AlertType.gamma_lotto: 5,
 }
 
 # Dedup window in seconds
@@ -62,9 +63,7 @@ class AlertRouter:
         self.execution_engine = execution_engine  # None = alert-only mode
         self.config = config or {}
 
-        # In-memory dedup ledger: (ticker, expiration, strike_type) → last_routed_at
-        # Granularity matches backtester _open_keys: (expiration, strike, type).
-        # Allows different expirations/types on same ticker; blocks same contract twice.
+        # In-memory dedup ledger: (ticker, direction, alert_type) → last_routed_at
         # Populated from SQLite on startup so restarts don't lose dedup state (BUG #17).
         self._dedup_ledger: Dict[tuple, datetime] = {}
         self._load_dedup_from_db()
@@ -108,15 +107,14 @@ class AlertRouter:
             logger.info("AlertRouter: no qualifying opportunities")
             return []
 
-        # 2. Deduplicate — key: (ticker, expiration, strike_type)
-        # Matches backtester _open_keys granularity: same contract blocked, different OK.
+        # 2. Deduplicate — key includes type so IC and straddle don't conflict
         now = datetime.now(timezone.utc)
         deduped: List[Alert] = []
         for alert in alerts:
-            key = self._dedup_key(alert)
+            key = (alert.ticker, alert.direction.value, alert.type.value)
             last_routed = self._dedup_ledger.get(key)
             if last_routed and (now - last_routed).total_seconds() < _DEDUP_WINDOW:
-                logger.debug("AlertRouter: dedup skip %s exp=%s type=%s", key[0], key[1], key[2])
+                logger.debug("AlertRouter: dedup skip %s %s %s", alert.ticker, alert.direction.value, alert.type.value)
                 continue
             deduped.append(alert)
 
@@ -155,22 +153,29 @@ class AlertRouter:
         top = approved[:5]
 
         # 6. Dispatch
+        # Within-scan dedup: keyed by (ticker, expiration, alert_type) so that two
+        # ICs on DIFFERENT expirations are both dispatched (different contracts),
+        # while two ICs on the SAME expiration are blocked after the first.
         dispatched: List[Alert] = []
+        scan_dispatched_keys: set = set()
         for alert in top:
             # 7a. Within-scan dedup re-check.
             #
             # WHY: Step 2 (batch dedup) checked the ledger before ANY alert in this
-            # scan was dispatched, so multiple same-contract alerts all saw an empty
-            # ledger and passed simultaneously.  This re-check sees the ledger as it
-            # stands RIGHT NOW — after previous alerts in this loop have been marked
-            # — so a 2nd alert for the same (ticker, expiration, strike_type) is caught.
-            key = self._dedup_key(alert)
-            last_routed = self._dedup_ledger.get(key)
-            if last_routed and (now - last_routed).total_seconds() < _DEDUP_WINDOW:
+            # scan was dispatched, so multiple same-ticker/direction alerts all saw
+            # an empty ledger and passed simultaneously.  This per-scan set sees
+            # what has been dispatched SO FAR in this scan, so the 2nd/3rd
+            # SPY iron_condor on the SAME expiration is caught here.
+            #
+            # Key includes expiration so that different-expiration ICs on the same
+            # ticker are NOT blocked (they are different contracts).
+            exp_str = str(alert.legs[0].expiration).split(" ")[0] if alert.legs else ""
+            scan_key = (alert.ticker, exp_str, alert.type.value, alert.direction.value)
+            if scan_key in scan_dispatched_keys:
                 logger.info(
-                    "AlertRouter: within-scan dedup blocked %s exp=%s type=%s "
+                    "AlertRouter: within-scan dedup blocked %s %s %s exp=%s "
                     "(already dispatched this scan — frequency guard)",
-                    key[0], key[1], key[2],
+                    alert.ticker, alert.direction.value, alert.type.value, exp_str,
                 )
                 continue
 
@@ -196,8 +201,7 @@ class AlertRouter:
                         alert.ticker, dte_reason,
                     )
                     # DTE-blocked: mark dedup (alert was valid, DTE is deterministic)
-                    _k = self._dedup_key(alert)
-                    self._mark_dedup(_k[0], _k[1], _k[2], now)
+                    self._mark_dedup(alert.ticker, alert.direction.value, now, alert.type.value)
                     dispatched.append(alert)
                     continue
                 try:
@@ -219,8 +223,8 @@ class AlertRouter:
 
             # Only mark dedup when execution actually succeeded (or no engine configured)
             if execution_succeeded:
-                _k = self._dedup_key(alert)
-                self._mark_dedup(_k[0], _k[1], _k[2], now)
+                scan_dispatched_keys.add(scan_key)
+                self._mark_dedup(alert.ticker, alert.direction.value, now, alert.type.value)
             else:
                 logger.info(
                     "AlertRouter: skipping dedup mark for %s — execution failed, will retry next scan",
@@ -253,10 +257,10 @@ class AlertRouter:
             d["expiration"] = str(legs[0].get("expiration", "")).split(" ")[0]
 
         # --- spread_type: map direction → bull_put / bear_call ---
-        # Alert.type is "credit_spread" or "iron_condor"; execution engine needs
-        # "bull_put" / "bear_call" / "iron_condor" to determine option type.
+        # Alert.type is "credit_spread", "iron_condor", or "straddle_strangle";
+        # execution engine needs specific type strings.
         alert_type_val = d.get("type", "")
-        if "condor" not in alert_type_val:
+        if "condor" not in alert_type_val and "straddle" not in alert_type_val and "strangle" not in alert_type_val:
             d["type"] = "bull_put" if alert.direction.value == "bullish" else "bear_call"
 
         # --- strikes: extract sell leg → short, buy leg → long ---
@@ -288,33 +292,20 @@ class AlertRouter:
             if cb:
                 d["call_long_strike"] = cb["strike"]
 
+        # --- straddle/strangle: extract call/put strikes from legs ---
+        if "straddle" in alert_type_val or "strangle" in alert_type_val:
+            call_leg = next((l for l in legs if l.get("option_type") == "call"), None)
+            put_leg = next((l for l in legs if l.get("option_type") == "put"), None)
+            if call_leg:
+                d["call_strike"] = call_leg["strike"]
+            if put_leg:
+                d["put_strike"] = put_leg["strike"]
+
         return d
 
     # ------------------------------------------------------------------
     # Dedup persistence helpers (BUG #17 fix)
     # ------------------------------------------------------------------
-
-    def _dedup_key(self, alert: Alert) -> tuple:
-        """Return the dedup key (ticker, expiration, strike_type) for an alert.
-
-        Matches backtester _open_keys granularity:
-          bull_put  → strike_type 'P'
-          bear_call → strike_type 'C'
-          iron_condor → strike_type 'IC'
-        Different expirations on the same ticker produce different keys (allowed).
-        Same (ticker, expiration, strike_type) is blocked within the dedup window.
-        """
-        expiration = ""
-        if alert.legs:
-            expiration = str(alert.legs[0].expiration).split(" ")[0]
-        is_ic = alert.type == AlertType.iron_condor or "condor" in str(alert.type).lower()
-        if is_ic:
-            strike_type = "IC"
-        elif alert.direction.value == "bullish":
-            strike_type = "P"
-        else:
-            strike_type = "C"
-        return (alert.ticker, expiration, strike_type)
 
     def _load_dedup_from_db(self) -> None:
         """Load recent dedup entries from SQLite on startup."""
@@ -323,7 +314,7 @@ class AlertRouter:
             delete_old_dedup_entries(window_seconds=_DEDUP_WINDOW, path=db_path)
             entries = load_dedup_entries(window_seconds=_DEDUP_WINDOW, path=db_path)
             for entry in entries:
-                key = (entry["ticker"], entry["expiration"], entry["strike_type"])
+                key = (entry["ticker"], entry["direction"], entry.get("alert_type", "credit_spread"))
                 try:
                     ts = datetime.fromisoformat(entry["last_routed_at"])
                     if ts.tzinfo is None:
@@ -336,13 +327,13 @@ class AlertRouter:
         except Exception as e:
             logger.warning("AlertRouter: could not load dedup entries from DB (non-fatal): %s", e)
 
-    def _mark_dedup(self, ticker: str, expiration: str, strike_type: str, ts: datetime) -> None:
-        """Mark a (ticker, expiration, strike_type) tuple as recently routed in memory and DB."""
-        key = (ticker, expiration, strike_type)
+    def _mark_dedup(self, ticker: str, direction: str, ts: datetime, alert_type: str = "credit_spread") -> None:
+        """Mark a (ticker, direction, type) triple as recently routed in memory and DB."""
+        key = (ticker, direction, alert_type)
         self._dedup_ledger[key] = ts
         try:
             db_path = os.environ.get("PILOTAI_DB_PATH")
-            upsert_dedup_entry(ticker, expiration, strike_type, ts.isoformat(), path=db_path)
+            upsert_dedup_entry(ticker, direction, alert_type, ts.isoformat(), path=db_path)
         except Exception as e:
             logger.warning("AlertRouter: could not persist dedup entry (non-fatal): %s", e)
 

@@ -327,19 +327,23 @@ class PositionReconciler:
             # means there is no live position to track. Mark failed_open immediately
             # rather than promoting to open where the trade would have no Alpaca coverage.
             if not client_order_id:
-                trade["status"] = "failed_open"
-                trade["exit_reason"] = "stale_no_order_id"
-                upsert_trade(trade, source="reconciler", path=self.db_path)
+                if trade.get('dry_run'):
+                    status = 'open'  # Dry run, expected no order ID
+                else:
+                    status = 'failed_open'  # Submission may have failed
+                trade["status"] = status
+                upsert_trade(trade, source="scanner", path=self.db_path)
                 insert_reconciliation_event(
-                    trade_id, "failed_open",
-                    {"reason": "no_alpaca_order_id"},
+                    trade_id, status,
+                    {"reason": "no_alpaca_order_id", "dry_run": bool(trade.get('dry_run'))},
                     self.db_path,
                 )
-                result.pending_failed += 1
-                logger.warning(
-                    "Trade %s marked failed_open (no Alpaca order ID — never submitted)",
-                    trade_id,
-                )
+                if status == 'open':
+                    result.pending_resolved += 1
+                    logger.info("Trade %s promoted to open (dry_run)", trade_id)
+                else:
+                    result.pending_failed += 1
+                    logger.warning("Trade %s marked failed_open (no order ID, not dry_run)", trade_id)
                 continue
 
             # Case 2: Look up order in Alpaca

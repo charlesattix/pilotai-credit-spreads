@@ -50,6 +50,12 @@ from shared.database import get_trades, insert_alert, save_scanner_state, load_s
 from shared.metrics import metrics
 from shared.provider_protocol import DataProvider  # noqa: F401 – ARCH-PY-06
 from strategy import CreditSpreadStrategy, OptionsAnalyzer, TechnicalAnalyzer
+# Alias for unified strategy path
+LegacyCreditSpreadStrategy = CreditSpreadStrategy
+from shared.strategy_factory import build_strategy_list
+from shared.snapshot_builder import build_live_market_snapshot, reprice_signals_from_chain
+from shared.signal_scorer import score_signal
+from shared.strategy_adapter import signal_to_opportunity
 from tracker import PnLDashboard, TradeTracker
 from utils import load_config, setup_logging, validate_config
 
@@ -68,7 +74,7 @@ class CreditSpreadSystem:
     def __init__(
         self,
         config: AppConfig,
-        strategy: Optional[CreditSpreadStrategy] = None,
+        strategy: Optional[LegacyCreditSpreadStrategy] = None,
         technical_analyzer: Optional[TechnicalAnalyzer] = None,
         options_analyzer: Optional[OptionsAnalyzer] = None,
         alert_generator: Optional[AlertGenerator] = None,
@@ -108,7 +114,10 @@ class CreditSpreadSystem:
 
         # Initialize components — use injected instances when provided
         self.data_cache = data_cache or DataCache()
-        self.strategy = strategy or CreditSpreadStrategy(self.config)
+        # Legacy strategy kept for backward compat (config key reads, regime_mode)
+        self.strategy = strategy or LegacyCreditSpreadStrategy(self.config)
+        # NEW unified strategies — same classes used by backtester
+        self.unified_strategies = build_strategy_list(self.config)
         self.technical_analyzer = technical_analyzer or TechnicalAnalyzer(self.config)
         self.options_analyzer = options_analyzer or OptionsAnalyzer(self.config, data_cache=self.data_cache)
         self.alert_generator = alert_generator or AlertGenerator(self.config)
@@ -400,10 +409,8 @@ class CreditSpreadSystem:
                         logger.info("%s: ComboRegime = %s", ticker, current_regime)
                 except Exception as e:
                     logger.warning("ComboRegimeDetector failed for %s: %s", ticker, e)
-                    # BULL matches ComboRegimeDetector's optimistic prior (line 125:
-                    # current_regime = 'BULL') and the backtester's starting state.
-                    # With ic_neutral_regime_only=True, BULL blocks ICs and allows only
-                    # bull puts — the correct conservative behaviour on detector failure.
+                    # Fallback to BULL matches backtester starting state and allows
+                    # bull_put spreads to proceed when regime detection is unavailable.
                     technical_signals['combo_regime'] = 'BULL'
 
             # IV analysis
@@ -412,80 +419,67 @@ class CreditSpreadSystem:
 
             logger.info(f"{ticker}: Price=${current_price:.2f}, IV Rank={iv_data.get('iv_rank', 0):.1f}%")
 
-            # Evaluate spread opportunities
-            opportunities = self.strategy.evaluate_spread_opportunity(
+            # --- Unified entry path (same strategy classes as backtester) ---
+            regime = technical_signals.get('combo_regime', None)
+
+            # VIX data for snapshot (already fetched for regime detector)
+            vix_data = None
+            try:
+                vix_data = self.data_cache.get_history('^VIX', period='2y')
+            except Exception:
+                pass
+
+            # Economic calendar events (needed for straddle/strangle strategy)
+            upcoming_events: list = []
+            recent_events: list = []
+            try:
+                from shared.economic_calendar import EconomicCalendar
+                econ = EconomicCalendar()
+                upcoming_events = econ.get_upcoming_events(days_ahead=2)
+                recent_events = econ.get_recent_events(days_back=2)
+            except Exception as e:
+                logger.debug("Economic calendar unavailable: %s", e)
+
+            snapshot = build_live_market_snapshot(
                 ticker=ticker,
-                option_chain=options_chain,
-                technical_signals=technical_signals,
+                price_data=price_data,
+                current_price=current_price,
                 iv_data=iv_data,
-                current_price=current_price
+                technical_signals=technical_signals,
+                regime=regime,
+                vix_data=vix_data,
+                upcoming_events=upcoming_events,
+                recent_events=recent_events,
             )
 
-            # Scores from rules-based scoring + combo regime + COMPASS are used directly.
-            # ML pipeline is intentionally disconnected (not validated in backtesting).
-
-            # ML-1: Attach context features to each opportunity for the feature logger.
-            # These are consumed by FeatureLogger in execution_engine after trade submission.
-            try:
-                import numpy as np
-                close_series = price_data['Close'].dropna()
-                ma200 = float(close_series.rolling(200).mean().iloc[-1]) if len(close_series) >= 200 else None
-                ma200_distance = round((current_price - ma200) / ma200 * 100, 4) if ma200 else None
-
-                # Realized volatility (annualized)
-                log_returns = np.log(close_series / close_series.shift(1)).dropna()
-                rv_20d = float(log_returns.tail(20).std() * np.sqrt(252)) if len(log_returns) >= 20 else None
-                rv_5d = float(log_returns.tail(5).std() * np.sqrt(252)) if len(log_returns) >= 5 else None
-
-                # VIX & term structure
-                vix_val = None
-                vix_rank_val = None
-                vix_pct_val = None
-                vix_vix3m_ratio = None
+            # Generate signals from all enabled strategies
+            all_signals = []
+            for strat in self.unified_strategies:
                 try:
-                    vix_hist = self.data_cache.get_history('^VIX', period='1y')
-                    if not vix_hist.empty:
-                        vix_close = vix_hist['Close'].dropna()
-                        vix_val = float(vix_close.iloc[-1])
-                        vix_window = vix_close.tail(252)
-                        if len(vix_window) > 1:
-                            vix_rank_val = round((vix_val - vix_window.min()) / (vix_window.max() - vix_window.min()) * 100, 2)
-                            vix_pct_val = round((vix_window < vix_val).mean() * 100, 2)
-                    try:
-                        vix3m_hist = self.data_cache.get_history('^VIX3M', period='5d')
-                        if not vix3m_hist.empty and vix_val:
-                            vix3m_val = float(vix3m_hist['Close'].dropna().iloc[-1])
-                            if vix3m_val > 0:
-                                vix_vix3m_ratio = round(vix_val / vix3m_val, 4)
-                    except Exception:
-                        pass
-                except Exception:
-                    pass
+                    signals = strat.generate_signals(snapshot)
+                    all_signals.extend(signals)
+                except Exception as e:
+                    logger.warning(
+                        "%s: %s.generate_signals() failed: %s",
+                        ticker, strat.__class__.__name__, e,
+                    )
 
-                # Vol premium z-score: (IV - RV) normalized
-                vol_premium_zscore = None
-                iv_current = iv_data.get('current_iv') or iv_data.get('iv_rank')
-                if iv_current and rv_20d and rv_20d > 0:
-                    vol_premium_zscore = round((iv_current / 100 - rv_20d) / rv_20d, 4)
+            # Score each signal using the 5-component scoring system
+            for sig in all_signals:
+                sig.score = score_signal(sig, iv_rank=iv_data.get('iv_rank', 25.0), technical_signals=technical_signals)
 
-                ml_features = {
-                    "current_price": current_price,
-                    "regime": technical_signals.get('combo_regime', technical_signals.get('trend', '')),
-                    "vix": vix_val,
-                    "vix_rank": vix_rank_val,
-                    "vix_percentile": vix_pct_val,
-                    "iv_rank": iv_data.get('iv_rank'),
-                    "rsi": technical_signals.get('rsi'),
-                    "ma200_distance": ma200_distance,
-                    "realized_vol_20d": round(rv_20d, 4) if rv_20d else None,
-                    "realized_vol_5d": round(rv_5d, 4) if rv_5d else None,
-                    "vix_vix3m_ratio": vix_vix3m_ratio,
-                    "vol_premium_zscore": vol_premium_zscore,
-                }
-                for opp in opportunities:
-                    opp['_ml_features'] = ml_features
-            except Exception as e:
-                logger.warning("ML-1 feature enrichment failed for %s (non-fatal): %s", ticker, e)
+            # Re-price from real options chain when available
+            if not options_chain.empty:
+                all_signals = reprice_signals_from_chain(all_signals, options_chain)
+
+            # Convert Signal objects → opportunity dicts for AlertRouter / paper trader
+            opportunities = []
+            for sig in all_signals:
+                try:
+                    opp = signal_to_opportunity(sig, current_price)
+                    opportunities.append(opp)
+                except Exception as e:
+                    logger.warning("signal_to_opportunity failed for %s: %s", sig.ticker, e)
 
             return opportunities
 
@@ -1042,6 +1036,8 @@ Examples:
                     config=system.config,
                     db_path=args.db_path,
                 )
+                # Register unified strategies for manage_position() dispatch
+                position_monitor.register_strategies(system.unified_strategies)
                 monitor_thread = threading.Thread(
                     target=position_monitor.start,
                     daemon=True,

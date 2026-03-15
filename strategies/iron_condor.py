@@ -163,6 +163,13 @@ class IronCondorStrategy(BaseStrategy):
         if position.legs and market_data.date >= position.legs[0].expiration:
             return PositionAction.CLOSE_EXPIRY
 
+        # DTE management
+        manage_dte = self._p("manage_dte", 0)
+        if manage_dte > 0 and position.legs:
+            dte = (position.legs[0].expiration - market_data.date).days
+            if dte <= manage_dte:
+                return PositionAction.CLOSE_DTE
+
         price = market_data.prices.get(position.ticker)
         if price is None:
             return PositionAction.HOLD
@@ -177,6 +184,16 @@ class IronCondorStrategy(BaseStrategy):
 
         if cost_to_close - credit >= credit * position.stop_loss_pct:
             return PositionAction.CLOSE_STOP
+
+        # Spread-width 90% safety cap (use wider wing for IC)
+        if len(position.legs) >= 4:
+            put_legs = [l for l in position.legs if "put" in l.leg_type.value]
+            call_legs = [l for l in position.legs if "call" in l.leg_type.value]
+            put_width = abs(put_legs[0].strike - put_legs[1].strike) if len(put_legs) >= 2 else 0
+            call_width = abs(call_legs[0].strike - call_legs[1].strike) if len(call_legs) >= 2 else 0
+            wing_width = max(put_width, call_width)
+            if wing_width > 0 and cost_to_close >= wing_width * 0.90:
+                return PositionAction.CLOSE_STOP
 
         return PositionAction.HOLD
 

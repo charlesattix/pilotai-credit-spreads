@@ -220,6 +220,13 @@ class CreditSpreadStrategy(BaseStrategy):
         if position.legs and market_data.date >= position.legs[0].expiration:
             return PositionAction.CLOSE_EXPIRY
 
+        # DTE management
+        manage_dte = self._p("manage_dte", 0)
+        if manage_dte > 0 and position.legs:
+            dte = (position.legs[0].expiration - market_data.date).days
+            if dte <= manage_dte:
+                return PositionAction.CLOSE_DTE
+
         ticker = position.ticker
         price = market_data.prices.get(ticker)
         if price is None:
@@ -242,6 +249,12 @@ class CreditSpreadStrategy(BaseStrategy):
         loss = cost_to_close - credit
         if loss >= credit * position.stop_loss_pct:
             return PositionAction.CLOSE_STOP
+
+        # Spread-width 90% safety cap — close if cost to close approaches max loss
+        if len(position.legs) >= 2:
+            spread_width = abs(position.legs[0].strike - position.legs[1].strike)
+            if spread_width > 0 and cost_to_close >= spread_width * 0.90:
+                return PositionAction.CLOSE_STOP
 
         return PositionAction.HOLD
 

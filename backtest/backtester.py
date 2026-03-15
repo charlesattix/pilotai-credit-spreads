@@ -837,8 +837,6 @@ class Backtester:
                     self._current_trade_dte = _sampled_dte
                     self._current_trade_min_dte = max(20, _sampled_dte - 10)
                     # Entry-day shift: only active in 'full' mode with jitter > 0.
-                    # Shifts the expiration reference date by ±N calendar days,
-                    # modelling entering the same trade 1-2 days early or late.
                     if self._mc_mode == 'full' and self._mc_entry_day_jitter > 0:
                         self._mc_entry_day_shift = self._rng.randint(
                             -self._mc_entry_day_jitter, self._mc_entry_day_jitter
@@ -869,6 +867,9 @@ class Backtester:
                             scan_hour=scan_hour, scan_minute=scan_minute,
                         )
                         if new_position:
+                            if self._mc_should_skip_trade():
+                                self.capital += new_position.get('commission', 0)
+                                continue
                             _key = (new_position.get('expiration'), new_position['short_strike'], 'P')
                             if _key not in _entered_today and _open_key_counts.get(_key, 0) < _max_per_key:
                                 if _exposure_ok(new_position):
@@ -901,6 +902,9 @@ class Backtester:
                             scan_hour=scan_hour, scan_minute=scan_minute,
                         )
                         if bear_call:
+                            if self._mc_should_skip_trade():
+                                self.capital += bear_call.get('commission', 0)
+                                continue
                             _key = (bear_call.get('expiration'), bear_call['short_strike'], 'C')
                             if _key not in _entered_today and _open_key_counts.get(_key, 0) < _max_per_key:
                                 if _exposure_ok(bear_call):
@@ -926,6 +930,9 @@ class Backtester:
                             ticker, current_date, current_price, scan_hour, scan_minute,
                         )
                         if condor:
+                            if self._mc_should_skip_trade():
+                                self.capital += condor.get('commission', 0)
+                                continue
                             _ic_key = (
                                 condor.get('expiration'),
                                 condor['short_strike'],
@@ -959,7 +966,7 @@ class Backtester:
                         if new_position:
                             if self._mc_should_skip_trade():
                                 self.capital += new_position.get('commission', 0)
-                                logger.debug("MC trade-skip: dropped heuristic bull_put")
+                                new_position = None
                             else:
                                 open_positions.append(new_position)
 
@@ -970,7 +977,6 @@ class Backtester:
                             if bear_call:
                                 if self._mc_should_skip_trade():
                                     self.capital += bear_call.get('commission', 0)
-                                    logger.debug("MC trade-skip: dropped heuristic bear_call")
                                 else:
                                     open_positions.append(bear_call)
                             # Note: IC fallback is not available in heuristic mode —
@@ -1502,6 +1508,7 @@ class Backtester:
             trade_dollar_risk, spread_width * 2, combined_credit,
             max_contracts=max_contracts_cap,
         ))
+        commission_cost = self.commission * 4 * contracts  # 4 legs × contracts
 
         scan_time_mins = (scan_hour or 0) * 60 + (scan_minute or 0)
         market_open_mins = _FIRST_BAR_HOUR * 60 + _FIRST_BAR_MINUTE
@@ -2590,5 +2597,25 @@ class Backtester:
             # Bootstrap resampling stats (full MC mode only — empty dict otherwise)
             'bootstrap': bootstrap_stats,
         }
+
+        # Bootstrap stats: resample per-trade PnL to get return distribution
+        if self._mc_mode == 'full' and total_trades >= 5 and self._rng is not None:
+            pnls = trades_df['pnl'].tolist()
+            n = len(pnls)
+            n_boot = 200
+            boot_returns = []
+            for _ in range(n_boot):
+                sample = [pnls[self._rng.randint(0, n - 1)] for _ in range(n)]
+                boot_returns.append(sum(sample) / self.starting_capital * 100)
+            boot_returns.sort()
+            idx_p5 = max(0, int(0.05 * n_boot) - 1)
+            idx_p50 = max(0, int(0.50 * n_boot) - 1)
+            idx_p95 = max(0, int(0.95 * n_boot) - 1)
+            results['bootstrap'] = {
+                'P5': round(boot_returns[idx_p5], 2),
+                'P50': round(boot_returns[idx_p50], 2),
+                'P95': round(boot_returns[idx_p95], 2),
+                'pct_profitable': round(sum(1 for r in boot_returns if r > 0) / n_boot * 100, 1),
+            }
 
         return results

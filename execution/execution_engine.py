@@ -13,7 +13,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, Optional
 
-from shared.database import get_trade_by_id, init_db, upsert_trade, save_scanner_state, load_scanner_state
+from shared.database import upsert_trade, init_db, get_trade_by_id, save_scanner_state, load_scanner_state
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ class ExecutionEngine:
     def _check_drawdown_cb(self) -> Optional[str]:
         """Return a human-readable block reason if the drawdown circuit breaker is tripped, else None.
 
-        Mirrors backtester.py lines 674-702: if account equity has dropped more than
+        Mirrors backtester.py: if account equity has dropped more than
         risk.drawdown_cb_pct% from the high-water mark, block new entries.
 
         CB blocks new entries ONLY — does NOT force-close existing positions.
@@ -200,10 +200,23 @@ class ExecutionEngine:
 
         # Dry-run mode: no Alpaca provider configured
         if not self.alpaca:
-            logger.info(
-                "ExecutionEngine [DRY RUN]: would submit %s %s x%d @ %.2f credit (client_id=%s)",
-                ticker, spread_type, contracts, credit, client_id,
-            )
+            if "straddle" in spread_lower or "strangle" in spread_lower:
+                is_debit = opp.get("is_debit", False) or credit < 0
+                direction = "DEBIT" if is_debit else "CREDIT"
+                event_type = opp.get("event_type", opp.get("metadata", {}).get("event_type", "unknown"))
+                logger.info(
+                    "ExecutionEngine [DRY RUN]: would submit %s %s x%d | "
+                    "call=$%.2f put=$%.2f | %s $%.2f | event=%s (client_id=%s)",
+                    ticker, spread_type, contracts,
+                    round(float(opp.get("call_strike", 0) or 0), 2),
+                    round(float(opp.get("put_strike", 0) or 0), 2),
+                    direction, abs(credit), event_type, client_id,
+                )
+            else:
+                logger.info(
+                    "ExecutionEngine [DRY RUN]: would submit %s %s x%d @ %.2f credit (client_id=%s)",
+                    ticker, spread_type, contracts, credit, client_id,
+                )
             return {"status": "dry_run", "client_order_id": client_id, "message": "alpaca not configured"}
 
         # Market hours guard — check Alpaca clock before submitting any order
@@ -222,9 +235,7 @@ class ExecutionEngine:
             }
         # is_open=None means clock check failed — fail open (don't block)
 
-        # Drawdown circuit breaker — mirrors backtester.py lines 674-702.
-        # Checks high-water mark vs current equity; blocks new entries if drawdown
-        # exceeds risk.drawdown_cb_pct. CB does NOT close existing positions.
+        # Drawdown circuit breaker: block new entries if equity drops below threshold
         cb_reason = self._check_drawdown_cb()
         if cb_reason:
             logger.warning(
@@ -335,22 +346,37 @@ class ExecutionEngine:
     def _submit_straddle(self, opp: Dict, contracts: int, credit: float, client_id: str) -> Dict:
         """Submit straddle/strangle as two single-leg orders (call + put).
 
-        For long positions: buy-to-open both legs.
-        For short positions: sell-to-open both legs.
+        For long positions (debit): buy-to-open both legs, limit_price is max per leg.
+        For short positions (credit): sell-to-open both legs, limit_price is min per leg.
         Same rollback pattern as IC: if second leg fails, cancel first.
         """
         ticker = opp.get("ticker", "UNK")
         expiration = str(opp.get("expiration", "")).split(" ")[0]
-        spread_type = opp.get("type", "short_straddle")
+        spread_type = opp.get("type", opp.get("strategy_type", "short_straddle"))
         call_strike = round(float(opp.get("call_strike", 0) or 0), 2)
         put_strike = round(float(opp.get("put_strike", 0) or 0), 2)
         is_long = spread_type.startswith("long_")
+        is_debit = opp.get("is_debit", is_long)
 
-        # Determine order sides
+        # Determine order sides: long=buy-to-open, short=sell-to-open
         if is_long:
             call_side, put_side = "buy", "buy"
         else:
             call_side, put_side = "sell", "sell"
+
+        # Per-leg limit price: split total credit/debit evenly between legs.
+        # For buy orders: limit_price = max we'll pay per contract.
+        # For sell orders: limit_price = min we'll accept per contract.
+        # abs() ensures positive regardless of credit (positive) or debit (negative).
+        per_leg_limit = round(abs(credit / 2), 2) if credit else None
+
+        direction_label = "DEBIT (buy-to-open)" if is_debit else "CREDIT (sell-to-open)"
+        logger.info(
+            "ExecutionEngine: submitting straddle %s | %s | call=$%.2f put=$%.2f "
+            "x%d | %s | per_leg_limit=%s",
+            client_id, spread_type, call_strike, put_strike,
+            contracts, direction_label, per_leg_limit,
+        )
 
         # Submit call leg
         call_result = self.alpaca.submit_single_leg(
@@ -360,7 +386,7 @@ class ExecutionEngine:
             option_type="call",
             side=call_side,
             contracts=contracts,
-            limit_price=abs(credit / 2) if credit else None,
+            limit_price=per_leg_limit,
             client_order_id=client_id + "-call",
         )
 
@@ -379,7 +405,7 @@ class ExecutionEngine:
             option_type="put",
             side=put_side,
             contracts=contracts,
-            limit_price=abs(credit / 2) if credit else None,
+            limit_price=per_leg_limit,
             client_order_id=client_id + "-put",
         )
 

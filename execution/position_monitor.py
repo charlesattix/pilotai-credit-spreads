@@ -32,8 +32,10 @@ try:
 except ImportError:                        # pragma: no cover — Python < 3.9
     from backports.zoneinfo import ZoneInfo  # type: ignore
 
-from shared.database import close_trade, get_trades, init_db, upsert_trade
+from shared.database import close_trade, get_trades, upsert_trade, init_db
+from shared.strategy_adapter import trade_dict_to_position
 from shared.telegram_alerts import notify_api_failure
+from strategies.base import MarketSnapshot, PositionAction
 
 logger = logging.getLogger(__name__)
 
@@ -169,6 +171,11 @@ class PositionMonitor:
         # Tracks consecutive Alpaca API failures for escalation alerting
         self._consecutive_api_failures = 0
 
+        # Strategy registry — maps strategy_name → strategy instance for manage_position()
+        self._strategy_registry: Dict[str, object] = {}
+        self._exit_snapshot_cache = None
+        self._exit_snapshot_ts = None
+
         init_db(db_path)
 
     def start(self):
@@ -190,6 +197,56 @@ class PositionMonitor:
     def stop(self):
         """Signal the monitor to stop after the current check completes."""
         self._stop_event.set()
+
+    def register_strategies(self, strategies: list) -> None:
+        """Register strategy instances for manage_position() dispatch.
+
+        Args:
+            strategies: List of BaseStrategy instances from build_strategy_list().
+        """
+        for strat in strategies:
+            name = strat.__class__.__name__
+            self._strategy_registry[name] = strat
+            logger.info("PositionMonitor: registered strategy %s", name)
+
+    def _build_exit_snapshot(self, ticker: str, current_price: float) -> MarketSnapshot:
+        """Build a minimal MarketSnapshot for strategy.manage_position().
+
+        Caches for 60s per scan cycle to avoid redundant construction.
+        """
+        now = datetime.now(timezone.utc)
+
+        # Cache check (60s TTL)
+        if (
+            self._exit_snapshot_cache is not None
+            and self._exit_snapshot_ts is not None
+            and (now - self._exit_snapshot_ts).total_seconds() < 60
+            and ticker in self._exit_snapshot_cache.prices
+        ):
+            return self._exit_snapshot_cache
+
+        snapshot = MarketSnapshot(
+            date=now,
+            price_data={},
+            prices={ticker: current_price},
+            vix=20.0,
+            iv_rank={ticker: 25.0},
+            realized_vol={ticker: 0.25},
+            rsi={ticker: 50.0},
+        )
+        self._exit_snapshot_cache = snapshot
+        self._exit_snapshot_ts = now
+        return snapshot
+
+    _ACTION_TO_REASON = {
+        PositionAction.CLOSE_PROFIT: "profit_target",
+        PositionAction.CLOSE_STOP: "stop_loss",
+        PositionAction.CLOSE_EXPIRY: "expiration_today",
+        PositionAction.CLOSE_DTE: "dte_management",
+        PositionAction.CLOSE_TIME: "dte_management",
+        PositionAction.CLOSE_EVENT: "event_exit",
+        PositionAction.CLOSE_SIGNAL: "signal_exit",
+    }
 
     # ------------------------------------------------------------------
     # Market hours gate
@@ -270,12 +327,11 @@ class PositionMonitor:
                 "PositionMonitor: failed to fetch Alpaca positions (consecutive_failures=%d): %s",
                 self._consecutive_api_failures, e,
             )
-            # Count how many open positions are now unmonitored
             try:
                 _open = get_trades(status="open", source="execution", path=self.db_path)
                 _unmonitored = len(_open) if _open else 0
             except Exception:
-                _unmonitored = -1  # unknown
+                _unmonitored = -1
             notify_api_failure(
                 error_msg=str(e),
                 context="get_positions",
@@ -357,6 +413,38 @@ class PositionMonitor:
                     "PositionMonitor: cannot parse expiration '%s': %s", expiration_str, e
                 )
 
+        # 1b. Strategy dispatch — delegate to strategy.manage_position()
+        strategy_name = pos.get("strategy_name", "")
+        strategy = self._strategy_registry.get(strategy_name) if strategy_name else None
+        if strategy is not None:
+            try:
+                position = trade_dict_to_position(pos)
+                # Get current price for snapshot (from Alpaca mid-price)
+                current_price = float(pos.get("current_price", 0))
+                if current_price <= 0:
+                    try:
+                        ticker = pos.get("ticker", "")
+                        quote = self.alpaca.get_quote(ticker) if hasattr(self.alpaca, 'get_quote') else None
+                        if quote:
+                            current_price = float(quote.get("mid", quote.get("last", 0)))
+                    except Exception:
+                        pass
+                if current_price > 0:
+                    snapshot = self._build_exit_snapshot(pos.get("ticker", ""), current_price)
+                    action = strategy.manage_position(position, snapshot)
+                    if action != PositionAction.HOLD:
+                        reason = self._ACTION_TO_REASON.get(action, "signal_exit")
+                        logger.info(
+                            "PositionMonitor: %s strategy %s → %s → closing (%s)",
+                            pos.get("id"), strategy_name, action.value, reason,
+                        )
+                        return reason
+            except Exception as e:
+                logger.warning(
+                    "PositionMonitor: strategy dispatch failed for %s: %s",
+                    pos.get("id"), e,
+                )
+
         # 2. Current spread value from Alpaca market data
         current_value = self._get_spread_value(pos, alpaca_positions)
         if current_value is None:
@@ -413,23 +501,40 @@ class PositionMonitor:
         pnl = credit - current_value
         pnl_pct = (pnl / credit) * 100
 
-        # 3. Profit target
-        # NOTE (E4 — exit slippage): backtester applies VIX-scaled slippage to every exit
-        # (base=0.10, up to 3x at VIX≥40; see backtester.py _vix_scaled_exit_slippage()).
-        # The live system uses real Alpaca market fills instead — no explicit slippage parameter.
-        # Validate quarterly: compare actual fill prices vs intraday mid-price at trigger time.
-        if pnl_pct >= self.profit_target_pct:
+        # 3. Profit target — per-trade value with global fallback
+        #    Per-trade profit_target_pct from Signal is a fraction (e.g. 0.50 = 50%);
+        #    global self.profit_target_pct is already in percentage form (e.g. 50).
+        pt_raw = pos.get("profit_target_pct")
+        if pt_raw is not None:
+            pt_val = float(pt_raw)
+            # Convert fraction → percentage if needed (Signal stores 0.50, config stores 50)
+            pt_pct = pt_val * 100 if pt_val < 1.0 else pt_val
+        else:
+            pt_pct = self.profit_target_pct
+
+        if pnl_pct >= pt_pct:
             logger.info(
                 "PositionMonitor: %s profit target hit: %.1f%% >= %.0f%% → closing",
-                pos.get("id"), pnl_pct, self.profit_target_pct,
+                pos.get("id"), pnl_pct, pt_pct,
             )
             return "profit_target"
 
-        # 4. Stop loss — matches backtester semantics exactly:
-        #    Fires when LOSS (current_value - credit) >= stop_loss_mult × credit
-        #    i.e., current_value >= (1 + mult) × credit
-        #    For credit=$1.50, mult=3.5: fires at current_value=$6.75
-        sl_threshold = (1.0 + self.stop_loss_mult) * credit
+        # 4. Stop loss — per-trade value with global fallback
+        #    Per-trade stop_loss_pct from Signal is a multiplier (e.g. 2.5 = 2.5x credit
+        #    for CS, 0.50 = 50% for SS); same convention as self.stop_loss_mult.
+        #
+        #    Two complementary checks:
+        #   (a) Loss-based (matches backtester semantics):
+        #       Fires when LOSS (current_value - credit) >= stop_loss_mult × credit
+        #       i.e., current_value >= (1 + mult) × credit
+        #
+        #   (b) Spread-width cap (safety backstop):
+        #       Fires at 90% of the spread width regardless of credit amount.
+        #       Skipped for straddles/strangles (no defined spread width).
+        #
+        #   The effective SL threshold is the LOWER of (a) and (b).
+        sl_mult = float(pos.get("stop_loss_pct", self.stop_loss_mult))
+        sl_threshold = (1.0 + sl_mult) * credit
 
         # Sanity: sl_threshold must not exceed the spread's max possible value per contract.
         # Fires when credit is in wrong units (e.g., per-contract instead of per-share).
@@ -438,7 +543,7 @@ class PositionMonitor:
             logger.warning(
                 "PositionMonitor: %s sl_threshold=%.2f exceeds spread_width*100=%.2f "
                 "(credit=%.4f × (1+%.1f), width=%.0f) — verify credit field units",
-                pos.get("id"), sl_threshold, _sw * 100, credit, self.stop_loss_mult, _sw,
+                pos.get("id"), sl_threshold, _sw * 100, credit, sl_mult, _sw,
             )
 
         if current_value >= sl_threshold:
@@ -446,7 +551,7 @@ class PositionMonitor:
                 "PositionMonitor: %s stop loss hit: current=%.4f >= threshold=%.4f "
                 "(credit=%.4f × (1 + %.1f)) → closing",
                 pos.get("id"), current_value, sl_threshold,
-                credit, self.stop_loss_mult,
+                credit, sl_mult,
             )
             return "stop_loss"
 
@@ -720,6 +825,9 @@ class PositionMonitor:
                 # can poll for fills and detect stale (unfilled) close orders.
                 pos["close_order_id"] = result.get("order_id")
                 pos["close_order_submitted_at"] = datetime.now(timezone.utc).isoformat()
+                # Straddle/strangle closes have a second order for the put leg
+                if result.get("put_order_id"):
+                    pos["close_put_order_id"] = result.get("put_order_id")
                 try:
                     upsert_trade(pos, source="execution", path=self.db_path)
                 except Exception as e:
@@ -728,8 +836,9 @@ class PositionMonitor:
                         pos.get("id"), e,
                     )
                 logger.info(
-                    "PositionMonitor: close submitted for %s order_id=%s",
+                    "PositionMonitor: close submitted for %s order_id=%s%s",
                     pos.get("id"), pos["close_order_id"],
+                    f" put_order_id={pos.get('close_put_order_id')}" if pos.get("close_put_order_id") else "",
                 )
             elif result.get("status") == "partial_close":
                 # IC close failed after all retries — _submit_ic_close already logged CRITICAL
@@ -1030,7 +1139,12 @@ class PositionMonitor:
     # ------------------------------------------------------------------
 
     def _reconcile_pending_closes(self) -> None:
-        """Poll Alpaca for fill status of pending_close orders; record P&L when filled."""
+        """Poll Alpaca for fill status of pending_close orders; record P&L when filled.
+
+        Straddle/strangle positions have dual close orders (call + put).
+        Both must fill before P&L is recorded. If one fills and the other fails,
+        the position stays pending_close and logs a warning.
+        """
         pending = get_trades(status="pending_close", source="execution", path=self.db_path)
         if not pending:
             return
@@ -1042,6 +1156,8 @@ class PositionMonitor:
             if not order_id:
                 # No order_id stored — close was submitted before this fix; leave for manual
                 continue
+
+            put_order_id = pos.get("close_put_order_id")
 
             try:
                 order = self.alpaca.get_order_status(order_id)
@@ -1060,6 +1176,45 @@ class PositionMonitor:
 
             order_status = str(order.get("status", "")).lower()
 
+            # --- Dual-leg close (straddle/strangle) ---
+            if put_order_id:
+                try:
+                    put_order = self.alpaca.get_order_status(put_order_id)
+                except Exception as e:
+                    logger.warning(
+                        "PositionMonitor: put close order status fetch failed for %s: %s",
+                        put_order_id, e,
+                    )
+                    continue
+
+                put_status = str(put_order.get("status", "")).lower() if put_order else ""
+
+                # Both legs filled → record combined P&L
+                if "filled" in order_status and "filled" in put_status:
+                    combined_order = self._combine_straddle_fills(order, put_order)
+                    self._record_close_pnl(pos, combined_order)
+                # One leg terminal-no-fill → reset to open for retry
+                elif order_status in _TERMINAL_NO_FILL or put_status in _TERMINAL_NO_FILL:
+                    logger.warning(
+                        "PositionMonitor: straddle close partial failure for %s — "
+                        "call=%s put=%s — resetting to open",
+                        pos.get("id"), order_status, put_status,
+                    )
+                    self._reset_to_open(pos)
+                # One leg filled, other still pending → warn but wait
+                elif "filled" in order_status or "filled" in put_status:
+                    logger.warning(
+                        "PositionMonitor: straddle %s partial close fill — "
+                        "call=%s put=%s — waiting for second leg",
+                        pos.get("id"), order_status, put_status,
+                    )
+                    self._check_stale_close(pos, order_id, order_status)
+                else:
+                    # Both still pending — check staleness
+                    self._check_stale_close(pos, order_id, order_status)
+                continue
+
+            # --- Single-order close (credit spread, iron condor) ---
             if "filled" in order_status:
                 # Partial fill detection: compare filled_qty to expected contracts
                 filled_qty_str = order.get("filled_qty")
@@ -1079,42 +1234,64 @@ class PositionMonitor:
                 self._record_close_pnl(pos, order)
 
             elif order_status in _TERMINAL_NO_FILL:
-                # Close order was rejected/cancelled — reset position to open for retry
                 logger.warning(
                     "PositionMonitor: close order %s terminal status '%s' for %s — resetting to open",
                     order_id, order_status, pos.get("id"),
                 )
-                pos["status"] = "open"
-                pos.pop("close_order_id", None)
-                pos.pop("exit_reason", None)
-                pos.pop("close_order_submitted_at", None)
-                try:
-                    upsert_trade(pos, source="execution", path=self.db_path)
-                except Exception as e:
-                    logger.error(
-                        "PositionMonitor: failed to reset %s to open: %s", pos.get("id"), e
-                    )
+                self._reset_to_open(pos)
             else:
-                # Still pending (new, accepted, partially_filled) — leave as pending_close
-                # Warn if the close order has been sitting unfilled too long (stale)
-                submitted_at_str = pos.get("close_order_submitted_at")
-                if submitted_at_str:
-                    try:
-                        submitted_at = datetime.fromisoformat(submitted_at_str)
-                        if submitted_at.tzinfo is None:
-                            submitted_at = submitted_at.replace(tzinfo=timezone.utc)
-                        age_minutes = (
-                            datetime.now(timezone.utc) - submitted_at
-                        ).total_seconds() / 60
-                        if age_minutes >= _STALE_CLOSE_MINUTES:
-                            logger.warning(
-                                "PositionMonitor: STALE CLOSE ORDER — %s has been pending "
-                                "%.0f min (order_id=%s status=%s). "
-                                "Consider manual intervention or price ladder escalation.",
-                                pos.get("id"), age_minutes, order_id, order_status,
-                            )
-                    except (ValueError, TypeError):
-                        pass
+                self._check_stale_close(pos, order_id, order_status)
+
+    def _combine_straddle_fills(self, call_order: Dict, put_order: Dict) -> Dict:
+        """Combine two single-leg fill orders into a synthetic combined order for P&L calc.
+
+        The filled_avg_price is the sum of both legs' fill prices (total cost/credit per share).
+        """
+        call_fill = float(call_order.get("filled_avg_price") or 0)
+        put_fill = float(put_order.get("filled_avg_price") or 0)
+        combined_fill = call_fill + put_fill
+
+        return {
+            "status": "filled",
+            "filled_avg_price": str(combined_fill),
+            "filled_at": call_order.get("filled_at") or put_order.get("filled_at"),
+            "filled_qty": call_order.get("filled_qty") or put_order.get("filled_qty"),
+        }
+
+    def _reset_to_open(self, pos: Dict) -> None:
+        """Reset a failed pending_close position back to open for retry."""
+        pos["status"] = "open"
+        pos.pop("close_order_id", None)
+        pos.pop("close_put_order_id", None)
+        pos.pop("exit_reason", None)
+        pos.pop("close_order_submitted_at", None)
+        try:
+            upsert_trade(pos, source="execution", path=self.db_path)
+        except Exception as e:
+            logger.error(
+                "PositionMonitor: failed to reset %s to open: %s", pos.get("id"), e
+            )
+
+    def _check_stale_close(self, pos: Dict, order_id: str, order_status: str) -> None:
+        """Warn if a close order has been sitting unfilled for too long."""
+        submitted_at_str = pos.get("close_order_submitted_at")
+        if submitted_at_str:
+            try:
+                submitted_at = datetime.fromisoformat(submitted_at_str)
+                if submitted_at.tzinfo is None:
+                    submitted_at = submitted_at.replace(tzinfo=timezone.utc)
+                age_minutes = (
+                    datetime.now(timezone.utc) - submitted_at
+                ).total_seconds() / 60
+                if age_minutes >= _STALE_CLOSE_MINUTES:
+                    logger.warning(
+                        "PositionMonitor: STALE CLOSE ORDER — %s has been pending "
+                        "%.0f min (order_id=%s status=%s). "
+                        "Consider manual intervention or price ladder escalation.",
+                        pos.get("id"), age_minutes, order_id, order_status,
+                    )
+            except (ValueError, TypeError):
+                pass
 
     def _record_close_pnl(self, pos: Dict, order: Dict) -> None:
         """Calculate realized P&L from fill data and update DB with final closed status."""

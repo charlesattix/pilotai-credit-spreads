@@ -28,7 +28,6 @@ _EXPERIMENT_ID: Optional[str] = os.environ.get("EXPERIMENT_ID")
 
 _warned_not_configured = False
 
-# Rate-limit state for API failure alerts (max 1 per 5 minutes)
 _last_api_failure_alert_time: float = 0.0
 _API_FAILURE_ALERT_COOLDOWN_SECS = 300  # 5 minutes
 
@@ -80,7 +79,23 @@ def send_message(text: str, parse_mode: str = "HTML") -> bool:
 
 
 def notify_trade_open(trade: dict) -> bool:
-    """Send a Telegram alert for a new trade entry."""
+    """Send a Telegram alert for a new trade entry.
+
+    Handles credit spreads, iron condors, and straddles/strangles.
+    """
+    spread_type = str(trade.get("type", trade.get("strategy_type", ""))).lower()
+
+    # Straddle/strangle: use dedicated formatter
+    if "straddle" in spread_type or "strangle" in spread_type:
+        try:
+            from alerts.formatters.telegram import TelegramAlertFormatter
+            msg = TelegramAlertFormatter().format_straddle_open(trade)
+            return send_message(msg)
+        except Exception as e:
+            logger.error("Straddle open notification failed: %s", e)
+            return False
+
+    # Credit spread / iron condor: existing format
     dte = trade.get("dte_at_entry", "?")
     spread = trade.get("type", "spread").replace("_", " ").title()
     lines = [
@@ -102,13 +117,16 @@ def notify_trade_close(
     emoji = "\U0001f4c8" if pnl >= 0 else "\U0001f4c9"
     sign = "+" if pnl >= 0 else "-"
     ticker = trade.get("ticker", "?")
-    spread = trade.get("type", "spread").replace("_", " ").title()
+    spread = trade.get("type", trade.get("strategy_type", "spread")).replace("_", " ").title()
 
     reason_map = {
         "profit_target": "Profit Target Hit",
         "stop_loss": "Stop Loss Hit",
         "expiration": "Expiration",
+        "expiration_today": "Expiring Today",
         "management_dte": "DTE Management",
+        "dte_management": "DTE Management",
+        "closed_external": "Closed Externally",
     }
     reason_display = reason_map.get(reason, reason)
 
@@ -143,7 +161,32 @@ def notify_daily_summary(
         return False
 
 
-# ── Deviation alerts ──────────────────────────────────────────────────────
+# ── Pre-event warning ─────────────────────────────────────────────────────
+
+
+def notify_upcoming_events(days_ahead: int = 2) -> bool:
+    """Check economic calendar and send a heads-up about upcoming events.
+
+    Intended to be called during the pre_market slot.
+    Returns True if an alert was sent, False otherwise.
+    """
+    try:
+        from shared.economic_calendar import EconomicCalendar
+        from alerts.formatters.telegram import TelegramAlertFormatter
+
+        cal = EconomicCalendar()
+        events = cal.get_upcoming_events(days_ahead=days_ahead)
+        if not events:
+            return False
+
+        msg = TelegramAlertFormatter().format_event_warning(events)
+        return send_message(msg)
+    except Exception as e:
+        logger.error("Pre-event warning notification failed: %s", e)
+        return False
+
+
+# ── API failure alerts ────────────────────────────────────────────────────
 
 
 def notify_api_failure(
@@ -189,6 +232,9 @@ def notify_api_failure(
     if result:
         _last_api_failure_alert_time = now
     return result
+
+
+# ── Deviation alerts ──────────────────────────────────────────────────────
 
 
 def notify_deviation_alerts(snapshot: dict) -> bool:

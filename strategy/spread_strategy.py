@@ -57,7 +57,6 @@ class CreditSpreadStrategy:
         self.default_spread_width = self.strategy_params.get('spread_width', 10)
 
         # Regime detection mode: 'combo' (v2 rule-based) or 'hmm' (legacy ML)
-        # Default 'combo' matches backtester default (backtester.py line 407).
         self.regime_mode = self.strategy_params.get('regime_mode', 'combo')
         self._combo_regime_detector = None
         if self.regime_mode == 'combo':
@@ -103,7 +102,7 @@ class CreditSpreadStrategy:
 
         # Determine direction flags once, outside the expiration loop.
         # In combo mode, direction is decided SOLELY by ComboRegimeDetector output
-        # (technical_signals['combo_regime']), mirroring backtester.py lines 715-729:
+        # (technical_signals['combo_regime']), mirroring backtester.py:
         #   _want_puts = (regime == 'BULL')
         #   _want_calls = (regime == 'BEAR')
         # NEUTRAL → ICs only; no directional spreads opened.
@@ -546,9 +545,7 @@ class CreditSpreadStrategy:
             # Apply entry slippage — matches backtester _find_real_spread:
             #   slippage = prices.get("slippage", self.slippage); credit -= slippage
             # Live reads from backtest.slippage (same config key as backtester).
-            _slippage = float(
-                self.config.get('backtest', {}).get('slippage', 0.0)
-            )
+            _slippage = float(self.config.get('backtest', {}).get('slippage', 0.0))
             credit -= _slippage
 
             # Reject crossed markets (negative credit after slippage)

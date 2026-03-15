@@ -577,6 +577,190 @@ class AlpacaProvider:
             for p in positions
         ]
 
+    # ------------------------------------------------------------------
+    # Submit single-leg option order (straddle/strangle legs)
+    # ------------------------------------------------------------------
+
+    @_retry_with_backoff(max_retries=2, base_delay=1.0)
+    def submit_single_leg(
+        self,
+        ticker: str,
+        strike: float,
+        expiration: str,
+        option_type: str,
+        side: str,
+        contracts: int = 1,
+        limit_price: Optional[float] = None,
+        client_order_id: Optional[str] = None,
+    ) -> Dict:
+        """Submit a single-leg option order (buy or sell a single call/put).
+
+        Used for straddle/strangle opens and closes where each leg is an
+        independent order rather than a multi-leg spread.
+
+        Args:
+            ticker: Underlying symbol (e.g. SPY).
+            strike: Option strike price.
+            expiration: Expiration date string (YYYY-MM-DD).
+            option_type: 'call' or 'put'.
+            side: 'buy' or 'sell'.
+            contracts: Number of contracts.
+            limit_price: Limit price per contract. None for market order.
+            client_order_id: Deterministic ID for idempotency.
+
+        Returns:
+            Dict with keys: status, order_id, client_order_id, order_status,
+            ticker, strike, option_type, side, contracts, limit_price, submitted_at.
+        """
+        strike = round(float(strike), 2)
+        symbol = self.find_option_symbol(ticker, expiration, strike, option_type)
+        if not symbol:
+            return {"status": "error", "message": "Could not resolve option symbol"}
+
+        order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
+
+        # Determine position intent based on side
+        if side.lower() == "buy":
+            # Could be buy-to-open (new long) or buy-to-close (closing short)
+            # Use BUY_TO_OPEN by default; callers closing positions should use
+            # the close variant or set intent explicitly.
+            intent = PositionIntent.BUY_TO_OPEN
+        else:
+            intent = PositionIntent.SELL_TO_OPEN
+
+        client_id = client_order_id or f"sl-{ticker}-{uuid.uuid4().hex[:8]}"
+
+        logger.info(
+            "Submitting single-leg: %s %s %s $%.2f x%d @ limit %s (client_id=%s)",
+            side.upper(), ticker, option_type.upper(), strike,
+            contracts, limit_price, client_id,
+        )
+
+        try:
+            if limit_price is not None:
+                order_req = LimitOrderRequest(
+                    symbol=symbol,
+                    qty=contracts,
+                    side=order_side,
+                    time_in_force=TimeInForce.DAY,
+                    limit_price=round(limit_price, 2),
+                    client_order_id=client_id,
+                    position_intent=intent,
+                )
+            else:
+                from alpaca.trading.requests import MarketOrderRequest
+                order_req = MarketOrderRequest(
+                    symbol=symbol,
+                    qty=contracts,
+                    side=order_side,
+                    time_in_force=TimeInForce.DAY,
+                    client_order_id=client_id,
+                    position_intent=intent,
+                )
+
+            order = self._circuit_breaker.call(self.client.submit_order, order_req)
+
+            result = {
+                "status": "submitted",
+                "order_id": str(order.id),
+                "client_order_id": order.client_order_id,
+                "order_status": str(order.status),
+                "ticker": ticker,
+                "strike": strike,
+                "option_type": option_type,
+                "side": side,
+                "symbol": symbol,
+                "contracts": contracts,
+                "limit_price": limit_price,
+                "submitted_at": str(order.submitted_at),
+            }
+
+            logger.info("Single-leg order submitted: %s status=%s", result["order_id"], result["order_status"])
+            return result
+
+        except Exception as e:
+            logger.error("Single-leg order submission failed: %s", e, exc_info=True)
+            return {
+                "status": "error",
+                "message": str(e),
+                "ticker": ticker,
+                "strike": strike,
+                "option_type": option_type,
+                "side": side,
+            }
+
+    @_retry_with_backoff(max_retries=2, base_delay=1.0)
+    def close_single_leg(
+        self,
+        ticker: str,
+        strike: float,
+        expiration: str,
+        option_type: str,
+        side: str,
+        contracts: int = 1,
+        limit_price: Optional[float] = None,
+        client_order_id: Optional[str] = None,
+    ) -> Dict:
+        """Close a single-leg option position.
+
+        Like submit_single_leg but uses CLOSE position intents.
+
+        Args:
+            side: 'buy' (buy-to-close a short) or 'sell' (sell-to-close a long).
+        """
+        strike = round(float(strike), 2)
+        symbol = self.find_option_symbol(ticker, expiration, strike, option_type)
+        if not symbol:
+            return {"status": "error", "message": "Could not resolve option symbol for close"}
+
+        order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
+        intent = (
+            PositionIntent.BUY_TO_CLOSE
+            if side.lower() == "buy"
+            else PositionIntent.SELL_TO_CLOSE
+        )
+
+        client_id = client_order_id or f"close-sl-{ticker}-{uuid.uuid4().hex[:8]}"
+
+        logger.info(
+            "Closing single-leg: %s %s %s $%.2f x%d (client_id=%s)",
+            side.upper(), ticker, option_type.upper(), strike, contracts, client_id,
+        )
+
+        try:
+            if limit_price is not None:
+                order_req = LimitOrderRequest(
+                    symbol=symbol,
+                    qty=contracts,
+                    side=order_side,
+                    time_in_force=TimeInForce.DAY,
+                    limit_price=round(limit_price, 2),
+                    client_order_id=client_id,
+                    position_intent=intent,
+                )
+            else:
+                from alpaca.trading.requests import MarketOrderRequest
+                order_req = MarketOrderRequest(
+                    symbol=symbol,
+                    qty=contracts,
+                    side=order_side,
+                    time_in_force=TimeInForce.DAY,
+                    client_order_id=client_id,
+                    position_intent=intent,
+                )
+
+            order = self._circuit_breaker.call(self.client.submit_order, order_req)
+            logger.info("Single-leg close order submitted: %s status=%s", order.id, order.status)
+            return {
+                "status": "submitted",
+                "order_id": str(order.id),
+                "order_status": str(order.status),
+            }
+
+        except Exception as e:
+            logger.error("Single-leg close order failed: %s", e, exc_info=True)
+            return {"status": "error", "message": str(e)}
+
     def cancel_order(self, order_id: str) -> bool:
         """Cancel an open order."""
         try:
