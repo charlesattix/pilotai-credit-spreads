@@ -161,7 +161,8 @@ alerts:
 
   telegram:
     enabled: true
-    # Uses TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID from env
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
 
 # ============================================================================
 # Logging
