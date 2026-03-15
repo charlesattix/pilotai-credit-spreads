@@ -200,3 +200,27 @@ class TestExtractStraddleStrangleParams:
         params = _extract_straddle_strangle_params({})
         assert params["mode"] == "short_post_event"
         assert params["target_dte"] == 7
+
+
+# ---------------------------------------------------------------------------
+# Integration: build_strategy_list produces strategies that can generate_signals
+# ---------------------------------------------------------------------------
+
+class TestBuildStrategyListIntegration:
+    def test_credit_spread_strategy_has_generate_signals(self):
+        from strategies.base import MarketSnapshot
+        strategies = build_strategy_list(_base_config())
+        for s in strategies:
+            assert hasattr(s, "generate_signals"), f"{type(s).__name__} missing generate_signals"
+
+    def test_all_strategies_have_params_method(self):
+        strategies = build_strategy_list(_config_all_enabled())
+        for s in strategies:
+            # All strategy instances should expose _p() for param lookup
+            assert hasattr(s, "_p"), f"{type(s).__name__} missing _p"
+
+    def test_regime_scale_params_forwarded(self):
+        cfg = _base_config()
+        cfg["risk"]["regime_scale_bull"] = 1.2
+        params = _extract_credit_spread_params(cfg)
+        assert params.get("regime_scale_bull") == 1.2
