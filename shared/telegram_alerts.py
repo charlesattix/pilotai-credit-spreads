@@ -14,6 +14,7 @@ warning on the first call, never crashes).
 
 import logging
 import os
+import time
 from typing import List, Optional
 
 import requests
@@ -26,6 +27,10 @@ _TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 _EXPERIMENT_ID: Optional[str] = os.environ.get("EXPERIMENT_ID")
 
 _warned_not_configured = False
+
+# Rate-limit state for API failure alerts (max 1 per 5 minutes)
+_last_api_failure_alert_time: float = 0.0
+_API_FAILURE_ALERT_COOLDOWN_SECS = 300  # 5 minutes
 
 
 def set_experiment_id(experiment_id: str) -> None:
@@ -139,6 +144,51 @@ def notify_daily_summary(
 
 
 # ── Deviation alerts ──────────────────────────────────────────────────────
+
+
+def notify_api_failure(
+    error_msg: str,
+    context: str,
+    unmonitored_positions: int = 0,
+) -> bool:
+    """Send a rate-limited Telegram alert when an API call fails.
+
+    Args:
+        error_msg: The exception/error message string.
+        context: What failed (e.g. 'get_positions', 'submit_close', 'polygon_scan').
+        unmonitored_positions: Number of positions currently unmonitored due to failure.
+
+    Returns:
+        True if alert was sent, False if rate-limited or send failed.
+    """
+    global _last_api_failure_alert_time
+
+    now = time.time()
+    if now - _last_api_failure_alert_time < _API_FAILURE_ALERT_COOLDOWN_SECS:
+        logger.debug(
+            "API failure alert rate-limited (context=%s, cooldown remaining=%.0fs)",
+            context,
+            _API_FAILURE_ALERT_COOLDOWN_SECS - (now - _last_api_failure_alert_time),
+        )
+        return False
+
+    from datetime import datetime, timezone as _tz
+    timestamp = datetime.now(_tz.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    lines = [
+        "\U0001f6a8 <b>API FAILURE ALERT</b>",
+        "",
+        f"<b>Operation:</b> <code>{context}</code>",
+        f"<b>Error:</b> {error_msg}",
+    ]
+    if unmonitored_positions > 0:
+        lines.append(f"<b>Unmonitored positions:</b> {unmonitored_positions}")
+    lines.append(f"<b>Time:</b> {timestamp}")
+
+    result = send_message("\n".join(lines))
+    if result:
+        _last_api_failure_alert_time = now
+    return result
 
 
 def notify_deviation_alerts(snapshot: dict) -> bool:

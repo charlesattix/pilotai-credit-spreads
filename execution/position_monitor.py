@@ -33,6 +33,7 @@ except ImportError:                        # pragma: no cover — Python < 3.9
     from backports.zoneinfo import ZoneInfo  # type: ignore
 
 from shared.database import close_trade, get_trades, init_db, upsert_trade
+from shared.telegram_alerts import notify_api_failure
 
 logger = logging.getLogger(__name__)
 
@@ -268,6 +269,17 @@ class PositionMonitor:
             logger.error(
                 "PositionMonitor: failed to fetch Alpaca positions (consecutive_failures=%d): %s",
                 self._consecutive_api_failures, e,
+            )
+            # Count how many open positions are now unmonitored
+            try:
+                _open = get_trades(status="open", source="execution", path=self.db_path)
+                _unmonitored = len(_open) if _open else 0
+            except Exception:
+                _unmonitored = -1  # unknown
+            notify_api_failure(
+                error_msg=str(e),
+                context="get_positions",
+                unmonitored_positions=max(0, _unmonitored),
             )
             if self._consecutive_api_failures >= 3:
                 logger.critical(
@@ -755,6 +767,10 @@ class PositionMonitor:
                 "PositionMonitor: exception submitting close for %s: %s",
                 pos.get("id"), e, exc_info=True,
             )
+            notify_api_failure(
+                error_msg=str(e),
+                context=f"submit_close ({pos.get('ticker', '?')} / {pos.get('id', '?')})",
+            )
 
     def _submit_ic_close(self, pos: Dict, contracts: int, expiration_str: str) -> Dict:
         """Delegate 4-leg iron condor close to AlpacaProvider, with retry on failure.
@@ -1032,6 +1048,10 @@ class PositionMonitor:
             except Exception as e:
                 logger.warning(
                     "PositionMonitor: order status fetch failed for %s: %s", order_id, e
+                )
+                notify_api_failure(
+                    error_msg=str(e),
+                    context=f"get_order_status (order_id={order_id})",
                 )
                 continue
 

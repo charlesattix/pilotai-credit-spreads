@@ -290,6 +290,11 @@ class CreditSpreadSystem:
                     all_opportunities.extend(opportunities)
                 except Exception as e:
                     logger.error(f"Error analyzing {ticker}: {e}", exc_info=True)
+                    from shared.telegram_alerts import notify_api_failure
+                    notify_api_failure(
+                        error_msg=str(e),
+                        context=f"scan_ticker ({ticker})",
+                    )
 
         if not all_opportunities:
             logger.info("No opportunities found")
