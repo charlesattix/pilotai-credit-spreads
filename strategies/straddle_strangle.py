@@ -226,20 +226,41 @@ class StraddleStrangleStrategy(BaseStrategy):
         entry_cost = abs(position.net_credit)
 
         if is_long:
-            # Long: value of our options
+            # Long straddle: value of our options
             current_value = spread_value
             profit = current_value - entry_cost
             if profit >= entry_cost * position.profit_target_pct:
                 return PositionAction.CLOSE_PROFIT
             if entry_cost - current_value >= entry_cost * position.stop_loss_pct:
                 return PositionAction.CLOSE_STOP
+
+            # Event-aware exit: if we entered pre-event and the event has now passed,
+            # close to capture any move / avoid post-event IV crush eating our premium
+            if hasattr(market_data, 'recent_events') and market_data.recent_events:
+                entry_date = position.entry_date
+                if entry_date:
+                    for event in market_data.recent_events:
+                        event_date_str = event.get("date", "")
+                        try:
+                            from datetime import datetime as dt_cls
+                            event_dt = dt_cls.fromisoformat(event_date_str)
+                            if event_dt.tzinfo is None:
+                                event_dt = event_dt.replace(tzinfo=timezone.utc)
+                            if entry_date < event_dt <= market_data.date:
+                                return PositionAction.CLOSE_EVENT
+                        except (ValueError, TypeError):
+                            pass
         else:
-            # Short: cost to buy back
+            # Short straddle: cost to buy back
             cost_to_close = -spread_value
             credit = position.net_credit
             if credit - cost_to_close >= credit * position.profit_target_pct:
                 return PositionAction.CLOSE_PROFIT
             if cost_to_close - credit >= credit * position.stop_loss_pct:
+                return PositionAction.CLOSE_STOP
+
+            # Hard stop: 3× credit safety backstop for short straddles/strangles
+            if cost_to_close >= credit * 3.0:
                 return PositionAction.CLOSE_STOP
 
         return PositionAction.HOLD
