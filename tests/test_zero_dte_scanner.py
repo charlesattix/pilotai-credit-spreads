@@ -9,20 +9,22 @@ Covers:
 - Backtest validator (zero_dte_backtest.py)
 """
 
-import copy
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from alerts.zero_dte_config import build_zero_dte_config, SPX_PROPERTIES
-from alerts.zero_dte_scanner import ZeroDTEScanner
-from alerts.zero_dte_exit_monitor import ZeroDTEExitMonitor
-from alerts.zero_dte_backtest import ZeroDTEBacktestValidator
 from alerts.alert_schema import (
-    Alert, AlertType, Confidence, Direction, Leg, TimeSensitivity,
+    Alert,
+    AlertType,
+    Confidence,
+    Direction,
+    TimeSensitivity,
 )
-
+from alerts.zero_dte_backtest import ZeroDTEBacktestValidator
+from alerts.zero_dte_config import SPX_PROPERTIES, build_zero_dte_config
+from alerts.zero_dte_exit_monitor import ZeroDTEExitMonitor
+from alerts.zero_dte_scanner import ZeroDTEScanner
 
 # ---------------------------------------------------------------------------
 # Fixtures

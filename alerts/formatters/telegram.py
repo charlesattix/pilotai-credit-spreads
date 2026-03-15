@@ -7,7 +7,6 @@ daily summary reports.
 
 from alerts.alert_schema import Alert, AlertType
 
-
 # Color-code emojis by alert type
 _TYPE_EMOJI = {
     AlertType.credit_spread: "\U0001f7e2",    # green circle
@@ -153,7 +152,7 @@ class TelegramAlertFormatter:
         lines.append(f"Alerts fired: {alerts_fired}")
         lines.append(f"Closed today: {closed_today} (W:{wins} / L:{losses})")
         lines.append("")
-        lines.append(f"\U0001f4bc <b>PORTFOLIO:</b>")
+        lines.append("\U0001f4bc <b>PORTFOLIO:</b>")
         lines.append(f"  Open positions: {open_positions}")
         lines.append(f"  Total risk: {total_risk_pct:.1f}%")
         lines.append(

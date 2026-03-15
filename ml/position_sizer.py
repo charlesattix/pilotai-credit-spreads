@@ -9,9 +9,9 @@ Based on research:
 - MacLean et al. (2011): "The Kelly Capital Growth Investment Criterion"
 """
 
+import logging
 from collections import Counter
 from typing import Dict, List, Optional
-import logging
 
 from shared.types import PositionSizeResult
 
@@ -117,7 +117,7 @@ def get_contract_size(
 class PositionSizer:
     """
     Adaptive position sizing using Kelly Criterion.
-    
+
     Features:
     - Kelly criterion for optimal position size
     - ML confidence adjustment (fractional Kelly)
@@ -135,7 +135,7 @@ class PositionSizer:
     ):
         """
         Initialize position sizer.
-        
+
         Args:
             max_position_size: Maximum size for any single position (fraction of portfolio)
             kelly_fraction: Fraction of Kelly criterion to use (0.25 = quarter Kelly)
@@ -166,7 +166,7 @@ class PositionSizer:
     ) -> PositionSizeResult:
         """
         Calculate optimal position size for a new trade.
-        
+
         Args:
             win_probability: Probability of profit (from ML model)
             expected_return: Expected gain if profitable (e.g., 0.30 = 30%)
@@ -174,7 +174,7 @@ class PositionSizer:
             ml_confidence: ML model confidence (0-1)
             current_positions: List of existing positions
             ticker: Ticker symbol for correlation analysis
-            
+
         Returns:
             Dictionary with position size recommendation and reasoning
         """
@@ -253,13 +253,13 @@ class PositionSizer:
     ) -> float:
         """
         Calculate Kelly Criterion position size.
-        
+
         Kelly% = (p * b - q) / b
         where:
             p = probability of winning
             q = probability of losing = 1 - p
             b = win_amount / loss_amount (odds ratio)
-        
+
         For credit spreads:
             win_amount = premium received (e.g., 0.30 = 30% return on risk)
             loss_amount = max loss (typically 1.00 = 100% of collateral)
@@ -293,7 +293,7 @@ class PositionSizer:
     ) -> float:
         """
         Apply portfolio-level constraints.
-        
+
         Constraints:
         1. Total portfolio risk <= max_portfolio_risk
         2. Correlated exposure <= max_correlated_exposure
@@ -332,7 +332,7 @@ class PositionSizer:
     def _get_correlated_tickers(self, ticker: str) -> List[str]:
         """
         Get list of tickers correlated with given ticker.
-        
+
         Simplified version - in production, calculate actual correlations.
         """
         # Major index ETFs (highly correlated)
@@ -357,10 +357,10 @@ class PositionSizer:
     def calculate_portfolio_risk(self, positions: List[Dict]) -> Dict:
         """
         Calculate total portfolio risk metrics.
-        
+
         Args:
             positions: List of position dictionaries
-            
+
         Returns:
             Dictionary with risk metrics
         """
@@ -408,11 +408,11 @@ class PositionSizer:
     ) -> List[Dict]:
         """
         Rebalance existing positions based on updated ML predictions.
-        
+
         Args:
             positions: Current positions
             ml_predictions: Updated probability predictions {ticker: probability}
-            
+
         Returns:
             List of rebalancing recommendations
         """
@@ -475,12 +475,12 @@ class PositionSizer:
     ) -> float:
         """
         Calculate optimal portfolio leverage using Kelly for multiple positions.
-        
+
         Args:
             position_sizes: Current position sizes
             win_probabilities: Win probability for each position
             expected_returns: Expected return for each position
-            
+
         Returns:
             Optimal leverage multiplier
         """
@@ -531,11 +531,11 @@ class PositionSizer:
     def get_size_recommendation_text(self, sizing_result: Dict, portfolio_value: float) -> str:
         """
         Get human-readable sizing recommendation.
-        
+
         Args:
             sizing_result: Result from calculate_position_size()
             portfolio_value: Total portfolio value in dollars
-            
+
         Returns:
             Human-readable recommendation string
         """

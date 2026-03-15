@@ -46,8 +46,7 @@ import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-from urllib.parse import parse_qs, urlparse
+from typing import Dict, List, Optional
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
@@ -283,7 +282,6 @@ def get_underlying_prices(ticker: str, start: str, end: str) -> Dict[str, float]
     from urllib.parse import quote as url_quote
 
     try:
-        from datetime import date as date_cls
         p1 = int(datetime.strptime(start, "%Y-%m-%d").timestamp())
         p2 = int(datetime.strptime(end, "%Y-%m-%d").timestamp())
     except Exception:

@@ -1,8 +1,8 @@
 """Tests for TechnicalAnalyzer class."""
-import pandas as pd
 import numpy as np
-from strategy.technical_analysis import TechnicalAnalyzer
+import pandas as pd
 
+from strategy.technical_analysis import TechnicalAnalyzer
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -6,14 +6,16 @@ Production: https://api.tradier.com/v1/
 """
 
 import logging
+from datetime import datetime, timezone
+from typing import Dict, List
+
+import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-import pandas as pd
-from datetime import datetime, timezone
-from typing import Dict, List
-from shared.exceptions import ProviderError
+
 from shared.circuit_breaker import CircuitBreaker
+from shared.exceptions import ProviderError
 
 logger = logging.getLogger(__name__)
 
@@ -164,12 +166,12 @@ class TradierProvider:
     def get_full_chain(self, ticker: str, min_dte: int = 25, max_dte: int = 50) -> pd.DataFrame:
         """
         Get full options chain across relevant expirations.
-        
+
         Args:
             ticker: Stock symbol
             min_dte: Minimum days to expiration
             max_dte: Maximum days to expiration
-            
+
         Returns:
             Combined DataFrame of all relevant expirations
         """

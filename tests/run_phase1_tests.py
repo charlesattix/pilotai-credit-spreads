@@ -5,9 +5,9 @@ This script mocks out all third-party dependencies (pandas, sklearn, etc.)
 so the Phase 1 alert infrastructure tests can run in minimal environments.
 """
 
+import importlib
 import sys
 import types
-import importlib
 
 # ---------------------------------------------------------------------------
 # Mock third-party modules before any project imports
@@ -123,7 +123,6 @@ sys.path.insert(0, ".")
 # Strategy: mock the ml package, then load position_sizer directly.
 
 # First, import shared.constants (it has no heavy deps)
-import shared.constants
 
 # Create a fake ml package
 ml_pkg = types.ModuleType("ml")
@@ -132,6 +131,7 @@ sys.modules["ml"] = ml_pkg
 
 # Now load the real ml.position_sizer (it only needs shared.types)
 import importlib.util
+
 _ps_spec = importlib.util.spec_from_file_location(
     "ml.position_sizer",
     "./ml/position_sizer.py",
@@ -143,17 +143,28 @@ _ps_spec.loader.exec_module(_ps_mod)
 # Now import everything
 from datetime import datetime, timedelta, timezone
 
+from alerts.alert_position_sizer import AlertPositionSizer
+
 # ----- Import modules under test -----
 from alerts.alert_schema import (
-    Alert, AlertType, AlertStatus, Confidence, Direction,
-    Leg, SizeResult, TimeSensitivity,
+    Alert,
+    AlertStatus,
+    AlertType,
+    Confidence,
+    Direction,
+    Leg,
+    SizeResult,
+    TimeSensitivity,
 )
-from alerts.risk_gate import RiskGate
-from alerts.alert_position_sizer import AlertPositionSizer
 from alerts.formatters.telegram import TelegramAlertFormatter
+from alerts.risk_gate import RiskGate
 from shared.constants import (
-    MAX_RISK_PER_TRADE, MAX_TOTAL_EXPOSURE, DAILY_LOSS_LIMIT,
-    WEEKLY_LOSS_LIMIT, MAX_CORRELATED_POSITIONS, COOLDOWN_AFTER_STOP,
+    COOLDOWN_AFTER_STOP,
+    DAILY_LOSS_LIMIT,
+    MAX_CORRELATED_POSITIONS,
+    MAX_RISK_PER_TRADE,
+    MAX_TOTAL_EXPOSURE,
+    WEEKLY_LOSS_LIMIT,
 )
 
 print("All Phase 1 modules imported successfully\n")

@@ -174,7 +174,7 @@ def main():
     # ── Confirmation ──
     if not args.force:
         print(f"  {C.YEL}{C.BOLD}WARNING: This will market-close ALL {len(positions)} positions above.{C.NC}")
-        print(f"  Type 'yes' to confirm, anything else to abort: ", end="")
+        print("  Type 'yes' to confirm, anything else to abort: ", end="")
         answer = input().strip().lower()
         if answer != "yes":
             print(f"  {C.DIM}Aborted.{C.NC}")

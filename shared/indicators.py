@@ -1,7 +1,7 @@
 """Canonical implementations of technical indicators used across the system."""
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 
 def calculate_rsi(prices: pd.Series, period: int = 14) -> pd.Series:

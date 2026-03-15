@@ -13,10 +13,8 @@ Tests verify:
 """
 
 import pandas as pd
-import pytest
 
 from ml.combo_regime_detector import ComboRegimeDetector
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -245,7 +243,7 @@ def test_hysteresis_prevents_flip():
     """
     # Long falling trend (establishes BEAR), then sharp recovery (signals flip to BULL),
     # then slight dip (RSI dips to neutral — would be NEUTRAL raw signal)
-    falling = [500 - i for i in range(210)]   # 500 → 290: establishes BEAR
+    [500 - i for i in range(210)]   # 500 → 290: establishes BEAR
     # One strong up day that flips RSI+MA200 (simulate by using detector with cooldown)
     # Instead, test hysteresis directly: build a scenario where regime changes then
     # raw signal immediately wants to change back.
@@ -253,7 +251,7 @@ def test_hysteresis_prevents_flip():
     # Design: 210 rising days (→ BULL established), then 1 day where RSI neutral,
     # MA200 just barely in band (abstains), VIX neutral → raw=NEUTRAL.
     # With cooldown=10, should stay BULL.
-    rising = [300 + i for i in range(210)]
+    [300 + i for i in range(210)]
     # Last bar: price dropped back near MA200 (in neutral band), RSI neutral
     # We'll set MA200 ≈ current price, RSI ≈ 50 (neutral), VIX_struct neutral
     # The simplest approach: just check that after a recent change, the regime holds.

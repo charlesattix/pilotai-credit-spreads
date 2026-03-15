@@ -1,4 +1,6 @@
-import json, os, glob
+import glob
+import json
+import os
 from datetime import datetime
 
 SNAPSHOT_DIR = "/Users/charlesbot/projects/pilotai-credit-spreads/output/historical_snapshots"
@@ -32,13 +34,17 @@ tr:nth-child(even) { background: #f8fafc; }
 QUAD_BADGE = {"Leading": "b-lead", "Weakening": "b-weak", "Lagging": "b-lag", "Improving": "b-imp"}
 
 def score_class(val):
-    if val >= 65: return "score-green"
-    if val >= 45: return "score-yellow"
+    if val >= 65:
+        return "score-green"
+    if val >= 45:
+        return "score-yellow"
     return "score-red"
 
 def dim_color(val):
-    if val >= 65: return "#16a34a"
-    if val >= 45: return "#854d0e"
+    if val >= 65:
+        return "#16a34a"
+    if val >= 45:
+        return "#854d0e"
     return "#dc2626"
 
 def generate_report(snap):

@@ -18,9 +18,8 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Dict, List, Tuple
 
-import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).parent.parent
@@ -448,7 +447,7 @@ def main():
         print(f"\n  BEST BLEND: {best['label']}")
         print(f"  Risk weights: {best['risk_weights']}")
         print(f"  Positions: max={best['max_positions']}, per_strat={best['max_per_strategy']}")
-        print(f"\n  Year-by-year:")
+        print("\n  Year-by-year:")
         for y in YEARS:
             r = best["yearly"][str(y)]
             if "error" in r:

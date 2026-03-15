@@ -8,13 +8,13 @@ the credit spread scanners, this module does NOT use ``CreditSpreadStrategy``
 """
 
 import logging
-from datetime import datetime, date
+from datetime import datetime
 from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 
-from alerts.momentum_config import build_momentum_config, SCAN_HOURS
+from alerts.momentum_config import SCAN_HOURS, build_momentum_config
 from shared.indicators import calculate_rsi
 from strategy import OptionsAnalyzer
 
@@ -251,15 +251,15 @@ class MomentumScanner:
                 price_window = closes.iloc[-rsi_lookback:]
 
                 # Bullish divergence: price lower-low + RSI higher-low
-                price_min_idx = price_window.idxmin()
-                rsi_min_idx = rsi_window.idxmin()
+                price_window.idxmin()
+                rsi_window.idxmin()
 
                 if (float(price_window.iloc[-1]) <= float(price_window.min()) * 1.02 and
                         float(rsi_window.iloc[-1]) > float(rsi_window.min()) * 1.05):
                     triggers.append({
                         "type": "rsi_divergence",
                         "direction": "bullish",
-                        "detail": f"Price near low, RSI rising (bullish divergence)",
+                        "detail": "Price near low, RSI rising (bullish divergence)",
                     })
 
                 # Bearish divergence: price higher-high + RSI lower-high
@@ -268,7 +268,7 @@ class MomentumScanner:
                     triggers.append({
                         "type": "rsi_divergence",
                         "direction": "bearish",
-                        "detail": f"Price near high, RSI falling (bearish divergence)",
+                        "detail": "Price near high, RSI falling (bearish divergence)",
                     })
 
         # --- 4. EMA crossover ---
@@ -284,7 +284,7 @@ class MomentumScanner:
                 triggers.append({
                     "type": "ema_crossover",
                     "direction": "bullish",
-                    "detail": f"8-EMA crossed above 21-EMA",
+                    "detail": "8-EMA crossed above 21-EMA",
                 })
 
             # Current: fast < slow, previous: fast >= slow → bearish crossover
@@ -293,7 +293,7 @@ class MomentumScanner:
                 triggers.append({
                     "type": "ema_crossover",
                     "direction": "bearish",
-                    "detail": f"8-EMA crossed below 21-EMA",
+                    "detail": "8-EMA crossed below 21-EMA",
                 })
 
         return triggers

@@ -1,11 +1,11 @@
 """Tests for RegimeDetector."""
-import pandas as pd
-import numpy as np
 from datetime import datetime
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import numpy as np
+import pandas as pd
 
 from ml.regime_detector import RegimeDetector
-
 
 # ---------------------------------------------------------------------------
 # Helpers

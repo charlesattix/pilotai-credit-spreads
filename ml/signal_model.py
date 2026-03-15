@@ -10,17 +10,17 @@ Based on research:
 """
 
 import json
+import logging
 import os
 import threading
+from collections import Counter
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, Optional, Tuple
 
+import joblib
 import numpy as np
 import pandas as pd
-from collections import Counter
-from typing import Dict, Optional, Tuple
-from datetime import datetime, timezone
-import logging
-import joblib
-from pathlib import Path
 
 try:
     import xgboost as xgb
@@ -28,9 +28,10 @@ except ImportError:
     xgb = None
     logging.warning("XGBoost not available, install with: pip install xgboost")
 
-from sklearn.model_selection import train_test_split
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
+from sklearn.model_selection import train_test_split
+
 from shared.indicators import sanitize_features
 from shared.types import PredictionResult
 
@@ -40,7 +41,7 @@ logger = logging.getLogger(__name__)
 class SignalModel:
     """
     XGBoost-based signal model for credit spread trading.
-    
+
     Predicts probability that a credit spread will be profitable at expiration.
     Uses calibrated probabilities for better position sizing.
     """
@@ -48,7 +49,7 @@ class SignalModel:
     def __init__(self, model_dir: str = 'ml/models'):
         """
         Initialize signal model.
-        
+
         Args:
             model_dir: Directory to save/load trained models
         """
@@ -76,13 +77,13 @@ class SignalModel:
     ) -> Dict:
         """
         Train the signal model.
-        
+
         Args:
             features_df: Feature DataFrame
             labels: Binary labels (1=profitable, 0=unprofitable)
             calibrate: Whether to calibrate probabilities
             save_model: Whether to save trained model
-            
+
         Returns:
             Training statistics dictionary
         """
@@ -221,10 +222,10 @@ class SignalModel:
     def predict(self, features: Dict) -> PredictionResult:
         """
         Predict profitability for a single trade.
-        
+
         Args:
             features: Feature dictionary
-            
+
         Returns:
             Prediction dictionary with probability and confidence
         """
@@ -275,10 +276,10 @@ class SignalModel:
     def predict_batch(self, features_df: pd.DataFrame) -> np.ndarray:
         """
         Predict probabilities for a batch of trades.
-        
+
         Args:
             features_df: Feature DataFrame
-            
+
         Returns:
             Array of probabilities
         """
@@ -310,11 +311,11 @@ class SignalModel:
     def backtest(self, features_df: pd.DataFrame, labels: np.ndarray) -> Dict:
         """
         Backtest the model on historical data.
-        
+
         Args:
             features_df: Historical features
             labels: Historical outcomes
-            
+
         Returns:
             Backtest metrics
         """
@@ -619,16 +620,16 @@ class SignalModel:
     ) -> Tuple[pd.DataFrame, np.ndarray]:
         """
         Generate synthetic training data for initial model training.
-        
+
         This creates realistic scenarios based on typical credit spread behavior:
         - High IV + low realized vol = more likely to win
         - Strong trend + good regime = more likely to win
         - Event risk nearby = less likely to win
-        
+
         Args:
             n_samples: Number of synthetic samples to generate
             win_rate: Target overall win rate
-            
+
         Returns:
             Tuple of (features_df, labels)
         """
@@ -637,7 +638,7 @@ class SignalModel:
         logger.info(f"Generating {n_samples} synthetic training samples...")
 
         feature_engine = FeatureEngine()
-        feature_names = feature_engine.get_feature_names()
+        feature_engine.get_feature_names()
 
         # Generate random features with realistic distributions
         # Use a local RNG to avoid mutating global numpy random state

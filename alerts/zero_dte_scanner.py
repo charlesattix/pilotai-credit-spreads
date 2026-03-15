@@ -6,11 +6,11 @@ Wraps the existing ``CreditSpreadStrategy`` + ``OptionsAnalyzer`` with a
 """
 
 import logging
-from datetime import datetime, time, timezone
+from datetime import datetime, time
 from typing import Dict, List, Optional
 
-from alerts.zero_dte_config import build_zero_dte_config, SPX_PROPERTIES
-from strategy import CreditSpreadStrategy, TechnicalAnalyzer, OptionsAnalyzer
+from alerts.zero_dte_config import SPX_PROPERTIES, build_zero_dte_config
+from strategy import CreditSpreadStrategy, OptionsAnalyzer, TechnicalAnalyzer
 
 logger = logging.getLogger(__name__)
 

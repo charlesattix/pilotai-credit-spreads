@@ -21,7 +21,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 
@@ -29,8 +29,8 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from engine.portfolio_backtester import PortfolioBacktester
-from strategies import STRATEGY_REGISTRY
 from scripts.portfolio_blend import get_strategy_params
+from strategies import STRATEGY_REGISTRY
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Configuration — Phase 4 best config
@@ -220,7 +220,7 @@ def section_monte_carlo(all_trades: List, n_paths: int = 10_000) -> Dict:
     }
 
     passed = percentiles["p5"] > -25
-    print(f"  Max DD percentiles:")
+    print("  Max DD percentiles:")
     for k, v in percentiles.items():
         print(f"    {k.upper()}: {v:.2f}%")
     print(f"\n  P5 DD: {percentiles['p5']:.2f}% (need > -25%)")
@@ -283,7 +283,7 @@ def section_slippage(all_trades: List, yearly_results: Dict) -> Dict:
 
     # Per-year breakdown
     per_year = {}
-    print(f"\n  Per-year breakdown:")
+    print("\n  Per-year breakdown:")
     for year in ALL_YEARS:
         base_ret = yearly_results[str(year)]["return_pct"]
         slip = year_slippage.get(year, {}).get("slippage", 0)

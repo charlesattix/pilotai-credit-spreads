@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from shared.live_pricing import LivePricing
-from strategies.base import LegType, Position, TradeLeg, TradeDirection
+from strategies.base import LegType, Position, TradeDirection, TradeLeg
 
 
 def _make_position(

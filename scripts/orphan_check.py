@@ -296,7 +296,7 @@ def main() -> int:
         for r in orphans:
             print(f"    • {r.name} ({r.account_id}): {r.option_positions} open positions, no running process")
         print()
-        print(f"  Run during market hours (Mon-Fri 9:30-16:00 ET):")
+        print("  Run during market hours (Mon-Fri 9:30-16:00 ET):")
         for r in orphans:
             exp_cfg = experiments.get(r.name, {})
             print(f"    python3 scripts/close_all_positions.py {exp_cfg.get('env_file','?')} --force")

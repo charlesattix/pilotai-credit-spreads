@@ -195,7 +195,7 @@ def run_daily_event_check(
       3. Persist to macro_state.db
       4. Return (scaling_factor, events)
     """
-    from shared.macro_state_db import upsert_events, set_state
+    from shared.macro_state_db import set_state, upsert_events
 
     today = as_of or date.today()
     events = get_upcoming_events(as_of=today, horizon_days=5)

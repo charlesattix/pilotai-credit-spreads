@@ -1,7 +1,8 @@
 """Shared test fixtures."""
-import pytest
-import pandas as pd
 import numpy as np
+import pandas as pd
+import pytest
+
 
 @pytest.fixture
 def sample_config():

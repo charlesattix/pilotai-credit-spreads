@@ -1,9 +1,9 @@
 """Tests for the TradeTracker class."""
-import pytest
 from unittest.mock import patch
 
-from tracker.trade_tracker import TradeTracker
+import pytest
 
+from tracker.trade_tracker import TradeTracker
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -101,7 +101,7 @@ class TestClosePosition:
     def test_close_preserves_other_positions(self, tracker):
         """Closing one position should not affect others."""
         id1 = tracker.add_position(_make_position(ticker='SPY'))
-        id2 = tracker.add_position(_make_position(ticker='QQQ'))
+        tracker.add_position(_make_position(ticker='QQQ'))
         tracker.close_position(id1, exit_price=0.50, exit_reason='profit_target', pnl=100)
         assert len(tracker.get_open_positions()) == 1
         assert tracker.get_open_positions()[0]['ticker'] == 'QQQ'

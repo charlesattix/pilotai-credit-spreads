@@ -11,8 +11,6 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Set
 
-from alerts.iron_condor_config import CLOSE_DAYS
-
 logger = logging.getLogger(__name__)
 
 # Exit thresholds for iron condor positions

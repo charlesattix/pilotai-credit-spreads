@@ -6,11 +6,11 @@ iron condor config overlay and only fires on Monday/Tuesday (weekly entry).
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Dict, List, Optional
 
-from alerts.iron_condor_config import build_iron_condor_config, ENTRY_DAYS
-from strategy import CreditSpreadStrategy, TechnicalAnalyzer, OptionsAnalyzer
+from alerts.iron_condor_config import ENTRY_DAYS, build_iron_condor_config
+from strategy import CreditSpreadStrategy, OptionsAnalyzer, TechnicalAnalyzer
 
 logger = logging.getLogger(__name__)
 

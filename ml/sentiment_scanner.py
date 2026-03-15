@@ -12,13 +12,15 @@ Based on research:
 - Lucca & Moench (2015): "The Pre-FOMC Announcement Drift"
 """
 
-import pandas as pd
-from typing import Dict, List, Optional, Tuple
-from datetime import datetime, timedelta, timezone
 import logging
+from datetime import datetime, timedelta, timezone
+from typing import Dict, List, Optional, Tuple
+
+import pandas as pd
 import yfinance as yf
-from shared.constants import FOMC_DATES as _SHARED_FOMC_DATES
+
 from shared.constants import CPI_RELEASE_DAYS as _SHARED_CPI_RELEASE_DAYS
+from shared.constants import FOMC_DATES as _SHARED_FOMC_DATES
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +28,7 @@ logger = logging.getLogger(__name__)
 class SentimentScanner:
     """
     Event risk and sentiment scanner for options trading.
-    
+
     Scans:
     1. Earnings dates (high-risk for credit spreads)
     2. FOMC meetings (market-wide volatility)
@@ -346,11 +348,11 @@ class SentimentScanner:
     ) -> pd.DataFrame:
         """
         Get earnings calendar for multiple tickers.
-        
+
         Args:
             tickers: List of tickers
             days_ahead: Days to look ahead
-            
+
         Returns:
             DataFrame with earnings dates
         """
@@ -388,10 +390,10 @@ class SentimentScanner:
     def get_economic_calendar(self, days_ahead: int = 30) -> List[Dict]:
         """
         Get calendar of major economic events.
-        
+
         Args:
             days_ahead: Days to look ahead
-            
+
         Returns:
             List of economic events
         """
@@ -430,12 +432,12 @@ class SentimentScanner:
     ) -> Tuple[bool, str]:
         """
         Determine if a trade should be avoided due to event risk.
-        
+
         Args:
             ticker: Stock ticker
             expiration_date: Option expiration date
             max_risk_score: Maximum acceptable risk score
-            
+
         Returns:
             Tuple of (should_avoid, reason)
         """
@@ -465,11 +467,11 @@ class SentimentScanner:
     ) -> float:
         """
         Adjust position size based on event risk.
-        
+
         Args:
             base_position_size: Base position size (0-1)
             event_risk_score: Event risk score (0-1)
-            
+
         Returns:
             Adjusted position size
         """
@@ -517,10 +519,10 @@ class SentimentScanner:
     def get_summary_text(self, scan_result: Dict) -> str:
         """
         Get human-readable summary of scan results.
-        
+
         Args:
             scan_result: Result from scan()
-            
+
         Returns:
             Summary text
         """

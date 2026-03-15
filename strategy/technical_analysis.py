@@ -5,9 +5,12 @@ Provides technical indicators and signals for credit spread strategy.
 
 import logging
 from typing import Dict
+
 import numpy as np
 import pandas as pd
+
 from shared.indicators import calculate_rsi
+
 try:
     import talib
     HAS_TALIB = True
@@ -25,7 +28,7 @@ class TechnicalAnalyzer:
     def __init__(self, config: Dict):
         """
         Initialize technical analyzer.
-        
+
         Args:
             config: Configuration dictionary
         """
@@ -45,11 +48,11 @@ class TechnicalAnalyzer:
     def analyze(self, ticker: str, price_data: pd.DataFrame) -> Dict:
         """
         Perform technical analysis on price data.
-        
+
         Args:
             ticker: Stock ticker
             price_data: DataFrame with OHLCV data
-            
+
         Returns:
             Dictionary with technical signals
         """
@@ -82,7 +85,7 @@ class TechnicalAnalyzer:
     def _analyze_trend(self, price_data: pd.DataFrame) -> Dict:
         """
         Analyze trend using moving averages.
-        
+
         Returns:
             Dictionary with trend signals
         """
@@ -118,7 +121,7 @@ class TechnicalAnalyzer:
     def _analyze_rsi(self, price_data: pd.DataFrame) -> Dict:
         """
         Calculate RSI indicator.
-        
+
         Returns:
             Dictionary with RSI signals
         """
@@ -145,9 +148,9 @@ class TechnicalAnalyzer:
     def _analyze_support_resistance(self, price_data: pd.DataFrame) -> Dict:
         """
         Identify support and resistance levels.
-        
+
         Uses pivot points and recent highs/lows.
-        
+
         Returns:
             Dictionary with support/resistance levels
         """

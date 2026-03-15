@@ -1,8 +1,8 @@
 """Circuit breaker pattern for external API calls."""
 
+import logging
 import threading
 import time
-import logging
 
 logger = logging.getLogger(__name__)
 

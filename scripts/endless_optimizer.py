@@ -18,7 +18,6 @@ Usage:
 """
 
 import argparse
-import json
 import logging
 import signal
 import sys
@@ -26,7 +25,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, List
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
@@ -36,7 +35,6 @@ from scripts.run_optimization import (
     YEARS,
     _build_entry,
     _flatten_params,
-    _save_json,
     append_to_leaderboard,
     append_to_opt_log,
     build_strategies_config,
@@ -270,7 +268,7 @@ def print_progress(state: Dict, run_number: int):
     # Phase 1 per-strategy counts
     p1 = state.get("phase1_history", {})
     if p1:
-        print(f"  Phase 1 runs per strategy:")
+        print("  Phase 1 runs per strategy:")
         for name, hist in sorted(p1.items()):
             best = max((h["score"] for h in hist), default=0)
             print(f"    {name}: {len(hist)} runs, best score={best:.4f}")

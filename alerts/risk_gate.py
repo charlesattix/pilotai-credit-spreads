@@ -14,6 +14,7 @@ COMPASS extensions (config-driven, default OFF):
 import logging
 from datetime import datetime, timezone
 
+from alerts.alert_schema import Alert
 from shared.constants import (
     COOLDOWN_AFTER_STOP,
     DAILY_LOSS_LIMIT,
@@ -22,7 +23,6 @@ from shared.constants import (
     MAX_TOTAL_EXPOSURE,
     WEEKLY_LOSS_LIMIT,
 )
-from alerts.alert_schema import Alert
 
 logger = logging.getLogger(__name__)
 

@@ -1,12 +1,12 @@
 """Tests for the SentimentScanner event-risk scanner."""
 
-import pytest
-import pandas as pd
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
+
+import pandas as pd
+import pytest
 
 from ml.sentiment_scanner import SentimentScanner
-
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PR5-8 Revised Proposal — Integration with Charles's Production Services</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #fff; color: #1a1a1a; line-height: 1.7; padding: 40px 20px; max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 26px; margin-bottom: 4px; }
+  h2 { font-size: 20px; margin: 36px 0 14px; border-bottom: 3px solid #3b82f6; padding-bottom: 6px; }
+  h3 { font-size: 17px; margin: 20px 0 8px; color: #1e40af; }
+  p { margin: 10px 0; font-size: 15px; }
+  .subtitle { color: #666; font-size: 15px; margin-bottom: 28px; }
+  code { background: #f4f4f4; padding: 2px 6px; border-radius: 4px; font-size: 13px; font-family: 'SF Mono', Menlo, monospace; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto; margin: 12px 0; font-size: 13px; line-height: 1.5; }
+  pre code { background: none; color: inherit; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px; }
+  th { background: #1e40af; color: #fff; text-align: left; padding: 10px 14px; }
+  td { padding: 10px 14px; border-bottom: 1px solid #eee; vertical-align: top; }
+  tr:nth-child(even) { background: #f8fafc; }
+  .callout { background: #f0f7ff; border-left: 4px solid #3b82f6; padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 16px 0; font-size: 14px; }
+  .callout-red { background: #fef2f2; border-left-color: #ef4444; }
+  .callout-green { background: #f0fdf4; border-left-color: #22c55e; }
+  .callout-yellow { background: #fffbeb; border-left-color: #f59e0b; }
+  ul, ol { margin: 8px 0 8px 24px; }
+  li { margin: 5px 0; font-size: 15px; }
+  hr { border: none; border-top: 2px solid #e5e5e5; margin: 36px 0; }
+  .section-divider { background: linear-gradient(90deg, #3b82f6, #6366f1); height: 4px; border-radius: 2px; margin: 48px 0 40px; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+  .b-skip { background: #fee2e2; color: #991b1b; }
+  .b-keep { background: #dcfce7; color: #166534; }
+  .b-modify { background: #fef3c7; color: #92400e; }
+  .b-new { background: #dbeafe; color: #1e40af; }
+</style>
+</head>
+<body>
+
+<h1>🛡️ PR5-8 Revised Proposal</h1>
+<p class="subtitle">Integration with Charles's Production Services — For Review by Charles & Carlos<br>
+Maximus 🛡️ — March 9, 2026</p>
+
+<div class="callout">
+<strong>Context:</strong> After reviewing Charles's Shared Services Guide, it's clear that significant production infrastructure already exists. This proposal revises our original 5-phase paper trader rebuild plan to avoid redundancy and properly integrate with what's already built.
+</div>
+
+<div class="section-divider"></div>
+
+<h2>📋 Executive Summary</h2>
+
+<p>Our original rebuild plan had 5 phases focused on rebuilding the paper trader from scratch. After reviewing Charles's production architecture, <strong>3 of our 5 phases are largely redundant</strong> with services that already exist and are battle-tested. Instead of rebuilding, we should <strong>integrate with the existing architecture</strong> and focus our effort on the pieces that are genuinely missing.</p>
+
+<div class="callout-green callout">
+<strong>Bottom line:</strong> We should skip rebuilding what Charles already built, wire our modules into his pipeline, and focus on the ZeroDTE strategy integration and paper trading mode within the existing ExecutionEngine.
+</div>
+
+<div class="section-divider"></div>
+
+<h2>🏗️ What Charles Already Built</h2>
+
+<table>
+<tr><th>Service</th><th>File</th><th>What It Does</th></tr>
+<tr><td><strong>ExecutionEngine</strong></td><td><code>execution/execution_engine.py</code></td><td>DB-first order submission to Alpaca. Handles idempotency, error recovery. Has <code>dry_run</code> mode.</td></tr>
+<tr><td><strong>PositionMonitor</strong></td><td><code>execution/position_monitor.py</code></td><td>Every 5 min: reconcile pending orders, check PT/SL/DTE exits, auto-close. Uses <code>MANAGEMENT_DTE_THRESHOLD</code>.</td></tr>
+<tr><td><strong>AlertRouter</strong></td><td><code>alerts/alert_router.py</code></td><td>7-stage pipeline: Convert → Dedup → RiskGate → PositionSizer → Prioritize → Dispatch → Execute. ALL signals must flow through this.</td></tr>
+<tr><td><strong>RiskGate</strong></td><td><code>alerts/risk_gate.py</code></td><td>Hard risk limits: max risk/trade, total exposure, correlated positions, daily/weekly loss, cooldown, drawdown circuit breaker.</td></tr>
+<tr><td><strong>ComboRegimeDetector</strong></td><td><code>ml/combo_regime_detector.py</code></td><td>Mandatory regime gating. MA200 + RSI + VIX term structure. 10-day hysteresis. VIX>40 force BEAR.</td></tr>
+<tr><td><strong>Reconciler</strong></td><td><code>shared/reconciler.py</code></td><td>Alpaca ↔ DB sync. Heals pending_open→open, detects phantoms, logs events.</td></tr>
+<tr><td><strong>Database</strong></td><td><code>shared/database.py</code></td><td>SQLite WAL. Full trade lifecycle: pending_open → open → pending_close → closed.</td></tr>
+</table>
+
+<div class="section-divider"></div>
+
+<h2>📝 What Our Rebuild Planned (Original 5 Phases)</h2>
+
+<table>
+<tr><th>Phase</th><th>What We Planned</th><th>Status</th></tr>
+<tr><td><strong>Phase 1</strong></td><td>Real Polygon pricing via <code>LivePricing</code> class</td><td><span class="badge b-keep">✅ DONE — Unique value</span></td></tr>
+<tr><td><strong>Phase 2</strong></td><td>Unified exit logic — delegate to <code>strategy.manage_position()</code></td><td><span class="badge b-skip">❌ REDUNDANT — PositionMonitor handles exits</span></td></tr>
+<tr><td><strong>Phase 3</strong></td><td>Missing parity features (assignment/pin risk, gap risk, VIX friction)</td><td><span class="badge b-modify">⚠️ PARTIAL — Some exists in RiskGate, some genuinely missing</span></td></tr>
+<tr><td><strong>Phase 4</strong></td><td>Alpaca portfolio reconciliation</td><td><span class="badge b-skip">❌ REDUNDANT — Reconciler already does this</span></td></tr>
+<tr><td><strong>Phase 5</strong></td><td>Nuclear reset — delete trades, restart 8-week clock</td><td><span class="badge b-keep">✅ STILL NEEDED</span></td></tr>
+</table>
+
+<div class="section-divider"></div>
+
+<h2>🔍 Detailed Overlap Analysis</h2>
+
+<h3>Phase 2: Unified Exit Logic → SKIP</h3>
+<div class="callout-red callout">
+<strong>REDUNDANT.</strong> Charles's <code>PositionMonitor</code> already handles:
+<ul style="margin-top: 8px;">
+<li>Profit target exits (50% of credit)</li>
+<li>Stop loss exits (3.5x credit)</li>
+<li>DTE-based early close (≤21 days)</li>
+<li>Pending order reconciliation</li>
+<li>External close detection</li>
+</ul>
+Our plan was to delegate exits to <code>strategy.manage_position()</code>, but PositionMonitor already does this at the execution layer. No need to rebuild.
+</div>
+
+<h3>Phase 3: Missing Parity Features → PARTIAL</h3>
+<div class="callout-yellow callout">
+<strong>PARTIALLY REDUNDANT.</strong>
+<ul style="margin-top: 8px;">
+<li><strong>Assignment/pin risk:</strong> Our backtester has this (Stage 2, item 9). Need to verify if PositionMonitor also handles it for live. <em>Likely needs wiring.</em></li>
+<li><strong>Gap risk:</strong> Backtester has jump modeling (Stage 2, item 2). RiskGate may partially cover live. <em>Needs review.</em></li>
+<li><strong>VIX friction:</strong> Our <code>shared/vix_regime.py</code> (now merged) provides VIX-based adaptive sizing. Needs wiring into AlertPositionSizer. <em>Integration work, not rebuild.</em></li>
+</ul>
+</div>
+
+<h3>Phase 4: Alpaca Reconciliation → SKIP</h3>
+<div class="callout-red callout">
+<strong>REDUNDANT.</strong> Charles's <code>shared/reconciler.py</code> already handles:
+<ul style="margin-top: 8px;">
+<li>pending_open → open (fill confirmed)</li>
+<li>pending_open → failed_open (terminal/404)</li>
+<li>Phantom detection (DB open, Alpaca says no)</li>
+<li>Reconciliation event logging</li>
+</ul>
+This is exactly what our Phase 4 was going to build. Skip entirely.
+</div>
+
+<div class="section-divider"></div>
+
+<h2>✅ Recommended Path Forward</h2>
+
+<p>Instead of our original 5-phase rebuild, I propose <strong>4 focused PRs</strong> that integrate with Charles's architecture:</p>
+
+<h3>PR5: ZeroDTE Strategy + AlertRouter Wiring <span class="badge b-new">NEW</span></h3>
+<p><strong>What:</strong> Wire our ZeroDTE scanner into Charles's AlertRouter pipeline. This is the #1 priority — it's the unique value we bring.</p>
+<ul>
+<li>Create <code>strategies/zero_dte_spread.py</code> as a proper strategy class</li>
+<li>Wire ZeroDTE scanner output through AlertRouter (respecting the "all signals through AlertRouter" rule)</li>
+<li>Use <code>ZERO_DTE_MANAGEMENT_DTE_THRESHOLD = 0</code> for 0DTE-specific exit logic in PositionMonitor</li>
+<li>Integrate <code>ComboRegimeDetector</code> as regime gate (mandatory per Carlos)</li>
+<li>Tests for all new code</li>
+</ul>
+
+<h3>PR6: VIX Regime + Live Pricing Integration <span class="badge b-modify">INTEGRATE</span></h3>
+<p><strong>What:</strong> Wire our merged shared modules into Charles's pipeline where they add value.</p>
+<ul>
+<li>Wire <code>shared/vix_regime.py</code> into <code>AlertPositionSizer</code> for VIX-adaptive sizing</li>
+<li>Wire <code>shared/live_pricing.py</code> into <code>PositionMonitor</code> for real-time P&L (instead of Alpaca last_price only)</li>
+<li>Wire <code>shared/deviation_tracker.py</code> into daily reporting for live-vs-backtest monitoring</li>
+<li>Wire <code>shared/telegram_alerts.py</code> for trade notifications</li>
+<li>Tests for all integrations</li>
+</ul>
+
+<h3>PR7: Scripts + Operational Tooling <span class="badge b-keep">KEEP</span></h3>
+<p><strong>What:</strong> Port our operational scripts that don't exist yet.</p>
+<ul>
+<li><code>scripts/jitter_test.py</code> — parameter robustness testing</li>
+<li><code>scripts/validate_top_config.py</code> — champion config validation</li>
+<li><code>scripts/daily_report.py</code> — daily performance summary</li>
+<li><code>engine/walk_forward.py</code> — walk-forward validation</li>
+<li>Tests</li>
+</ul>
+
+<h3>PR8: Nuclear Reset + Paper Trading Mode <span class="badge b-keep">KEEP</span></h3>
+<p><strong>What:</strong> Reset for clean 8-week paper trading validation.</p>
+<ul>
+<li>Verify ExecutionEngine <code>dry_run</code> mode works for paper trading (if not, add it)</li>
+<li>Delete all existing paper trades from DB</li>
+<li>Reset to $100K starting balance</li>
+<li>Start 8-week paper trading clock</li>
+<li>Configure PositionMonitor for paper mode</li>
+</ul>
+
+<div class="section-divider"></div>
+
+<h2>🚫 What We're NOT Building (Deferred to Charles's Services)</h2>
+
+<table>
+<tr><th>Original Plan</th><th>Why We're Skipping</th><th>Charles's Service</th></tr>
+<tr><td>Custom exit logic engine</td><td>PositionMonitor already handles PT/SL/DTE exits</td><td><code>execution/position_monitor.py</code></td></tr>
+<tr><td>Alpaca portfolio reconciliation</td><td>Reconciler already handles all sync scenarios</td><td><code>shared/reconciler.py</code></td></tr>
+<tr><td>Custom order submission</td><td>ExecutionEngine handles DB-first orders with error recovery</td><td><code>execution/execution_engine.py</code></td></tr>
+<tr><td>Risk limit enforcement</td><td>RiskGate enforces all hard limits in the pipeline</td><td><code>alerts/risk_gate.py</code></td></tr>
+<tr><td>Alert dedup + prioritization</td><td>AlertRouter stages 2 + 5 handle this</td><td><code>alerts/alert_router.py</code></td></tr>
+</table>
+
+<div class="section-divider"></div>
+
+<h2>❓ Open Questions for Charles</h2>
+
+<ol>
+<li><strong>Paper trading mode:</strong> Does ExecutionEngine's <code>dry_run</code> mode write to the DB (simulating fills)? Or does it skip DB writes entirely? For paper trading we need simulated fills recorded in the DB so PositionMonitor can manage them.</li>
+
+<li><strong>Per-strategy exit thresholds:</strong> PositionMonitor uses global <code>MANAGEMENT_DTE_THRESHOLD = 21</code>. For 0DTE, we need <code>ZERO_DTE_MANAGEMENT_DTE_THRESHOLD = 0</code>. Does PositionMonitor support per-strategy overrides, or do we need to add that?</li>
+
+<li><strong>0DTE timing:</strong> PositionMonitor runs every 5 minutes. For 0DTE positions that expire same-day, is 5-minute granularity sufficient? Or do we need a faster loop for 0DTE specifically?</li>
+
+<li><strong>Live pricing integration:</strong> How does PositionMonitor currently get option prices for P&L checks? Alpaca last_price? Polygon snapshots? Our <code>shared/live_pricing.py</code> uses Polygon — should we wire it in as the price source?</li>
+
+<li><strong>VIX regime wiring:</strong> Where exactly should <code>shared/vix_regime.py</code> plug in? Into AlertPositionSizer (Stage 4)? Or into RiskGate as an additional check?</li>
+
+<li><strong>Assignment/pin risk for live:</strong> Our backtester handles deep ITM shorts ≤2 DTE. Does PositionMonitor have equivalent logic for live positions?</li>
+</ol>
+
+<div class="section-divider"></div>
+
+<h2>📊 Effort Estimate</h2>
+
+<table>
+<tr><th>PR</th><th>Complexity</th><th>Estimated Time</th><th>Dependencies</th></tr>
+<tr><td>PR5 — ZeroDTE + AlertRouter</td><td>High</td><td>1-2 days</td><td>Answers to Q1-Q3</td></tr>
+<tr><td>PR6 — Module Integration</td><td>Medium</td><td>1 day</td><td>Answers to Q4-Q6</td></tr>
+<tr><td>PR7 — Scripts</td><td>Low</td><td>Half day</td><td>None</td></tr>
+<tr><td>PR8 — Nuclear Reset</td><td>Low</td><td>Half day</td><td>PR5-7 merged</td></tr>
+</table>
+
+<p><strong>Total estimated: 3-4 days</strong> (down from ~2 weeks in original plan)</p>
+
+<div class="callout-green callout">
+<strong>Key insight:</strong> By integrating with Charles's services instead of rebuilding, we cut our timeline by ~70% and avoid maintaining duplicate infrastructure. The architecture is sound — we just need to plug in our unique pieces (ZeroDTE strategy, live pricing, VIX regime).
+</div>
+
+<hr>
+
+<p style="color:#999; font-size:12px; text-align:center; margin-top: 32px;">
+PR5-8 Revised Proposal v1.0 — Maximus 🛡️ — March 9, 2026<br>
+For review by Charles 🤖 and Carlos
+</p>
+
+</body>
+</html>

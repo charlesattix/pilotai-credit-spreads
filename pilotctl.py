@@ -15,7 +15,6 @@ from pathlib import Path
 
 import yaml
 
-
 EXPERIMENTS_FILE = Path(__file__).parent / "experiments.yaml"
 
 

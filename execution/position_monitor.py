@@ -32,7 +32,7 @@ try:
 except ImportError:                        # pragma: no cover — Python < 3.9
     from backports.zoneinfo import ZoneInfo  # type: ignore
 
-from shared.database import close_trade, get_trades, upsert_trade, init_db
+from shared.database import close_trade, get_trades, init_db, upsert_trade
 
 logger = logging.getLogger(__name__)
 

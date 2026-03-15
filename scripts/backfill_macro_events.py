@@ -29,9 +29,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from shared.macro_event_gate import (
     ALL_FOMC_DATES,
     FOMC_EMERGENCY_DATES,
-    FOMC_SCALING,
-    CPI_SCALING,
-    NFP_SCALING,
     _cpi_release_date,
     _nfp_release_date,
 )

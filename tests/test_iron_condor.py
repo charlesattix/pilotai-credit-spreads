@@ -1,9 +1,10 @@
 """Tests for iron condor strategy in CreditSpreadStrategy."""
-import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
-from strategy.spread_strategy import CreditSpreadStrategy
 
+import numpy as np
+import pandas as pd
+
+from strategy.spread_strategy import CreditSpreadStrategy
 
 # ---------------------------------------------------------------------------
 # Helpers

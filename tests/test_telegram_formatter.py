@@ -1,6 +1,5 @@
 """Tests for alerts.formatters.telegram — format output verification."""
 
-import pytest
 
 from alerts.alert_schema import (
     Alert,
@@ -12,7 +11,6 @@ from alerts.alert_schema import (
     TimeSensitivity,
 )
 from alerts.formatters.telegram import TelegramAlertFormatter
-
 
 # ---------------------------------------------------------------------------
 # Helpers

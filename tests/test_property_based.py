@@ -6,10 +6,12 @@ checking specific examples.
 
 import importlib.util
 from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
-from hypothesis import given, strategies as st, assume, settings
+from hypothesis import given
+from hypothesis import strategies as st
 
 # ---------------------------------------------------------------------------
 # Import helpers — avoid pulling the full ml package (which requires xgboost)

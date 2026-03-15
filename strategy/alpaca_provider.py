@@ -4,31 +4,32 @@ Submits real option spread orders to Alpaca paper trading API.
 Uses alpaca-py SDK for multi-leg option orders.
 """
 
-import logging
-import uuid
-import time
-import random
 import functools
+import logging
+import random
+import time
+import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-from shared.exceptions import ProviderError
-from shared.circuit_breaker import CircuitBreaker, CircuitOpenError
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import (
-    LimitOrderRequest,
-    GetOrdersRequest,
-    GetOptionContractsRequest,
-    OptionLegRequest,
-)
 from alpaca.trading.enums import (
+    ContractType,
     OrderClass,
     OrderSide,
-    TimeInForce,
-    QueryOrderStatus,
-    ContractType,
     PositionIntent,
+    QueryOrderStatus,
+    TimeInForce,
 )
+from alpaca.trading.requests import (
+    GetOptionContractsRequest,
+    GetOrdersRequest,
+    LimitOrderRequest,
+    OptionLegRequest,
+)
+
+from shared.circuit_breaker import CircuitBreaker, CircuitOpenError
+from shared.exceptions import ProviderError
 
 logger = logging.getLogger(__name__)
 
@@ -233,7 +234,7 @@ class AlpacaProvider:
         contracts: int,
         limit_price: Optional[float],
         client_id: str,
-    ) -> "alpaca.trading.models.Order":
+    ) -> "alpaca.trading.models.Order":  # noqa: F821
         """Build and submit a multi-leg option order.
 
         Args:

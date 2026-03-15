@@ -6,19 +6,31 @@ Equity mode trades the underlying; debit spread mode uses ITM debit spreads.
 """
 
 from __future__ import annotations
+
 import logging
-from typing import Any, Dict, List
+from typing import List
 
 import numpy as np
 
+from shared.constants import DEFAULT_RISK_FREE_RATE
 from strategies.base import (
-    BaseStrategy, LegType, MarketSnapshot, ParamDef, PortfolioState,
-    Position, PositionAction, Signal, TradeLeg, TradeDirection,
+    BaseStrategy,
+    LegType,
+    MarketSnapshot,
+    ParamDef,
+    PortfolioState,
+    Position,
+    PositionAction,
+    Signal,
+    TradeDirection,
+    TradeLeg,
 )
 from strategies.pricing import (
-    bs_price, nearest_friday_expiration, calculate_adx, calculate_rsi,
+    bs_price,
+    calculate_adx,
+    calculate_rsi,
+    nearest_friday_expiration,
 )
-from shared.constants import DEFAULT_RISK_FREE_RATE
 
 logger = logging.getLogger(__name__)
 
@@ -232,7 +244,7 @@ class MomentumSwingStrategy(BaseStrategy):
             return PositionAction.HOLD
 
         mode = position.metadata.get("mode", "equity")
-        direction = position.metadata.get("direction", "long")
+        position.metadata.get("direction", "long")
 
         if mode == "equity":
             return self._manage_equity(position, price, market_data)

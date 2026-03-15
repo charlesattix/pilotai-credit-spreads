@@ -16,6 +16,7 @@ from shared.constants import DATA_DIR
 logger = logging.getLogger(__name__)
 
 import os as _os
+
 DB_PATH = Path(_os.environ.get('PILOTAI_DB_PATH', str(Path(DATA_DIR) / "pilotai.db")))
 
 

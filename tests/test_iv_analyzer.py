@@ -1,13 +1,13 @@
 """Tests for ml.iv_analyzer.IVAnalyzer."""
 
+from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
+
 import numpy as np
 import pandas as pd
 import pytest
-from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch
 
 from ml.iv_analyzer import IVAnalyzer
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -199,7 +199,7 @@ class TestIVRankPercentile:
 
         analyzer = IVAnalyzer()
         # Craft a chain whose median iv maps to the midpoint of [12, 35]
-        midpoint = (12.0 + 35.0) / 2.0  # 23.5
+        (12.0 + 35.0) / 2.0  # 23.5
         # median iv * 100 = midpoint  => median iv = 0.235
         chain = _make_options_chain(
             put_iv_base=0.235, call_iv_base=0.235,

@@ -4,8 +4,12 @@ Displays profit/loss and performance metrics.
 """
 
 import logging
-from typing import Dict
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING, Dict
+
+if TYPE_CHECKING:
+    from tracker.trade_tracker import TradeTracker
+
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -19,7 +23,7 @@ class PnLDashboard:
     def __init__(self, config: Dict, tracker: 'TradeTracker'):
         """
         Initialize P&L dashboard.
-        
+
         Args:
             config: Configuration dictionary
             tracker: TradeTracker instance
@@ -164,7 +168,7 @@ class PnLDashboard:
     def generate_summary(self) -> Dict:
         """
         Generate summary data for external use.
-        
+
         Returns:
             Dictionary with summary data
         """

@@ -1,8 +1,9 @@
 """Tests for configuration loading and validation."""
 import os
+from unittest.mock import patch
+
 import pytest
 import yaml
-from unittest.mock import patch
 
 from utils import load_config, validate_config
 

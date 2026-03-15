@@ -9,10 +9,7 @@ Covers:
   - Backward compatibility: compass_universe_enabled=false behaves like before
 """
 
-import pytest
-from unittest.mock import MagicMock, patch, call
-from datetime import datetime, timezone
-
+from unittest.mock import MagicMock, patch
 
 # ---------------------------------------------------------------------------
 # Helpers — minimal config builders
@@ -336,7 +333,7 @@ class TestScanOpportunitiesDispatch:
         sys.scan_opportunities()
 
         call_args_list = sys._analyze_ticker.call_args_list
-        called = [(args[0], args[1] if len(args) > 1 else None, args[2] if len(args) > 2 else None)
+        [(args[0], args[1] if len(args) > 1 else None, args[2] if len(args) > 2 else None)
                   for args, kwargs in call_args_list]
         # Extract positional args
         positional = [args for args, _ in sys._analyze_ticker.call_args_list]
@@ -395,7 +392,6 @@ class TestAnalyzeTickerRegimeInjection:
 
         # Mock data_cache
         import pandas as pd
-        import numpy as np
         dates = pd.date_range('2023-01-01', periods=300, freq='B')
         price_df = pd.DataFrame(
             {'Open': 400.0, 'High': 405.0, 'Low': 395.0, 'Close': 400.0, 'Volume': 1_000_000},

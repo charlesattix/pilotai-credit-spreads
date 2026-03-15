@@ -9,15 +9,17 @@ Based on research:
 - Ang & Bekaert (2002): "Regime Switches in Interest Rates"
 """
 
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import Dict, Optional
+
 import numpy as np
 import pandas as pd
-from typing import Dict, Optional
-from datetime import datetime, timedelta, timezone
-import logging
+import yfinance as yf
+from hmmlearn import hmm
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
-from hmmlearn import hmm
-import yfinance as yf
+
 from shared.indicators import calculate_rsi, sanitize_features
 
 logger = logging.getLogger(__name__)
@@ -26,7 +28,7 @@ logger = logging.getLogger(__name__)
 class RegimeDetector:
     """
     Detects market volatility regimes using HMM and ensemble methods.
-    
+
     Features:
     - Realized volatility (5/10/20 day)
     - VIX level and term structure
@@ -69,10 +71,10 @@ class RegimeDetector:
     def fit(self, force_retrain: bool = False) -> bool:
         """
         Train the regime detection models.
-        
+
         Args:
             force_retrain: Force retraining even if recently trained
-            
+
         Returns:
             True if training successful
         """
@@ -144,10 +146,10 @@ class RegimeDetector:
     def detect_regime(self, ticker: str = 'SPY') -> Dict:
         """
         Detect current market regime.
-        
+
         Args:
             ticker: Reference ticker (default: SPY)
-            
+
         Returns:
             Dictionary with regime, confidence, and context
         """
@@ -343,7 +345,7 @@ class RegimeDetector:
         regime_labels = np.zeros(len(hmm_states), dtype=int)
 
         for i in range(len(hmm_states)):
-            state = hmm_states[i]
+            hmm_states[i]
 
             # Get feature values
             vix = features_df['vix_level'].iloc[i]

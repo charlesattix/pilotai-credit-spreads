@@ -14,7 +14,6 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
 
 from shared.scheduler import MARKET_SCAN_TIMES as SCAN_TIMES
 
@@ -1739,7 +1738,7 @@ class Backtester:
         spread_type: str,
     ) -> Optional[Dict]:
         """Legacy heuristic spread finding (no real options data)."""
-        from shared.constants import BACKTEST_SHORT_STRIKE_OTM_FRACTION, BACKTEST_CREDIT_FRACTION
+        from shared.constants import BACKTEST_CREDIT_FRACTION, BACKTEST_SHORT_STRIKE_OTM_FRACTION
 
         if spread_type == "bull_put_spread":
             short_strike = price * BACKTEST_SHORT_STRIKE_OTM_FRACTION
@@ -2414,10 +2413,12 @@ class Backtester:
         max_win_streak = max_loss_streak = cur_win = cur_loss = 0
         for is_win in (trades_df['pnl'] > 0):
             if is_win:
-                cur_win += 1; cur_loss = 0
+                cur_win += 1
+                cur_loss = 0
                 max_win_streak = max(max_win_streak, cur_win)
             else:
-                cur_loss += 1; cur_win = 0
+                cur_loss += 1
+                cur_win = 0
                 max_loss_streak = max(max_loss_streak, cur_loss)
 
         results = {

@@ -10,7 +10,7 @@ then combined. The result is also normalized [0, 1] for interpretable alerting t
 import logging
 from collections import defaultdict
 from datetime import date
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from . import config, db
 

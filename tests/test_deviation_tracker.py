@@ -1,24 +1,18 @@
 """Tests for shared/deviation_tracker.py — persistent deviation tracking."""
 
-import json
-import sqlite3
-import tempfile
 from datetime import datetime, timedelta
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
-from shared.database import init_db, get_db
+from shared.database import init_db
 from shared.deviation_tracker import (
-    record_deviation_snapshot,
+    _upsert_snapshot,
+    check_deviation_alerts,
     get_deviation_history,
     get_latest_deviation,
-    check_deviation_alerts,
-    _compute_overall_status,
-    _upsert_snapshot,
+    record_deviation_snapshot,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

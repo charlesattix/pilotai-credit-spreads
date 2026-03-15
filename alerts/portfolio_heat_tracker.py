@@ -14,7 +14,6 @@ Design:
 
 import logging
 import sqlite3
-from pathlib import Path
 from threading import Lock
 from typing import Dict, Optional
 

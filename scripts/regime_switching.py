@@ -20,14 +20,14 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Dict, List, Tuple
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from engine.portfolio_backtester import PortfolioBacktester
-from strategies import STRATEGY_REGISTRY
 from scripts.portfolio_blend import get_strategy_params
+from strategies import STRATEGY_REGISTRY
 
 TICKERS = ["SPY"]
 STARTING_CAPITAL = 100_000

@@ -2,8 +2,8 @@
 
 from datetime import datetime, timezone
 
-from strategies.base import LegType, Signal, TradeLeg, TradeDirection
 from shared.strategy_adapter import signal_to_opportunity, trade_dict_to_position
+from strategies.base import LegType, Signal, TradeDirection, TradeLeg
 
 
 def _make_credit_spread_signal():

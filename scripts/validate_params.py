@@ -183,10 +183,14 @@ def check_c_sensitivity(params: dict, base_results: dict, use_real: bool, ticker
             jittered = copy.deepcopy(params)
             new_val = base_val * (1 + pct)
             # Clamp reasonable ranges
-            if param == "target_delta":   new_val = max(0.05, min(0.40, new_val))
-            if param == "target_dte":     new_val = max(7, min(90, int(new_val)))
-            if param == "spread_width":   new_val = max(1, int(round(new_val)))
-            if param == "profit_target":  new_val = max(10, min(100, new_val))
+            if param == "target_delta":
+                new_val = max(0.05, min(0.40, new_val))
+            if param == "target_dte":
+                new_val = max(7, min(90, int(new_val)))
+            if param == "spread_width":
+                new_val = max(1, int(round(new_val)))
+            if param == "profit_target":
+                new_val = max(10, min(100, new_val))
             jittered[param] = new_val
 
             t0 = time.time()
@@ -360,7 +364,7 @@ def check_f_drawdown(results_by_year: dict, max_dd_limit: float = -50.0,
         "max_streak_limit": max_streak,
         "score": round(score, 3),
         "passed": passed,
-        "note": (f"No violations" if not violations
+        "note": ("No violations" if not violations
                  else f"{violations} violations — DD: {dd_violations}, Streak: {streak_violations}"),
     }
 
@@ -578,7 +582,7 @@ def main():
             results_by_year = json.load(f)
         years = [int(y) for y in results_by_year.keys()]
     else:
-        from scripts.run_optimization import run_all_years, YEARS
+        from scripts.run_optimization import YEARS, run_all_years
         use_real = not args.heuristic
         years = YEARS
         print(f"Running backtests for {years}...")

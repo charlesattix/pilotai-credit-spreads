@@ -4,16 +4,13 @@ import threading
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
-import pytz
-import pytest
-
 from shared.scheduler import (
     ET,
-    SCAN_TIMES,
     MARKET_SCAN_TIMES,
-    SLOT_SCAN,
-    SLOT_PRE_MARKET,
+    SCAN_TIMES,
     SLOT_DAILY_REPORT,
+    SLOT_PRE_MARKET,
+    SLOT_SCAN,
     ScanScheduler,
     _is_weekday,
     _next_scan_time,

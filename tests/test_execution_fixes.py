@@ -18,9 +18,8 @@ import os
 import tempfile
 import threading
 import time
-from datetime import datetime, timezone, timedelta
-from typing import Dict
-from unittest.mock import MagicMock, patch, call
+from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -231,7 +230,7 @@ class TestPositionMonitor:
 
     def test_stop_called_when_event_set(self, tmp_path):
         monitor, _ = self._make_monitor(tmp_path=tmp_path)
-        with patch.object(monitor, '_check_positions') as mock_check:
+        with patch.object(monitor, '_check_positions'):
             t = threading.Thread(target=monitor.start, daemon=True)
             t.start()
             time.sleep(0.1)
@@ -382,8 +381,12 @@ class TestAlertPositionSizerFlat:
         alert.ticker = "SPY"
         alert.type = AlertType.iron_condor if is_ic else AlertType.credit_spread
         alert.entry_price = credit
-        leg1 = MagicMock(); leg1.strike = short; leg1.option_type = "put"
-        leg2 = MagicMock(); leg2.strike = long; leg2.option_type = "put"
+        leg1 = MagicMock()
+        leg1.strike = short
+        leg1.option_type = "put"
+        leg2 = MagicMock()
+        leg2.strike = long
+        leg2.option_type = "put"
         alert.legs = [leg1, leg2]
         return alert
 
@@ -479,7 +482,8 @@ class TestRiskGateDrawdownCB:
         alert = MagicMock(spec=Alert)
         alert.ticker = "SPY"
         alert.type = AlertType.credit_spread
-        alert.direction = MagicMock(); alert.direction.value = "bullish"
+        alert.direction = MagicMock()
+        alert.direction.value = "bullish"
         alert.risk_pct = 0.05
         return alert
 
@@ -554,7 +558,7 @@ class TestRiskGateDrawdownCB:
 
 class TestPendingCloseStatus:
     def test_pending_close_written_and_read(self, tmp_path):
-        from shared.database import upsert_trade, get_trades, init_db
+        from shared.database import get_trades, init_db, upsert_trade
         db_path = str(tmp_path / "test.db")
         init_db(db_path)
 
@@ -579,9 +583,9 @@ class TestPendingCloseStatus:
 
 class TestAlertRouterExecution:
     def test_execution_engine_called_after_dispatch(self):
+        from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
         from alerts.risk_gate import RiskGate
-        from alerts.alert_position_sizer import AlertPositionSizer
 
         mock_telegram = MagicMock()
         mock_telegram.send_alert = MagicMock()
@@ -603,20 +607,14 @@ class TestAlertRouterExecution:
         mock_alert = MagicMock(spec=Alert)
         mock_alert.ticker = "SPY"
         mock_alert.type = AlertType.credit_spread
-        mock_alert.direction = MagicMock(); mock_alert.direction.value = "bullish"
+        mock_alert.direction = MagicMock()
+        mock_alert.direction.value = "bullish"
         mock_alert.score = 75
         mock_alert.risk_pct = 0.05
-        mock_alert.sizing = MagicMock(); mock_alert.sizing.contracts = 2
+        mock_alert.sizing = MagicMock()
+        mock_alert.sizing.contracts = 2
         mock_alert.to_dict.return_value = {"ticker": "SPY", "type": "credit_spread", "contracts": 2}
 
-        account_state = {
-            "account_value": 100_000,
-            "peak_equity": 100_000,
-            "open_positions": [],
-            "daily_pnl_pct": 0.0,
-            "weekly_pnl_pct": 0.0,
-            "recent_stops": [],
-        }
 
         with patch.object(router, '_dedup_ledger', {}), \
              patch('alerts.alert_router.insert_alert'):
@@ -628,9 +626,9 @@ class TestAlertRouterExecution:
 
     def test_no_execution_when_engine_is_none(self):
         """When execution_engine=None, no orders submitted (alert-only mode)."""
+        from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
         from alerts.risk_gate import RiskGate
-        from alerts.alert_position_sizer import AlertPositionSizer
 
         router = AlertRouter(
             risk_gate=RiskGate(),
@@ -650,9 +648,9 @@ class TestAlertRouterDteGate:
     """_validate_dte enforces min_dte / max_dte from config before execution."""
 
     def _router(self, min_dte=25, max_dte=45):
+        from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
         from alerts.risk_gate import RiskGate
-        from alerts.alert_position_sizer import AlertPositionSizer
         return AlertRouter(
             risk_gate=RiskGate(),
             position_sizer=AlertPositionSizer(),
@@ -664,6 +662,7 @@ class TestAlertRouterDteGate:
 
     def _alert_with_dte(self, dte_days: int):
         from datetime import date, timedelta
+
         from alerts.alert_schema import Alert, AlertType, Direction, Leg
         exp = (date.today() + timedelta(days=dte_days)).isoformat()
         return Alert(
@@ -707,9 +706,9 @@ class TestAlertRouterDteGate:
 
     def test_no_config_passes_through(self):
         """When no DTE config, gate is disabled — all expirations allowed."""
+        from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
         from alerts.risk_gate import RiskGate
-        from alerts.alert_position_sizer import AlertPositionSizer
         router = AlertRouter(
             risk_gate=RiskGate(),
             position_sizer=AlertPositionSizer(),
@@ -937,8 +936,8 @@ class TestStrikePricePreservation:
 
     def test_alert_legs_preserve_strikes_through_pipeline(self):
         """Strike prices must survive: opportunity → Alert → execution dict unchanged."""
-        from alerts.alert_schema import Alert
         from alerts.alert_router import AlertRouter
+        from alerts.alert_schema import Alert
 
         opp = {
             "ticker": "SPY",

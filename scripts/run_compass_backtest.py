@@ -14,6 +14,7 @@ import json
 import os
 import sys
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -119,7 +120,7 @@ def run_experiment(label: str, params: dict) -> dict:
             results[year] = r
         except Exception as e:
             print(f"ERROR: {e}")
-            import traceback; traceback.print_exc()
+            traceback.print_exc()
             results[year] = {"return_pct": 0, "total_trades": 0, "max_drawdown": 0,
                              "sharpe_ratio": 0, "error": str(e)}
     return results
@@ -307,17 +308,17 @@ def write_report(ctrl_results: dict, comp_results: dict, ctrl_summary: dict, com
         "",
         "**Macro Score Sizing (score < 45 → 1.1×, score > 70 → 0.8×)**:",
         "",
-        f"- Only 2020 had fear weeks (score < 45) — the COVID crash. In 2020, the 1.1× multiplier "
-        f"increased size during bear call entries when VIX was elevated and premiums were richest.",
-        f"- 2021 was almost entirely 'greed' territory (avg score 73.7). The 0.8× multiplier "
-        f"reduced position sizes across most of 2021. This explains any 2021 return drag vs baseline.",
-        f"- 2022–2025 had neutral-range scores (45–70) → 1.0× (no change).",
+        "- Only 2020 had fear weeks (score < 45) — the COVID crash. In 2020, the 1.1× multiplier "
+        "increased size during bear call entries when VIX was elevated and premiums were richest.",
+        "- 2021 was almost entirely 'greed' territory (avg score 73.7). The 0.8× multiplier "
+        "reduced position sizes across most of 2021. This explains any 2021 return drag vs baseline.",
+        "- 2022–2025 had neutral-range scores (45–70) → 1.0× (no change).",
         "",
         "**RRG Breadth Filter (block bull puts when < 50% sectors Leading/Improving)**:",
         "",
         f"- Blocks ~{stats.get('rrg_blocked_pct', '?')}% of weeks from bull put entries.",
-        f"- This is most impactful in 2022 (broad sector weakness) and early 2020.",
-        f"- In bull years (2021, 2023–2025), most weeks have strong sector breadth — filter rarely triggers.",
+        "- This is most impactful in 2022 (broad sector weakness) and early 2020.",
+        "- In bull years (2021, 2023–2025), most weeks have strong sector breadth — filter rarely triggers.",
         "",
         "**Event Scaling (FOMC/CPI/NFP)**:",
         "",

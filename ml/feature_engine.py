@@ -10,14 +10,16 @@ Based on research:
 - Cooper et al. (2006): Asset growth and returns
 """
 
+import logging
+from datetime import datetime, timezone
+from typing import Dict, Optional
+
 import numpy as np
 import pandas as pd
-from typing import Dict, Optional
-from datetime import datetime, timezone
-import logging
 import yfinance as yf
+
+from shared.constants import CPI_RELEASE_DAYS, FOMC_DATES
 from shared.indicators import calculate_rsi
-from shared.constants import FOMC_DATES, CPI_RELEASE_DAYS
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +27,7 @@ logger = logging.getLogger(__name__)
 class FeatureEngine:
     """
     Comprehensive feature engineering for options trading ML models.
-    
+
     Feature categories:
     1. Technical: RSI, MACD, Bollinger %B, ATR, volume
     2. Volatility: IV rank, skew, realized vs implied
@@ -65,7 +67,7 @@ class FeatureEngine:
     ) -> Dict:
         """
         Build complete feature set for a potential trade.
-        
+
         Args:
             ticker: Stock ticker
             current_price: Current stock price
@@ -73,7 +75,7 @@ class FeatureEngine:
             regime_data: Regime detection results
             iv_analysis: IV surface analysis
             technical_signals: Technical analysis signals
-            
+
         Returns:
             Dictionary of features
         """

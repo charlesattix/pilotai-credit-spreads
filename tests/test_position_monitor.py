@@ -6,18 +6,13 @@
   +    : Market hours gate
 """
 
-import sqlite3
 import tempfile
-import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from execution.position_monitor import PositionMonitor
 from shared.database import get_trades, init_db, upsert_trade
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -551,7 +546,7 @@ class TestMarketHoursGate:
     def test_market_open_weekday(self):
         # Patch to Wednesday 10:30 ET
         with patch("execution.position_monitor.datetime") as mock_dt:
-            wednesday_1030 = datetime(2026, 3, 4, 10, 30, tzinfo=None)   # weekday=2
+            datetime(2026, 3, 4, 10, 30, tzinfo=None)   # weekday=2
             mock_dt.now.return_value = MagicMock(
                 weekday=lambda: 2,  # Wednesday
                 hour=10, minute=30,

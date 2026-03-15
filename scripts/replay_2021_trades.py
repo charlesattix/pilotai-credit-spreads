@@ -49,7 +49,6 @@ def _load_config(config_path: str) -> dict:
 
 def _spot_check_trade(trade: dict, hd, n: int, total: int):
     """Fetch Polygon daily bars for the short leg and compare to backtester record."""
-    from backtest.backtester import Backtester
     ticker = trade.get("ticker", "SPY")
     entry_date = trade.get("entry_date", "")
     exit_date = trade.get("exit_date", "")
@@ -82,15 +81,15 @@ def _spot_check_trade(trade: dict, hd, n: int, total: int):
 
     # Fetch daily bars for the short leg from Polygon cache
     if hd is None:
-        print(f"  Polygon:     [no HD — skipping raw data check]")
+        print("  Polygon:     [no HD — skipping raw data check]")
         return
 
     if contract_symbol == "UNKNOWN":
-        print(f"  Polygon:     [no expiration in trade record — skipping raw data check]")
+        print("  Polygon:     [no expiration in trade record — skipping raw data check]")
         return
 
     entry_str = str(entry_date)[:10]
-    exit_str  = str(exit_date)[:10]
+    str(exit_date)[:10]
 
     # Get entry price from cache
     try:
@@ -106,7 +105,7 @@ def _spot_check_trade(trade: dict, hd, n: int, total: int):
             print(f"  Entry check: spread_value={entry_prices.get('spread_value', 'N/A'):.4f}  "
                   f"(backtester credit={credit:.4f})")
         else:
-            print(f"  Entry check: no Polygon data for this date")
+            print("  Entry check: no Polygon data for this date")
     except Exception as e:
         print(f"  Entry check: ERROR — {e}")
 
@@ -126,7 +125,7 @@ def _spot_check_trade(trade: dict, hd, n: int, total: int):
             print(f"  Expiry check: final_spread_value={final_val}  "
                   f"(should be ≈0 for full profit, credit was {credit:.4f})")
         else:
-            print(f"  Expiry check: no Polygon data for expiration date")
+            print("  Expiry check: no Polygon data for expiration date")
     except Exception as e:
         print(f"  Expiry check: ERROR — {e}")
 
@@ -184,7 +183,7 @@ def main():
     print(f"  Bull puts:    {len(bull_puts)}")
     print(f"  Bear calls:   {len(bear_calls)}")
     print(f"  Iron condors: {len(iron_condors)}")
-    print(f"  (Note: 2021 was a bull year — expecting mostly bull puts + ICs)")
+    print("  (Note: 2021 was a bull year — expecting mostly bull puts + ICs)")
 
     # Exit reason breakdown
     reasons = {}
@@ -217,7 +216,7 @@ def main():
     for i, trade in enumerate(sample, 1):
         _spot_check_trade(trade, hd, i, len(sample))
 
-    print(f"""
+    print("""
 ════════════════════════════════════════════════════════════════════════
   VERDICT:
   - If ALL exit reasons are 'expiration' or 'profit_target' → legit WR

@@ -18,11 +18,10 @@ Auth:
 Rate limit: 100 requests/minute per API key (in-memory sliding window).
 """
 
+import logging
 import os
 import sys
 import time
-import logging
-import sqlite3
 from collections import defaultdict, deque
 from datetime import date, datetime
 from pathlib import Path
@@ -32,7 +31,6 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Query, Security
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.openapi.utils import get_openapi
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
@@ -42,17 +40,17 @@ PROJECT_ROOT = API_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 load_dotenv(PROJECT_ROOT / ".env")
 
+from shared.macro_event_gate import compute_composite_scaling, get_upcoming_events
 from shared.macro_state_db import (
-    get_db,
-    get_current_macro_score,
-    get_sector_rankings,
-    get_event_scaling_factor,
-    get_eligible_underlyings,
-    get_latest_snapshot_date,
-    get_snapshot_count,
     MACRO_DB_PATH,
+    get_current_macro_score,
+    get_db,
+    get_eligible_underlyings,
+    get_event_scaling_factor,
+    get_latest_snapshot_date,
+    get_sector_rankings,
+    get_snapshot_count,
 )
-from shared.macro_event_gate import get_upcoming_events, compute_composite_scaling
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)s  %(message)s")
 logger = logging.getLogger(__name__)

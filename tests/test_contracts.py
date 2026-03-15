@@ -7,10 +7,11 @@ These tests verify that:
 """
 
 import json
-import pandas as pd
-import numpy as np
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import numpy as np
+import pandas as pd
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

@@ -16,8 +16,6 @@ Mocks third-party dependencies (same pattern as Phase 1/2/3) and exercises:
 
 import sys
 import types
-import copy
-import math
 
 # ---------------------------------------------------------------------------
 # Mock third-party modules before any project imports
@@ -153,8 +151,6 @@ sys.path.insert(0, ".")
 # Pre-load ml.position_sizer (same trick as Phase 1/2/3)
 import importlib.util
 
-import shared.constants
-
 ml_pkg = types.ModuleType("ml")
 ml_pkg.__path__ = ["."]
 sys.modules["ml"] = ml_pkg
@@ -168,17 +164,17 @@ sys.modules["ml.position_sizer"] = _ps_mod
 _ps_spec.loader.exec_module(_ps_mod)
 
 # ----- Import modules under test -----
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, time
 
+from alerts.alert_position_sizer import AlertPositionSizer
+from alerts.alert_schema import Alert, AlertType, Direction, Leg, TimeSensitivity
 from alerts.momentum_config import (
-    build_momentum_config,
     MOMENTUM_TICKERS,
     SCAN_HOURS,
+    build_momentum_config,
 )
-from alerts.momentum_scanner import MomentumScanner
 from alerts.momentum_exit_monitor import MomentumExitMonitor
-from alerts.alert_schema import Alert, AlertType, Direction, Leg, TimeSensitivity
-from alerts.alert_position_sizer import AlertPositionSizer
+from alerts.momentum_scanner import MomentumScanner
 
 print("All Phase 4 modules imported successfully\n")
 
@@ -451,7 +447,6 @@ def _():
     # Mock to verify the method signature returns a list
     # We mock at a higher level since we can't create real DataFrames
     triggers_called = [False]
-    original = scanner._detect_triggers
     def mock_detect(ticker, price_data):
         triggers_called[0] = True
         return [{"type": "breakout", "direction": "bullish", "detail": "test"}]
@@ -539,7 +534,6 @@ def _():
     scanner = MomentumScanner(_base_config())
     # Mock the method to verify integration
     scanner._calculate_adx = lambda d, **kw: 30.0
-    trigger = {"type": "breakout", "direction": "bullish"}
 
     # Create a minimal mock price_data with Volume
     class FakeVol:

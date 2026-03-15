@@ -24,7 +24,7 @@ Regime → strategy mapping (applied to ALL experiments regardless of direction 
 """
 
 import logging
-from typing import Dict, Optional
+from typing import Dict
 
 import pandas as pd
 

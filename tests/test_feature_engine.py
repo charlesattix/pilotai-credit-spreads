@@ -1,12 +1,12 @@
 """Tests for FeatureEngine."""
-import pytest
-import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import numpy as np
+import pandas as pd
+import pytest
 
 from ml.feature_engine import FeatureEngine
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -175,7 +175,7 @@ class TestDataCacheBehavior:
     def test_falls_back_to_yf_without_cache(self, mock_dl):
         """Without data_cache, _download should call yf.download."""
         engine = FeatureEngine()
-        result = engine._download('SPY', period='6mo')
+        engine._download('SPY', period='6mo')
         mock_dl.assert_called_once_with('SPY', period='6mo', progress=False)
 
 

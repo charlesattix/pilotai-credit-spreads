@@ -15,8 +15,6 @@ Mocks third-party dependencies (same pattern as Phase 1/2/3/4) and exercises:
 
 import sys
 import types
-import copy
-import math
 
 # ---------------------------------------------------------------------------
 # Mock third-party modules before any project imports
@@ -152,8 +150,6 @@ sys.path.insert(0, ".")
 # Pre-load ml.position_sizer (same trick as Phase 1/2/3/4)
 import importlib.util
 
-import shared.constants
-
 ml_pkg = types.ModuleType("ml")
 ml_pkg.__path__ = ["."]
 sys.modules["ml"] = ml_pkg
@@ -167,18 +163,18 @@ sys.modules["ml.position_sizer"] = _ps_mod
 _ps_spec.loader.exec_module(_ps_mod)
 
 # ----- Import modules under test -----
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
-from alerts.earnings_config import (
-    build_earnings_config,
-    EARNINGS_TICKERS,
-    EARNINGS_LOOKAHEAD_DAYS,
-)
-from alerts.earnings_scanner import EarningsScanner
-from alerts.earnings_exit_monitor import EarningsExitMonitor, _is_post_earnings
-from shared.earnings_calendar import EarningsCalendar, _NO_EARNINGS_TICKERS
-from alerts.alert_schema import Alert, AlertType, Direction, Leg, TimeSensitivity
 from alerts.alert_position_sizer import AlertPositionSizer
+from alerts.alert_schema import Alert, AlertType, Direction, Leg
+from alerts.earnings_config import (
+    EARNINGS_LOOKAHEAD_DAYS,
+    EARNINGS_TICKERS,
+    build_earnings_config,
+)
+from alerts.earnings_exit_monitor import EarningsExitMonitor, _is_post_earnings
+from alerts.earnings_scanner import EarningsScanner
+from shared.earnings_calendar import _NO_EARNINGS_TICKERS, EarningsCalendar
 
 print("All Phase 5 modules imported successfully\n")
 
@@ -727,7 +723,7 @@ def _():
 
 @test("condor: management_instructions present")
 def _():
-    scanner = EarningsScanner(_base_config())
+    EarningsScanner(_base_config())
     # Use mock builder output
     opp = {
         "management_instructions": (

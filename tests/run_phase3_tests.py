@@ -10,7 +10,6 @@ Mocks third-party dependencies (same pattern as Phase 1/2) and exercises:
 
 import sys
 import types
-import copy
 
 # ---------------------------------------------------------------------------
 # Mock third-party modules before any project imports
@@ -138,8 +137,6 @@ sys.path.insert(0, ".")
 # Pre-load ml.position_sizer (same trick as Phase 1/2)
 import importlib.util
 
-import shared.constants
-
 ml_pkg = types.ModuleType("ml")
 ml_pkg.__path__ = ["."]
 sys.modules["ml"] = ml_pkg
@@ -153,15 +150,15 @@ sys.modules["ml.position_sizer"] = _ps_mod
 _ps_spec.loader.exec_module(_ps_mod)
 
 # ----- Import modules under test -----
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime
 
 from alerts.iron_condor_config import (
-    build_iron_condor_config,
-    ENTRY_DAYS,
     CLOSE_DAYS,
+    ENTRY_DAYS,
+    build_iron_condor_config,
 )
-from alerts.iron_condor_scanner import IronCondorScanner
 from alerts.iron_condor_exit_monitor import IronCondorExitMonitor
+from alerts.iron_condor_scanner import IronCondorScanner
 
 print("All Phase 3 modules imported successfully\n")
 
@@ -378,7 +375,6 @@ def _():
 def _():
     scanner = IronCondorScanner(_base_config())
     call_count = [0]
-    original = scanner._scan_ticker
     def counting_scan_ticker(ticker):
         call_count[0] += 1
         return [{"ticker": ticker, "type": "iron_condor", "score": 80}]

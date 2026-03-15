@@ -9,9 +9,8 @@ import math
 from datetime import datetime, timedelta
 from typing import List
 
-from shared.strike_selector import _norm_cdf, bs_delta  # noqa: F401
 from shared.constants import DEFAULT_RISK_FREE_RATE
-
+from shared.strike_selector import _norm_cdf, bs_delta  # noqa: F401
 from strategies.base import LegType, Position
 
 

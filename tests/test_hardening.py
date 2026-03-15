@@ -19,10 +19,9 @@ Covers:
   H15: market_closed result does NOT update DB status
 """
 
-import tempfile
-from datetime import datetime, timezone, timedelta
-from typing import Dict, Optional
-from unittest.mock import MagicMock, patch, call
+from datetime import datetime, timezone
+from typing import Dict
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -358,7 +357,6 @@ class TestExecutionEngineMarketGuard:
 
     def test_market_closed_still_writes_db_record(self, tmp_path):
         """Even on market_closed, DB record is written (write-before-submit pattern)."""
-        from execution.execution_engine import ExecutionEngine
         from shared.database import get_trades
         db_path = str(tmp_path / "db.db")
         engine = self._make_engine(is_open=False, db_path=db_path)
@@ -424,7 +422,7 @@ class TestReconcilePendingOpens:
         We test only the reconciliation step (pending_open → open), isolating from
         the external-close and exit-condition logic that runs later in _check_positions.
         """
-        from shared.database import init_db, upsert_trade, get_trades
+        from shared.database import get_trades, upsert_trade
 
         db = _setup_db(tmp_path)
 
@@ -467,7 +465,6 @@ class TestPartialFillDetection:
 
     def test_partial_fill_logged_and_contracts_adjusted(self, tmp_path):
         """When filled_qty < expected contracts, log warning and adjust contracts."""
-        import logging
 
         db = self._setup_db(tmp_path)
         from shared.database import upsert_trade
@@ -706,8 +703,8 @@ class TestIntraDayOrderLifecycle:
           Step 1: _reconcile_pending_opens promotes pending_open → open
           Step 2: On next _check_positions, the now-open position is checked for exits
         """
-        from shared.database import upsert_trade, get_trades
         from execution.position_monitor import PositionMonitor
+        from shared.database import get_trades, upsert_trade
 
         db = _setup_db(tmp_path)
 

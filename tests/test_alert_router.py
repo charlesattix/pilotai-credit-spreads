@@ -4,16 +4,13 @@ Uses mocked dependencies (RiskGate, AlertPositionSizer, TelegramBot,
 TelegramAlertFormatter) to verify routing logic in isolation.
 """
 
-import pytest
-from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
-from alerts.alert_schema import Alert, AlertType, Direction, Leg, SizeResult
-from alerts.risk_gate import RiskGate
 from alerts.alert_position_sizer import AlertPositionSizer
 from alerts.alert_router import AlertRouter
+from alerts.alert_schema import Alert, AlertType, Direction, Leg
 from alerts.formatters.telegram import TelegramAlertFormatter
-
+from alerts.risk_gate import RiskGate
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -347,7 +344,7 @@ class TestMaxPositionsPerTicker:
         }
 
     def _spy_alert(self):
-        from alerts.alert_schema import Alert, AlertType, Direction, Leg
+        from alerts.alert_schema import AlertType
         return Alert(
             type=AlertType.iron_condor,
             ticker="SPY",
@@ -413,7 +410,7 @@ class TestMaxPositionsPerTicker:
     def test_different_ticker_not_counted(self):
         """IWM positions do not count toward SPY's per-ticker limit."""
         gate = self._gate_with_limit(1)
-        from alerts.alert_schema import Alert, AlertType, Direction, Leg
+        from alerts.alert_schema import AlertType
         iwm_alert = Alert(
             type=AlertType.iron_condor,
             ticker="IWM",

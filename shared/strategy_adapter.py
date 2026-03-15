@@ -11,7 +11,11 @@ from datetime import datetime, timezone
 from typing import Dict
 
 from strategies.base import (
-    LegType, Position, Signal, TradeLeg, TradeDirection,
+    LegType,
+    Position,
+    Signal,
+    TradeDirection,
+    TradeLeg,
 )
 
 logger = logging.getLogger(__name__)

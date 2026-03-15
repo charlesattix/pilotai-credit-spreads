@@ -13,21 +13,21 @@ Usage:
 Position tracking, P&L, and trade management go through Alpaca API only.
 """
 
-import os
-import sys
-import signal
-import logging
-from datetime import datetime, timedelta, timezone
 import argparse
-from typing import Dict, Optional
+import logging
+import os
+import signal
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta, timezone
+from typing import Dict, Optional
 
-from shared.types import AppConfig
 from shared.macro_state_db import (
+    LIQUID_SECTOR_ETFS,
     get_current_macro_score,
     get_sector_rankings,
-    LIQUID_SECTOR_ETFS,
 )
+from shared.types import AppConfig
 
 try:
     import sentry_sdk
@@ -39,20 +39,19 @@ except ImportError:
 except Exception as e:
     logging.getLogger(__name__).error(f"Sentry initialization failed: {e}", exc_info=True)
 
-from utils import load_config, setup_logging, validate_config
-from strategy import CreditSpreadStrategy, TechnicalAnalyzer, OptionsAnalyzer
 from alerts import AlertGenerator, TelegramBot
-from alerts.risk_gate import RiskGate
 from alerts.alert_position_sizer import AlertPositionSizer
 from alerts.alert_router import AlertRouter
 from alerts.formatters.telegram import TelegramAlertFormatter
+from alerts.risk_gate import RiskGate
 from backtest import Backtester, HistoricalOptionsData, PerformanceMetrics
-from tracker import TradeTracker, PnLDashboard
 from shared.data_cache import DataCache
-from shared.database import insert_alert, get_trades
+from shared.database import get_trades, insert_alert
 from shared.metrics import metrics
 from shared.provider_protocol import DataProvider  # noqa: F401 – ARCH-PY-06
-
+from strategy import CreditSpreadStrategy, OptionsAnalyzer, TechnicalAnalyzer
+from tracker import PnLDashboard, TradeTracker
+from utils import load_config, setup_logging, validate_config
 
 logger = logging.getLogger(__name__)
 
@@ -625,6 +624,7 @@ class CreditSpreadSystem:
 
         # Write to canonical path for web dashboard API
         import json
+
         from shared.constants import OUTPUT_DIR
         canonical_path = os.path.join(OUTPUT_DIR, 'backtest_results.json')
         os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -840,10 +840,11 @@ Examples:
             system.scan_opportunities()
 
         elif args.command == 'scheduler':
-            from shared.scheduler import ScanScheduler, SLOT_SCAN, SLOT_MACRO_WEEKLY
-            from execution.position_monitor import PositionMonitor
             import threading
             import time as _time
+
+            from execution.position_monitor import PositionMonitor
+            from shared.scheduler import SLOT_MACRO_WEEKLY, SLOT_SCAN, ScanScheduler
 
             def _run_macro_weekly_with_retry(max_attempts: int = 5) -> None:
                 """Run the weekly macro snapshot with exponential backoff retries.

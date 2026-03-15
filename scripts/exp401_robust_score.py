@@ -19,7 +19,6 @@ Usage:
     PYTHONPATH=. python3 scripts/exp401_robust_score.py
 """
 
-import copy
 import json
 import sys
 import time
@@ -31,7 +30,6 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from engine.portfolio_backtester import PortfolioBacktester
-from strategies import STRATEGY_REGISTRY
 from scripts.portfolio_blend import get_strategy_params
 from scripts.validate_params import (
     check_a_consistency,
@@ -42,6 +40,7 @@ from scripts.validate_params import (
     check_h_data_consistency,
     compute_overfit_score,
 )
+from strategies import STRATEGY_REGISTRY
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Configuration — Phase 4 best config (same as final_validation.py)
@@ -311,7 +310,7 @@ def main():
     print(f"\n  {'=' * 50}")
     print(f"  COMPOSITE OVERFIT SCORE: {overfit_score:.3f}  →  {icon}{gate_note}")
     print(f"  {'=' * 50}")
-    print(f"\n  Component scores:")
+    print("\n  Component scores:")
     print(f"    A (consistency):  {check_a['score']:.3f} × 0.25 = {check_a['score']*0.25:.3f}")
     print(f"    B (walkforward):  {check_b['score']:.3f} × 0.30 = {check_b['score']*0.30:.3f}")
     print(f"    C (sensitivity):  {check_c['score']:.3f} × 0.25 = {check_c['score']*0.25:.3f}")

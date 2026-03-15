@@ -3,7 +3,7 @@
 import threading
 import time
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
 from shared.constants import DATA_DIR as _DATA_DIR
 from shared.io_utils import atomic_json_write

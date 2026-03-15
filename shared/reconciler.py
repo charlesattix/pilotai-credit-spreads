@@ -17,7 +17,7 @@ Reconciliation targets:
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -156,7 +156,7 @@ class PositionReconciler:
         Rather than guess, we mark these as ``needs_investigation`` so a human
         (or later automation) can determine the cause and record the correct P&L.
         """
-        from shared.database import get_trades, upsert_trade, insert_reconciliation_event
+        from shared.database import get_trades, insert_reconciliation_event, upsert_trade
 
         open_trades = get_trades(status="open", path=self.db_path)
         if not open_trades:
@@ -308,7 +308,7 @@ class PositionReconciler:
           - still pending/submitted → leave as pending_open (try again next cycle).
           - too old (> _PENDING_MAX_AGE_HOURS) + not found → mark failed_open.
         """
-        from shared.database import get_trades, upsert_trade, insert_reconciliation_event
+        from shared.database import get_trades, insert_reconciliation_event, upsert_trade
 
         pending = get_trades(status="pending_open", path=self.db_path)
         if not pending:

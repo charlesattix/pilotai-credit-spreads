@@ -3,10 +3,10 @@ Performance Metrics
 Calculate and display performance statistics.
 """
 
+import json
 import logging
 from pathlib import Path
 from typing import Dict
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class PerformanceMetrics:
     def __init__(self, config: Dict):
         """
         Initialize performance metrics calculator.
-        
+
         Args:
             config: Configuration dictionary
         """
@@ -30,10 +30,10 @@ class PerformanceMetrics:
     def generate_report(self, backtest_results: Dict) -> str:
         """
         Generate a formatted performance report.
-        
+
         Args:
             backtest_results: Results from backtester
-            
+
         Returns:
             Path to generated report file
         """

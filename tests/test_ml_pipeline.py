@@ -1,12 +1,11 @@
 """Tests for MLPipeline orchestrator."""
 
-import pytest
-import pandas as pd
-from unittest.mock import patch, MagicMock
 from datetime import datetime, timezone
+from unittest.mock import patch
+
+import pandas as pd
 
 from ml.ml_pipeline import MLPipeline
-
 
 # ---------------------------------------------------------------------------
 # Helpers

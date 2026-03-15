@@ -125,8 +125,8 @@ def notify_daily_summary(
 ) -> bool:
     """Build and send the daily summary via the existing formatter."""
     try:
-        from scripts.daily_report import get_daily_summary_metrics
         from alerts.formatters.telegram import TelegramAlertFormatter
+        from scripts.daily_report import get_daily_summary_metrics
 
         metrics = get_daily_summary_metrics(
             report_date=report_date, account_size=account_size

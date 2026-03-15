@@ -21,7 +21,6 @@ Output:
 import argparse
 import json
 import logging
-import os
 import sys
 import time
 from datetime import datetime
@@ -168,7 +167,7 @@ def main():
         per_year_pcts[y] = {p: _percentile(y_returns, p) for p in percentiles}
 
     worst_dd_any = min(worst_dds)
-    all_positive = sum(1 for r in avg_returns if r > 0)
+    sum(1 for r in avg_returns if r > 0)
     median_return = ret_pcts[50]
 
     total_elapsed = time.time() - t_start

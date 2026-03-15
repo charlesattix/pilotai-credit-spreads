@@ -1,6 +1,5 @@
 """Tests for shared/tail_hedge.py and debit trade integration."""
 
-import math
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -8,7 +7,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from shared.tail_hedge import (
-    HedgeRecommendation,
     compute_protection_ratio,
     hedge_budget,
     optimal_put_strike,
@@ -17,7 +15,6 @@ from shared.tail_hedge import (
     size_hedge,
     vix_percentile,
 )
-
 
 # ---------------------------------------------------------------------------
 # TestShouldBuyHedge
@@ -229,8 +226,8 @@ class TestHedgeIntegration:
 
     def test_signal_adapter_round_trip(self):
         """Signal with LONG_PUT → adapter → protective_put opp → adapter back."""
-        from strategies.base import LegType, Signal, TradeLeg, TradeDirection
         from shared.strategy_adapter import signal_to_opportunity, trade_dict_to_position
+        from strategies.base import LegType, Signal, TradeDirection, TradeLeg
 
         exp = datetime(2026, 4, 17, tzinfo=timezone.utc)
         signal = Signal(
@@ -308,7 +305,7 @@ class TestHedgeIntegration:
     def test_open_trade_allows_debit(self):
         """_open_trade should accept protective_put with negative credit."""
         from shared.strategy_adapter import signal_to_opportunity
-        from strategies.base import LegType, Signal, TradeLeg, TradeDirection
+        from strategies.base import LegType, Signal, TradeDirection, TradeLeg
 
         exp = datetime(2026, 4, 17, tzinfo=timezone.utc)
         signal = Signal(

@@ -13,7 +13,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, Optional
 
-from shared.database import upsert_trade, init_db, get_trade_by_id
+from shared.database import get_trade_by_id, init_db, upsert_trade
 
 logger = logging.getLogger(__name__)
 

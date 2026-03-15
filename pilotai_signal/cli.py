@@ -20,12 +20,12 @@ Commands:
 import argparse
 import logging
 import sys
-from datetime import date, timedelta
+from datetime import date
 
 from . import config, db
+from .alerts import build_digest, run_alerts, send_telegram
 from .collector import run_collection
 from .scorer import compute_signals, rebuild_all_signals
-from .alerts import run_alerts, build_digest, send_telegram
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -146,7 +146,7 @@ def cmd_show(args) -> int:
         )
 
     if gold:
-        print(f"\n── Gold Hedge Signal ──")
+        print("\n── Gold Hedge Signal ──")
         for i, s in enumerate(gold[:5], 1):
             print(f"  {i}. ${s['ticker']:<6} Conv: {s['conviction']:.4f} | F: {s['frequency']}/{s['total_portfolios']}")
 

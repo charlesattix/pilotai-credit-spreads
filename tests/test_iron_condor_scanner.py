@@ -7,20 +7,16 @@ Covers:
 - Exit monitor: profit/stop/dedup/weekly-close (iron_condor_exit_monitor.py)
 """
 
-import copy
-from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch
-
-import pytest
+from datetime import datetime
+from unittest.mock import MagicMock
 
 from alerts.iron_condor_config import (
-    build_iron_condor_config,
-    ENTRY_DAYS,
     CLOSE_DAYS,
+    ENTRY_DAYS,
+    build_iron_condor_config,
 )
-from alerts.iron_condor_scanner import IronCondorScanner
 from alerts.iron_condor_exit_monitor import IronCondorExitMonitor
-
+from alerts.iron_condor_scanner import IronCondorScanner
 
 # ---------------------------------------------------------------------------
 # Fixtures

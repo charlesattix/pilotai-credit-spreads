@@ -2,10 +2,9 @@
 
 import pytest
 
-from alerts.alert_schema import Alert, AlertType, Direction, Leg, SizeResult
 from alerts.alert_position_sizer import AlertPositionSizer
+from alerts.alert_schema import Alert, AlertType, Direction, Leg, SizeResult
 from shared.constants import MAX_RISK_PER_TRADE
-
 
 # ---------------------------------------------------------------------------
 # Helpers

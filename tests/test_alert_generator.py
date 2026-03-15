@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 
 from alerts.alert_generator import AlertGenerator
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

@@ -12,8 +12,8 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from alerts.gamma_config import build_gamma_config, SCAN_HOURS
-from shared.economic_calendar import EconomicCalendar, EVENT_IMPORTANCE
+from alerts.gamma_config import SCAN_HOURS, build_gamma_config
+from shared.economic_calendar import EconomicCalendar
 from strategy import OptionsAnalyzer
 
 logger = logging.getLogger(__name__)

@@ -6,8 +6,9 @@ import logging
 import logging.handlers
 from pathlib import Path
 from typing import Dict
-import yaml
+
 import colorlog
+import yaml
 
 from shared.types import AppConfig
 
@@ -56,7 +57,7 @@ def load_config(config_file: str = 'config.yaml', env_file: str = None) -> Dict:
 def setup_logging(config: Dict):
     """
     Setup logging configuration.
-    
+
     Args:
         config: Configuration dictionary
     """

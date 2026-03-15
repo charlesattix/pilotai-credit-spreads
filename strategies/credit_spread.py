@@ -6,18 +6,29 @@ momentum filter, and Black-Scholes pricing.
 """
 
 from __future__ import annotations
+
 import logging
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import List
 
+from shared.constants import DEFAULT_RISK_FREE_RATE
 from strategies.base import (
-    BaseStrategy, LegType, MarketSnapshot, ParamDef, PortfolioState,
-    Position, PositionAction, Signal, TradeLeg, TradeDirection,
+    BaseStrategy,
+    LegType,
+    MarketSnapshot,
+    ParamDef,
+    PortfolioState,
+    Position,
+    PositionAction,
+    Signal,
+    TradeDirection,
+    TradeLeg,
 )
 from strategies.pricing import (
-    bs_price, estimate_spread_value, nearest_friday_expiration,
+    bs_price,
+    estimate_spread_value,
+    nearest_friday_expiration,
 )
-from shared.constants import DEFAULT_RISK_FREE_RATE
 
 logger = logging.getLogger(__name__)
 
