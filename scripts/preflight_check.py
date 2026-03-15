@@ -55,8 +55,27 @@ def validate(config: dict) -> list:
             errors.append("strategy.max_delta is required")
 
     # Risk section
-    if not isinstance(config.get("risk"), dict):
+    risk = config.get("risk")
+    if not isinstance(risk, dict):
         errors.append("Missing required section: risk")
+    else:
+        # Validate regime scales if present (EXP-401 blend)
+        if "regime_scale_crash" in risk and risk.get("regime_scale_crash") != 0:
+            errors.append(
+                "risk.regime_scale_crash should be 0 (no trading during crash regime)"
+            )
+
+    # Straddle/strangle config validation (optional section)
+    ss_config = strategy.get("straddle_strangle") if isinstance(strategy, dict) else None
+    if ss_config and isinstance(ss_config, dict) and ss_config.get("enabled"):
+        if "profit_target_pct" not in ss_config:
+            errors.append("strategy.straddle_strangle.profit_target_pct is required when enabled")
+        if "stop_loss_pct" not in ss_config:
+            errors.append("strategy.straddle_strangle.stop_loss_pct is required when enabled")
+        if "max_risk_pct" not in ss_config:
+            errors.append("strategy.straddle_strangle.max_risk_pct is required when enabled")
+        if isinstance(risk, dict) and "straddle_strangle_risk_pct" not in risk:
+            errors.append("risk.straddle_strangle_risk_pct is required when straddle_strangle is enabled")
 
     return errors
 

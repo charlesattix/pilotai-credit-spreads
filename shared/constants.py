@@ -157,16 +157,15 @@ FOMC_DATES = [
     datetime(2025, 9, 17, tzinfo=timezone.utc),
     datetime(2025, 11, 5, tzinfo=timezone.utc),
     datetime(2025, 12, 17, tzinfo=timezone.utc),
-    # --- 2026 (9 scheduled) ---
-    datetime(2026, 1, 28, tzinfo=timezone.utc),
-    datetime(2026, 2, 4, tzinfo=timezone.utc),
-    datetime(2026, 3, 18, tzinfo=timezone.utc),
-    datetime(2026, 5, 6, tzinfo=timezone.utc),
-    datetime(2026, 6, 17, tzinfo=timezone.utc),
-    datetime(2026, 7, 29, tzinfo=timezone.utc),
-    datetime(2026, 9, 16, tzinfo=timezone.utc),
-    datetime(2026, 11, 4, tzinfo=timezone.utc),
-    datetime(2026, 12, 16, tzinfo=timezone.utc),
+    # --- 2026 (8 scheduled) — source: federalreserve.gov/monetarypolicy/fomccalendars.htm ---
+    datetime(2026, 1, 28, tzinfo=timezone.utc),   # Jan 27-28
+    datetime(2026, 3, 18, tzinfo=timezone.utc),   # Mar 17-18
+    datetime(2026, 4, 29, tzinfo=timezone.utc),   # Apr 28-29
+    datetime(2026, 6, 17, tzinfo=timezone.utc),   # Jun 16-17
+    datetime(2026, 7, 29, tzinfo=timezone.utc),   # Jul 28-29
+    datetime(2026, 9, 16, tzinfo=timezone.utc),   # Sep 15-16
+    datetime(2026, 10, 28, tzinfo=timezone.utc),  # Oct 27-28
+    datetime(2026, 12, 9, tzinfo=timezone.utc),   # Dec 8-9
 ]
 
 # CPI release dates (typically 2nd Tuesday-Thursday of month)
