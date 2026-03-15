@@ -28,6 +28,7 @@ class AlertType(str, Enum):
     iron_condor = "iron_condor"
     earnings_play = "earnings_play"
     gamma_lotto = "gamma_lotto"
+    straddle_strangle = "straddle_strangle"
 
 
 class Confidence(str, Enum):
@@ -147,6 +148,10 @@ class Alert:
             or "lotto" in opp_type
         )
 
+        # Detect straddle/strangle
+        is_straddle = "straddle" in opp_type or "strangle" in opp_type
+        is_long_straddle = is_straddle and ("long" in opp_type or opp.get("is_debit", False))
+
         # Detect debit spread / momentum swing
         is_debit = (
             "debit" in opp_type
@@ -156,6 +161,8 @@ class Alert:
         # Map legacy type → AlertType
         if is_gamma:
             alert_type = AlertType.gamma_lotto
+        elif is_straddle:
+            alert_type = AlertType.straddle_strangle
         elif is_debit:
             alert_type = AlertType.momentum_swing
         elif alert_source == "earnings_play" or "earnings" in opp_type:
@@ -173,6 +180,8 @@ class Alert:
         if is_gamma:
             gamma_opt_type = opp.get("option_type", "call")
             direction = Direction.bullish if gamma_opt_type == "call" else Direction.bearish
+        elif is_straddle:
+            direction = Direction.neutral
         elif alert_source == "earnings_play" or "earnings" in opp_type:
             direction = Direction.neutral
         elif "condor" in opp_type:
@@ -189,6 +198,12 @@ class Alert:
         if is_gamma:
             gamma_opt_type = opp.get("option_type", "call")
             legs.append(Leg(opp["strike"], gamma_opt_type, "buy", expiration))
+        elif is_straddle:
+            call_strike = opp.get("call_strike", 0)
+            put_strike = opp.get("put_strike", 0)
+            action = "buy" if is_long_straddle else "sell"
+            legs.append(Leg(call_strike, "call", action, expiration))
+            legs.append(Leg(put_strike, "put", action, expiration))
         elif "condor" in opp_type:
             # Put side
             legs.append(Leg(opp["short_strike"], "put", "sell", expiration))
@@ -262,6 +277,17 @@ class Alert:
                 "Earnings iron condor. Close morning after earnings to capture IV crush, "
                 "or at 50% profit / 2x credit stop loss."
             )
+        elif alert_type == AlertType.straddle_strangle:
+            if is_long_straddle:
+                default_instructions = (
+                    "Long straddle/strangle — close at 50% profit or if IV crushes post-event. "
+                    "Max loss is the debit paid."
+                )
+            else:
+                default_instructions = (
+                    "Short straddle/strangle — close at 50% profit or 3x credit stop loss. "
+                    "Monitor for large directional moves."
+                )
         else:
             default_instructions = (
                 "Close at 50% profit or stop loss. Roll if challenged before expiration."
@@ -276,7 +302,7 @@ class Alert:
             ticker=opp["ticker"],
             direction=direction,
             legs=legs,
-            entry_price=opp.get("debit", opp.get("credit", 0.01)) if (is_debit or is_gamma) else opp.get("credit", 0.01),
+            entry_price=opp.get("debit", opp.get("credit", 0.01)) if (is_debit or is_gamma or is_long_straddle) else opp.get("credit", 0.01),
             stop_loss=opp.get("stop_loss", 0.0),
             profit_target=opp.get("profit_target", 0.0),
             risk_pct=risk_pct,
