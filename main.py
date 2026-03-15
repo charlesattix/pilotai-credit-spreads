@@ -941,11 +941,32 @@ Examples:
                     "Manual fix: <code>python3 scripts/run_macro_snapshot.py --weekly</code>"
                 )
 
+            def _write_heartbeat():
+                """Write a heartbeat file after each scan cycle for watchdog monitoring."""
+                try:
+                    _hb_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+                    os.makedirs(_hb_dir, exist_ok=True)
+                    # Derive experiment_id from db_path (e.g. data/pilotai_champion.db → champion)
+                    # or fall back to config file name
+                    _exp_id = "unknown"
+                    _db = args.db_path or os.environ.get("PILOTAI_DB_PATH", "")
+                    if _db:
+                        _base = os.path.basename(_db).replace("pilotai_", "").replace(".db", "")
+                        if _base:
+                            _exp_id = _base
+                    _hb_path = os.path.join(_hb_dir, f".last_scan_{_exp_id}")
+                    with open(_hb_path, "w") as _hf:
+                        _hf.write(datetime.now(timezone.utc).isoformat())
+                    logger.debug("Heartbeat written: %s", _hb_path)
+                except Exception as _hb_exc:
+                    logger.warning("Failed to write heartbeat: %s", _hb_exc)
+
             def scan_and_sync(slot_type=SLOT_SCAN):
                 if slot_type == SLOT_MACRO_WEEKLY:
                     _run_macro_weekly_with_retry()
                 else:
                     system.scan_opportunities()
+                    _write_heartbeat()
 
             scheduler = ScanScheduler(scan_fn=scan_and_sync)
 
