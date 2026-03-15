@@ -13,7 +13,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, Optional
 
-from shared.database import get_trade_by_id, init_db, upsert_trade, save_scanner_state, load_scanner_state
+from shared.database import get_trade_by_id, get_trades, init_db, load_scanner_state, save_scanner_state, upsert_trade
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,9 @@ class ExecutionEngine:
         # PARTIAL #8: atomic_ic_execution flag — reserved for future Alpaca 4-leg OTO support
         self._atomic_ic = bool(
             self.config.get("execution", {}).get("atomic_ic_execution", False)
+        )
+        self._drawdown_cb_pct = float(
+            self.config.get("risk", {}).get("drawdown_cb_pct", 40)
         )
         if self._atomic_ic:
             logger.warning(
@@ -156,6 +159,19 @@ class ExecutionEngine:
                         "message": f"trade already exists with status={existing.get('status')}"}
         except Exception as e:
             logger.debug("ExecutionEngine: duplicate check failed (non-fatal): %s", e)
+
+        # Drawdown circuit breaker — block new orders if equity drawdown exceeds threshold
+        if self._check_drawdown_cb():
+            logger.warning(
+                "ExecutionEngine: DRAWDOWN CIRCUIT BREAKER triggered (>%.0f%%) — "
+                "blocking order for %s %s (client_id=%s)",
+                self._drawdown_cb_pct, ticker, spread_type, client_id,
+            )
+            return {
+                "status": "drawdown_blocked",
+                "client_order_id": client_id,
+                "message": f"drawdown circuit breaker triggered (>{self._drawdown_cb_pct}%)",
+            }
 
         # Write to DB FIRST in pending_open state before touching Alpaca
         trade_record = {
@@ -281,6 +297,46 @@ class ExecutionEngine:
         except Exception as e:
             logger.error("ExecutionEngine: Alpaca submission failed for %s: %s", client_id, e, exc_info=True)
             return {"status": "error", "message": str(e), "client_order_id": client_id}
+
+    def _check_drawdown_cb(self) -> bool:
+        """Return True if account drawdown exceeds the configured threshold.
+
+        Computes realised P&L from closed trades, compares cumulative equity
+        to peak equity. If drawdown percentage > ``risk.drawdown_cb_pct``
+        (default 40%), returns True to block new orders.
+        """
+        try:
+            starting_capital = float(
+                self.config.get("risk", {}).get("account_size", 100_000)
+            )
+            closed = (
+                get_trades(status="closed_profit", path=self.db_path)
+                + get_trades(status="closed_loss", path=self.db_path)
+            )
+            total_pnl = sum(float(t.get("pnl") or 0) for t in closed)
+            current_equity = starting_capital + total_pnl
+            peak_equity = max(starting_capital, current_equity)
+
+            # Track running peak across calls
+            if not hasattr(self, "_peak_equity"):
+                self._peak_equity = peak_equity
+            else:
+                self._peak_equity = max(self._peak_equity, current_equity)
+
+            if self._peak_equity > 0:
+                drawdown_pct = (self._peak_equity - current_equity) / self._peak_equity * 100
+            else:
+                drawdown_pct = 0.0
+
+            if drawdown_pct > self._drawdown_cb_pct:
+                logger.warning(
+                    "ExecutionEngine: drawdown=%.1f%% (peak=$%.0f current=$%.0f) > threshold=%.0f%%",
+                    drawdown_pct, self._peak_equity, current_equity, self._drawdown_cb_pct,
+                )
+                return True
+        except Exception as e:
+            logger.debug("ExecutionEngine: drawdown CB check failed (non-fatal): %s", e)
+        return False
 
     def _submit_iron_condor(self, opp: Dict, contracts: int, credit: float, client_id: str) -> Dict:
         """Submit iron condor as two separate MLEG orders (put wing + call wing).
