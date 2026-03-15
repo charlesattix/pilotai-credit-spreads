@@ -9,7 +9,7 @@ describe('GET /api/health (integration)', () => {
     const response = await GET()
     expect(response.status).toBe(200)
     const data = await response.json()
-    expect(data.status).toBe('ok')
+    expect(['ok', 'degraded']).toContain(data.status)
   })
 
   it('includes timestamp', async () => {

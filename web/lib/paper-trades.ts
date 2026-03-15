@@ -55,7 +55,7 @@ export function calculatePortfolioStats(trades: PaperTrade[]) {
   const winRate = closedTrades.length > 0 ? (winners.length / closedTrades.length) * 100 : 0;
   const avgWin = winners.length > 0 ? winners.reduce((s, t) => s + (t.realized_pnl || 0), 0) / winners.length : 0;
   const avgLoss = losers.length > 0 ? Math.abs(losers.reduce((s, t) => s + (t.realized_pnl || 0), 0) / losers.length) : 0;
-  const profitFactor = avgLoss > 0 ? Math.min(avgWin / avgLoss, 999.99) : avgWin > 0 ? 999.99 : 0;
+  const profitFactor = avgLoss > 0 ? avgWin / avgLoss : avgWin > 0 ? Infinity : 0;
 
   return {
     totalTrades: trades.length,
