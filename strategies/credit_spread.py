@@ -239,6 +239,12 @@ class CreditSpreadStrategy(BaseStrategy):
         if loss >= credit * position.stop_loss_pct:
             return PositionAction.CLOSE_STOP
 
+        # Spread-width 90% safety cap — close if cost to close approaches max loss
+        if len(position.legs) >= 2:
+            spread_width = abs(position.legs[0].strike - position.legs[1].strike)
+            if spread_width > 0 and cost_to_close >= spread_width * 0.90:
+                return PositionAction.CLOSE_STOP
+
         return PositionAction.HOLD
 
     def size_position(
