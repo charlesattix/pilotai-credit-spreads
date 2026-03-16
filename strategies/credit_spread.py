@@ -120,11 +120,13 @@ class CreditSpreadStrategy(BaseStrategy):
 
             iv = market_data.realized_vol.get(ticker, 0.20)
 
+            dp = market_data.data_provider
+
             if direction in ("both", "bull_put") and price >= trend_ma:
                 if mom_pct >= -abs(mom_filter):
                     sig = self._build_spread(
                         ticker, price, iv, market_data.date, "bull_put",
-                        regime=regime,
+                        regime=regime, data_provider=dp,
                     )
                     if sig:
                         signals.append(sig)
@@ -132,7 +134,7 @@ class CreditSpreadStrategy(BaseStrategy):
             if direction in ("both", "bear_call") and price <= trend_ma:
                 sig = self._build_spread(
                     ticker, price, iv, market_data.date, "bear_call",
-                    regime=regime,
+                    regime=regime, data_provider=dp,
                 )
                 if sig:
                     signals.append(sig)
@@ -143,6 +145,7 @@ class CreditSpreadStrategy(BaseStrategy):
         self, ticker: str, price: float, iv: float,
         date: datetime, spread_type: str,
         regime: str | None = None,
+        data_provider=None,
     ) -> Signal | None:
         target_dte = self._p("target_dte", 35)
         min_dte = self._p("min_dte", 25)
@@ -168,16 +171,29 @@ class CreditSpreadStrategy(BaseStrategy):
             long_leg_type = LegType.LONG_CALL
             opt_type = "C"
 
-        short_price = bs_price(price, short_strike, T, DEFAULT_RISK_FREE_RATE, iv, opt_type)
-        long_price = bs_price(price, long_strike, T, DEFAULT_RISK_FREE_RATE, iv, opt_type)
-        credit = short_price - long_price
+        # Use DataProvider for real fills when available; fall back to BS
+        if data_provider is not None:
+            sp = data_provider.get_spread_prices(
+                ticker, expiration, short_strike, long_strike, opt_type, date
+            )
+            if sp.valid:
+                short_price = sp.short_price
+                long_price = sp.long_price
+                credit = sp.net_credit - sp.slippage
+            else:
+                return None
+        else:
+            short_price = bs_price(price, short_strike, T, DEFAULT_RISK_FREE_RATE, iv, opt_type)
+            long_price = bs_price(price, long_strike, T, DEFAULT_RISK_FREE_RATE, iv, opt_type)
+            credit = short_price - long_price
 
-        # Fallback: use heuristic credit if BS gives unreasonable result
-        min_credit = spread_width * 0.10
-        if credit < min_credit:
-            credit = spread_width * credit_fraction
+            # Fallback: use heuristic credit if BS gives unreasonable result
+            min_credit = spread_width * 0.10
+            if credit < min_credit:
+                credit = spread_width * credit_fraction
 
-        credit -= slippage
+            credit -= slippage
+
         if credit <= 0:
             return None
 

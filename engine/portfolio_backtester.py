@@ -49,6 +49,7 @@ class PortfolioBacktester:
         max_positions: int = 10,
         max_positions_per_strategy: int = 5,
         max_portfolio_risk_pct: float = 0.40,
+        data_provider=None,
     ):
         self.strategies = strategies
         self.tickers = tickers
@@ -60,6 +61,7 @@ class PortfolioBacktester:
         self.max_positions = max_positions
         self.max_positions_per_strategy = max_positions_per_strategy
         self.max_portfolio_risk_pct = max_portfolio_risk_pct
+        self._data_provider = data_provider
 
         # State
         self.capital = starting_capital
@@ -389,6 +391,7 @@ class PortfolioBacktester:
             upcoming_events=upcoming_events,
             recent_events=recent_events,
             regime=regime_val,
+            data_provider=self._data_provider,
         )
 
     # ------------------------------------------------------------------

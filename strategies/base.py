@@ -170,6 +170,9 @@ class MarketSnapshot:
     # Current market regime (from engine.regime.RegimeClassifier)
     regime: Optional[str] = None
 
+    # DataProvider for real option fills (None → strategies use BS heuristic pricing)
+    data_provider: Optional[Any] = None
+
 
 @dataclass
 class PortfolioState:
