@@ -481,7 +481,7 @@ class Backtester:
         # P5a: Friday fallback trigger counter (incremented during run_backtest)
         self._friday_fallback_count = 0
 
-        mode = "real data" if self._use_real_data else "heuristic"
+        mode = "real data" if self._use_real_data else "no historical data"
         logger.info("Backtester initialized (%s mode, delta_selection=%s)",
                     mode, self._use_delta_selection)
 
@@ -989,24 +989,18 @@ class Backtester:
 
             current_date += timedelta(days=1)
 
-        # Close any remaining positions
+        # Close any remaining positions at backtest end
         for pos in open_positions:
-            if self._use_real_data:
-                # Mark-to-market using the final daily close spread value
-                self._close_at_expiration_real(pos, end_date)
-            else:
-                self._close_position(pos, end_date, current_price, 'backtest_end')
+            self._close_at_expiration_real(pos, end_date)
 
         # Calculate performance metrics
         results = self._calculate_results()
 
-        if self._use_real_data:
-            logger.info(
-                "Backtest complete. Total trades: %d, API calls: %d",
-                len(self.trades), self.historical_data.api_calls_made,
-            )
-        else:
-            logger.info(f"Backtest complete. Total trades: {len(self.trades)}")
+        _api_calls = getattr(self.historical_data, 'api_calls_made', 0) if self.historical_data else 0
+        logger.info(
+            "Backtest complete. Total trades: %d, API calls: %d",
+            len(self.trades), _api_calls,
+        )
 
         return results
 
@@ -1302,10 +1296,7 @@ class Backtester:
                         scan_hour=scan_hour, scan_minute=scan_minute,
                     )
             return result
-        else:
-            return self._find_heuristic_spread(
-                ticker, date, price, expiration, spread_width, spread_type="bull_put_spread",
-            )
+        return None  # no historical data — skip trade
 
     def _find_bear_call_opportunity(
         self,
@@ -1359,10 +1350,7 @@ class Backtester:
                         scan_hour=scan_hour, scan_minute=scan_minute,
                     )
             return result
-        else:
-            return self._find_heuristic_spread(
-                ticker, date, price, expiration, spread_width, spread_type="bear_call_spread",
-            )
+        return None  # no historical data — skip trade
 
     def _find_iron_condor_opportunity(
         self,
@@ -1549,7 +1537,11 @@ class Backtester:
             'status': 'open',
             'option_type': 'IC',
             'current_value': 0,  # unrealized PnL at entry ≈ 0; _manage_positions updates each day
-            'entry_scan_time': f"{scan_hour:02d}:{scan_minute:02d}" if use_intraday else None,
+            # If either leg fell back to daily close prices, entry_scan_time is None
+            # so _check_intraday_exits doesn't try to guard against a stale scan time.
+            'entry_scan_time': (f"{scan_hour:02d}:{scan_minute:02d}"
+                                if use_intraday and put_leg.get('entry_scan_time') is not None
+                                else None),
             'slippage_applied': slippage_applied,
         }
 
@@ -1658,6 +1650,12 @@ class Backtester:
                 ticker, expiration, ss, ls, ot, date_str,
             )
 
+        def _get_daily_prices(ss: float, ls: float) -> Optional[Dict]:
+            """Daily-close fallback using real Polygon OHLCV bars (option_daily table)."""
+            return self.historical_data.get_spread_prices(
+                ticker, expiration, ss, ls, ot, date_str,
+            )
+
         prices = _get_prices(short_strike, long_strike)
 
         if prices is None:
@@ -1671,6 +1669,23 @@ class Backtester:
                     long_strike = alt_long
                     break
 
+        # When intraday data is unavailable (e.g. pre-2024 history purged from Polygon),
+        # fall back to daily close prices from the option_daily cache.
+        # This uses real Polygon OHLCV data — NOT synthetic/heuristic pricing.
+        _used_daily_fallback = False
+        if prices is None and use_intraday:
+            _used_daily_fallback = True
+            prices = _get_daily_prices(short_strike, long_strike)
+            if prices is None:
+                for offset in [1, -1, 2, -2]:
+                    alt_short = short_strike + offset
+                    alt_long = alt_short - spread_width if ot == "P" else alt_short + spread_width
+                    prices = _get_daily_prices(alt_short, alt_long)
+                    if prices is not None:
+                        short_strike = alt_short
+                        long_strike = alt_long
+                        break
+
         if prices is None:
             logger.debug(
                 "No %s price data for spread %s %s/%s on %s",
@@ -1680,6 +1695,11 @@ class Backtester:
             return None
 
         credit = prices["spread_value"]
+
+        # MC credit jitter: model fill-price uncertainty (applies in both real and mock data)
+        if self._rng is not None and self._mc_mode == 'full' and self._mc_credit_jitter > 0:
+            credit += self._rng.uniform(-self._mc_credit_jitter, self._mc_credit_jitter)
+            credit = max(0.0, credit)
 
         if credit <= 0:
             return None
@@ -1826,7 +1846,8 @@ class Backtester:
             'status': 'open',
             'current_value': 0,  # unrealized PnL at entry ≈ 0; _manage_positions updates each day
             'option_type': ot,
-            'entry_scan_time': f"{scan_hour:02d}:{scan_minute:02d}" if use_intraday else None,
+            'entry_scan_time': (f"{scan_hour:02d}:{scan_minute:02d}"
+                                if use_intraday and not _used_daily_fallback else None),
             'slippage_applied': slippage,
         }
 
@@ -1838,69 +1859,6 @@ class Backtester:
             spread_type, ticker, short_strike, long_strike, credit, slippage, contracts,
             f" @ {position['entry_scan_time']} ET" if use_intraday else "",
         )
-
-        return position
-
-    def _find_heuristic_spread(
-        self,
-        ticker: str,
-        date: datetime,
-        price: float,
-        expiration: datetime,
-        spread_width: float,
-        spread_type: str,
-    ) -> Optional[Dict]:
-        """Legacy heuristic spread finding (no real options data)."""
-        from shared.constants import BACKTEST_CREDIT_FRACTION, BACKTEST_SHORT_STRIKE_OTM_FRACTION
-
-        if spread_type == "bull_put_spread":
-            short_strike = price * BACKTEST_SHORT_STRIKE_OTM_FRACTION
-            long_strike = short_strike - spread_width
-            ot = "P"
-        else:
-            short_strike = price * (2 - BACKTEST_SHORT_STRIKE_OTM_FRACTION)  # ~1.10
-            long_strike = short_strike + spread_width
-            ot = "C"
-
-        # Credit fraction jitter (full MC mode only): vary ±_mc_credit_jitter around baseline.
-        _credit_fraction = BACKTEST_CREDIT_FRACTION
-        if self._rng is not None and self._mc_mode == 'full' and self._mc_credit_jitter > 0:
-            _credit_fraction += self._rng.uniform(-self._mc_credit_jitter, self._mc_credit_jitter)
-            _credit_fraction = max(0.05, min(0.95, _credit_fraction))  # clamp to sane range
-        credit = spread_width * _credit_fraction
-        credit -= self._mc_jitter_slippage(self.slippage)
-
-        max_loss = spread_width - credit
-
-        risk_per_spread = max_loss * 100
-        # Use current equity when compounding, starting capital otherwise.
-        account_base = self.capital if self._compound else self.starting_capital
-        max_risk = account_base * (self.risk_params['max_risk_per_trade'] / 100)
-        max_contracts_cap = self.risk_params.get('max_contracts', 999)
-        contracts = max(1, min(max_contracts_cap, int(max_risk / risk_per_spread)))
-        commission_cost = self.commission * 2 * contracts  # Two legs × contracts
-
-        position = {
-            'ticker': ticker,
-            'type': spread_type,
-            'entry_date': date,
-            'expiration': expiration,
-            'short_strike': short_strike,
-            'long_strike': long_strike,
-            'credit': credit,
-            'contracts': contracts,
-            'max_loss': max_loss,
-            'profit_target': credit * self._profit_target_pct,
-            'stop_loss': credit * self.risk_params['stop_loss_multiplier'],
-            'commission': commission_cost,
-            'status': 'open',
-            'current_value': 0,  # unrealized PnL at entry ≈ 0; _manage_positions updates each day
-            'option_type': ot,
-        }
-
-        self.capital -= commission_cost
-
-        logger.debug(f"Opened position: {ticker} {spread_type} @ ${short_strike:.2f}")
 
         return position
 
@@ -1998,20 +1956,7 @@ class Backtester:
         for pos in positions:
             # Check if expired
             if current_date >= pos['expiration']:
-                if self._use_real_data:
-                    self._close_at_expiration_real(pos, current_date)
-                else:
-                    # P1-B fix: profit condition depends on option type.
-                    # Bull put (P): profit when price > short_strike (put expires OTM).
-                    # Bear call (C): profit when price < short_strike (call expires OTM).
-                    if pos.get('option_type', 'P') == 'P':
-                        _expired_profit = current_price > pos['short_strike']
-                    else:
-                        _expired_profit = current_price < pos['short_strike']
-                    if _expired_profit:
-                        self._close_position(pos, current_date, current_price, 'expiration_profit')
-                    else:
-                        self._close_position(pos, current_date, current_price, 'expiration_loss')
+                self._close_at_expiration_real(pos, current_date)
                 continue
 
             # Check spread value
@@ -2068,33 +2013,28 @@ class Backtester:
 
                     current_spread_value = prices["spread_value"]
             else:
-                dte = (pos['expiration'] - current_date).days
-                current_spread_value = self._estimate_spread_value(pos, current_price, dte)
+                # No historical data — carry position forward without marking
+                remaining_positions.append(pos)
+                continue
 
             # P&L check: profit = credit - current spread value (daily close fallback)
             profit = pos['credit'] - current_spread_value
 
             if profit >= pos['profit_target']:
-                if self._use_real_data:
-                    # Apply exit slippage on profit-target exits — buying back costs more than mid.
-                    # IC closes two separate spreads — each incurs bid-ask slippage.
-                    _slip_legs = 2 if pos['type'] == 'iron_condor' else 1
-                    exit_cost = current_spread_value + _slip_legs * self._vix_scaled_exit_slippage()
-                    pnl = (pos['credit'] - exit_cost) * pos['contracts'] * 100 - pos['commission']
-                    self._record_close(pos, current_date, pnl, 'profit_target')
-                else:
-                    self._close_position(pos, current_date, current_price, 'profit_target')
+                # Apply exit slippage on profit-target exits — buying back costs more than mid.
+                # IC closes two separate spreads — each incurs bid-ask slippage.
+                _slip_legs = 2 if pos['type'] == 'iron_condor' else 1
+                exit_cost = current_spread_value + _slip_legs * self._vix_scaled_exit_slippage()
+                pnl = (pos['credit'] - exit_cost) * pos['contracts'] * 100 - pos['commission']
+                self._record_close(pos, current_date, pnl, 'profit_target')
                 continue
 
             loss = current_spread_value - pos['credit']
             if loss >= pos['stop_loss']:
-                if self._use_real_data:
-                    _slip_legs = 2 if pos['type'] == 'iron_condor' else 1
-                    exit_cost = current_spread_value + _slip_legs * self._vix_scaled_exit_slippage()
-                    pnl = (pos['credit'] - exit_cost) * pos['contracts'] * 100 - pos['commission']
-                    self._record_close(pos, current_date, pnl, 'stop_loss')
-                else:
-                    self._close_position(pos, current_date, current_price, 'stop_loss')
+                _slip_legs = 2 if pos['type'] == 'iron_condor' else 1
+                exit_cost = current_spread_value + _slip_legs * self._vix_scaled_exit_slippage()
+                pnl = (pos['credit'] - exit_cost) * pos['contracts'] * 100 - pos['commission']
+                self._record_close(pos, current_date, pnl, 'stop_loss')
                 continue
 
             # Update current value — unrealized PnL = credit collected minus current buyback cost
@@ -2105,8 +2045,44 @@ class Backtester:
         return remaining_positions
 
     def _close_at_expiration_real(self, pos: Dict, expiration_date: datetime):
-        """Close a position at expiration using real prices."""
+        """Close a position at expiration using real prices (or underlying intrinsic if unavailable)."""
         date_str = expiration_date.strftime("%Y-%m-%d")
+
+        # When no historical options data is available (e.g. test fixtures without real data),
+        # fall through to the underlying-price intrinsic path below by treating prices as None.
+        if self.historical_data is None:
+            underlying_price = self._get_underlying_price_at(expiration_date)
+            if underlying_price is not None:
+                ot = pos.get('option_type', 'P')
+                short_strike = pos['short_strike']
+                long_strike  = pos['long_strike']
+                if ot == 'P':
+                    if underlying_price >= short_strike:
+                        pnl = pos['credit'] * pos['contracts'] * 100 - pos['commission']
+                        reason = 'expiration_profit'
+                    elif underlying_price <= long_strike:
+                        pnl = -pos['max_loss'] * pos['contracts'] * 100 - pos['commission']
+                        reason = 'expiration_no_data'
+                    else:
+                        intrinsic = short_strike - underlying_price
+                        pnl = (pos['credit'] - intrinsic) * pos['contracts'] * 100 - pos['commission']
+                        reason = 'expiration_no_data'
+                else:  # 'C'
+                    if underlying_price <= short_strike:
+                        pnl = pos['credit'] * pos['contracts'] * 100 - pos['commission']
+                        reason = 'expiration_profit'
+                    elif underlying_price >= long_strike:
+                        pnl = -pos['max_loss'] * pos['contracts'] * 100 - pos['commission']
+                        reason = 'expiration_no_data'
+                    else:
+                        intrinsic = underlying_price - short_strike
+                        pnl = (pos['credit'] - intrinsic) * pos['contracts'] * 100 - pos['commission']
+                        reason = 'expiration_no_data'
+            else:
+                pnl = -pos['max_loss'] * pos['contracts'] * 100 - pos['commission']
+                reason = 'expiration_no_data'
+            self._record_close(pos, expiration_date, pnl, reason)
+            return
 
         if pos['type'] == 'iron_condor':
             put_prices = self.historical_data.get_spread_prices(
@@ -2312,101 +2288,6 @@ class Backtester:
 
         self.trades.append(trade)
         logger.debug("Closed position: %s, P&L: $%.2f", reason, pnl)
-
-    # ------------------------------------------------------------------
-    # Legacy heuristic methods (used when historical_data is None)
-    # ------------------------------------------------------------------
-
-    def _estimate_spread_value(
-        self,
-        position: Dict,
-        current_price: float,
-        dte: int,
-    ) -> float:
-        """Estimate current value of spread (simplified heuristic).
-
-        Only used in legacy mode when no real options data is available.
-        """
-        short_strike = position['short_strike']
-        spread_width = position['short_strike'] - position['long_strike']
-
-        # For bear call spreads, spread_width is negative — use absolute
-        spread_width = abs(spread_width)
-
-        OTM_BUFFER = 0.05
-        ITM_BUFFER = 0.05
-        TYPICAL_DTE = 35
-        ITM_EXTRINSIC_FRAC = 0.3
-        NTM_EXTRINSIC_FRAC = 0.7
-        ITM_DISTANCE_MULT = 2
-
-        is_put = position.get('type', 'bull_put_spread') == 'bull_put_spread'
-
-        if is_put:
-            otm = current_price > short_strike * (1 + OTM_BUFFER)
-            itm = current_price < short_strike * (1 - ITM_BUFFER)
-        else:
-            otm = current_price < short_strike * (1 - OTM_BUFFER)
-            itm = current_price > short_strike * (1 + ITM_BUFFER)
-
-        if otm:
-            decay_factor = max(0, dte / TYPICAL_DTE)
-            value = position['credit'] * decay_factor * ITM_EXTRINSIC_FRAC
-        elif itm:
-            if is_put:
-                distance = (short_strike - current_price) / short_strike
-            else:
-                distance = (current_price - short_strike) / short_strike
-            value = spread_width * min(1.0, distance * ITM_DISTANCE_MULT)
-        else:
-            time_factor = dte / TYPICAL_DTE
-            value = position['credit'] * NTM_EXTRINSIC_FRAC * time_factor
-
-        return max(0, value)
-
-    def _close_position(
-        self,
-        position: Dict,
-        exit_date: datetime,
-        exit_price: float,
-        exit_reason: str,
-    ):
-        """Close a position and record trade (legacy heuristic mode)."""
-        if exit_reason == 'expiration_profit':
-            pnl = position['credit'] * position['contracts'] * 100
-        elif exit_reason == 'expiration_loss':
-            pnl = -position['max_loss'] * position['contracts'] * 100
-        elif exit_reason == 'profit_target':
-            pnl = position['profit_target'] * position['contracts'] * 100
-            pnl -= self._vix_scaled_exit_slippage() * position['contracts'] * 100  # buy-back friction
-        elif exit_reason == 'stop_loss':
-            pnl = -position['stop_loss'] * position['contracts'] * 100
-            pnl -= self._vix_scaled_exit_slippage() * position['contracts'] * 100  # buy-back friction
-        else:
-            pnl = 0
-
-        pnl -= position['commission']
-
-        self.capital += pnl
-
-        trade = {
-            'ticker': position['ticker'],
-            'type': position['type'],
-            'entry_date': position['entry_date'],
-            'exit_date': exit_date,
-            'exit_reason': exit_reason,
-            'expiration': position.get('expiration'),  # matches _record_close schema
-            'short_strike': position['short_strike'],
-            'long_strike': position['long_strike'],
-            'credit': position['credit'],
-            'contracts': position['contracts'],
-            'pnl': pnl,
-            'return_pct': (pnl / (position['max_loss'] * position['contracts'] * 100)) * 100 if (position['max_loss'] * position['contracts']) != 0 else 0,
-        }
-
-        self.trades.append(trade)
-
-        logger.debug(f"Closed position: {exit_reason}, P&L: ${pnl:.2f}")
 
     # ------------------------------------------------------------------
     # Results

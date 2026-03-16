@@ -2,19 +2,106 @@
 tests/test_monte_carlo.py — Unit tests for the expanded Monte Carlo randomization.
 
 Tests each jitter dimension independently, then validates that full mode
-combines all jitters correctly.  Uses heuristic mode only (no Polygon data
-required) so tests run fast and offline.
+combines all jitters correctly.  Uses MockHistoricalData (time-decay pricing
+stub) so tests run fast and offline without Polygon data.
 """
 
 import random
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, List, Optional
 
 import pytest
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
+
+
+# ---------------------------------------------------------------------------
+# MockHistoricalData — test stub with time-decay pricing
+# ---------------------------------------------------------------------------
+
+class MockHistoricalData:
+    """Minimal HistoricalOptionsData stub for MC math tests.
+
+    Returns realistic-ish time-decaying spread prices so that trades open,
+    profit targets trigger, and the backtester produces non-trivial results.
+    This is a TEST FIXTURE — never use in production code.
+
+    Pricing model:
+      - get_available_strikes(): wide range around SPY levels (250-550)
+      - get_spread_prices(): credit decays linearly from ~12% at entry to 0% at expiry
+        → profit target (50% of credit) triggers around DTE=17
+      - Intraday: always None (daily-close path used)
+      - Volume/OI: always None (gates disabled in test config)
+    """
+
+    @staticmethod
+    def build_occ_symbol(ticker, expiration, strike, option_type) -> str:
+        exp_str = expiration.strftime("%y%m%d")
+        ot = option_type[0].upper()
+        strike_int = int(round(strike * 1000))
+        return f"O:{ticker}{exp_str}{ot}{strike_int:08d}"
+
+    def get_available_strikes(
+        self, ticker: str, expiration, as_of_date: str, option_type: str = "P"
+    ) -> List[float]:
+        # Wide range covering all realistic SPY/test price levels
+        return [float(s) for s in range(250, 550, 5)]
+
+    def get_spread_prices(
+        self, ticker, expiration, short_strike, long_strike, option_type, date
+    ) -> Optional[Dict]:
+        spread_width = abs(short_strike - long_strike)
+        base_credit = spread_width * 0.12  # 12% → passes 8% min_credit check
+
+        # Linear time-decay: spread value = base_credit * (dte / 35)
+        # At DTE=35 (entry): value = base_credit  →  credit = base_credit
+        # At DTE=17 (mid-life): value = base_credit/2 = profit_target  →  closes
+        # At DTE=0 (expiry): value = 0  →  expires worthless, full credit captured
+        if isinstance(date, str):
+            current = datetime.strptime(date, "%Y-%m-%d")
+        else:
+            current = date
+        exp_dt = expiration.replace(tzinfo=None) if hasattr(expiration, 'tzinfo') else expiration
+        cur_dt = current.replace(tzinfo=None) if hasattr(current, 'tzinfo') else current
+        dte = max(0, (exp_dt - cur_dt).days)
+
+        time_factor = dte / 35.0
+        spread_value = base_credit * time_factor
+        return {
+            "short_close": spread_value + 0.10,
+            "long_close": 0.10,
+            "spread_value": spread_value,
+        }
+
+    def get_intraday_spread_prices(
+        self, ticker, expiration, short_strike, long_strike,
+        option_type, date_str, hour, minute,
+    ) -> Optional[Dict]:
+        return None  # no intraday → daily-close path
+
+    def get_intraday_bar(
+        self, symbol: str, date_str: str, hour: int, minute: int
+    ) -> Optional[Dict]:
+        return None
+
+    def get_prev_daily_volume(self, contract_symbol: str, before_date: str) -> Optional[int]:
+        return None  # volume gate disabled in test config
+
+    def get_prev_daily_oi(self, contract_symbol: str, before_date: str) -> Optional[int]:
+        return None
+
+    def get_strikes_with_approx_delta(
+        self, ticker, expiration, current_price, date_str,
+        option_type="P", iv_estimate=0.25, risk_free_rate=0.045,
+    ) -> List[Dict]:
+        return []  # not used: test config uses OTM% mode (use_delta_selection=False)
+
+    @property
+    def api_calls_made(self) -> int:
+        return 0
 
 
 # ---------------------------------------------------------------------------
@@ -76,11 +163,16 @@ def _make_config(mc_overrides=None) -> dict:
     }
 
 
-def _run_heuristic(config: dict, seed: int = 42, year: int = 2022):
+def _run_with_mock(config: dict, seed: int = 42, year: int = 2022):
+    """Run a backtest using MockHistoricalData (no Polygon required)."""
     from backtest.backtester import Backtester
-    bt = Backtester(config, historical_data=None, otm_pct=0.03, seed=seed)
+    bt = Backtester(config, historical_data=MockHistoricalData(), otm_pct=0.03, seed=seed)
     result = bt.run_backtest("SPY", datetime(year, 1, 1), datetime(year, 12, 31))
     return bt, result
+
+
+# Keep alias for any remaining references
+_run_heuristic = _run_with_mock
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +186,7 @@ class TestDteRandomization:
         """In dte mode, the seeded RNG samples DTE values within [dte_lo, dte_hi]."""
         from backtest.backtester import Backtester
         cfg = _make_config({"mode": "dte", "dte_lo": 28, "dte_hi": 42})
-        bt = Backtester(cfg, historical_data=None, otm_pct=0.03, seed=0)
+        bt = Backtester(cfg, historical_data=MockHistoricalData(), otm_pct=0.03, seed=0)
         assert bt._rng is not None
         sampled = [bt._rng.randint(bt._mc_dte_lo, bt._mc_dte_hi) for _ in range(100)]
         assert all(28 <= v <= 42 for v in sampled)
@@ -113,7 +205,7 @@ class TestDteRandomization:
         """Without a seed, backtester uses target_dte from config, not random DTE."""
         from backtest.backtester import Backtester
         cfg = _make_config({"mode": "dte"})
-        bt = Backtester(cfg, historical_data=None, otm_pct=0.03, seed=None)
+        bt = Backtester(cfg, historical_data=MockHistoricalData(), otm_pct=0.03, seed=None)
         assert bt._rng is None
         assert bt._current_trade_dte == cfg["strategy"]["target_dte"]
 
@@ -121,7 +213,7 @@ class TestDteRandomization:
         """Providing a seed creates a seeded RNG on the Backtester instance."""
         from backtest.backtester import Backtester
         cfg = _make_config()
-        bt = Backtester(cfg, historical_data=None, otm_pct=0.03, seed=42)
+        bt = Backtester(cfg, historical_data=MockHistoricalData(), otm_pct=0.03, seed=42)
         assert bt._rng is not None
         assert isinstance(bt._rng, random.Random)
 
@@ -129,7 +221,7 @@ class TestDteRandomization:
         """Full MC mode has mc_mode='full' and dte_lo/dte_hi are still respected."""
         from backtest.backtester import Backtester
         cfg = _make_config({"mode": "full", "dte_lo": 28, "dte_hi": 42})
-        bt = Backtester(cfg, historical_data=None, otm_pct=0.03, seed=1)
+        bt = Backtester(cfg, historical_data=MockHistoricalData(), otm_pct=0.03, seed=1)
         assert bt._mc_mode == "full"
         assert bt._mc_dte_lo == 28
         assert bt._mc_dte_hi == 42
@@ -150,21 +242,21 @@ class TestSlippageJitter:
         """In 'dte' mode, _mc_jitter_slippage returns the base value unchanged."""
         from backtest.backtester import Backtester
         cfg = _make_config({"mode": "dte", "slippage_jitter_pct": 0.5})
-        bt = Backtester(cfg, historical_data=None, otm_pct=0.03, seed=1)
+        bt = Backtester(cfg, historical_data=MockHistoricalData(), otm_pct=0.03, seed=1)
         assert bt._mc_jitter_slippage(0.10) == 0.10
 
     def test_helper_returns_base_without_seed(self):
         """Without a seed, jitter is always inactive regardless of config."""
         from backtest.backtester import Backtester
         cfg = _make_config({"mode": "full", "slippage_jitter_pct": 0.5})
-        bt = Backtester(cfg, historical_data=None, otm_pct=0.03, seed=None)
+        bt = Backtester(cfg, historical_data=MockHistoricalData(), otm_pct=0.03, seed=None)
         assert bt._mc_jitter_slippage(0.10) == 0.10
 
     def test_helper_jitters_in_full_mode(self):
         """In full mode with jitter > 0, the helper returns a value within the expected range."""
         from backtest.backtester import Backtester
         cfg = _make_config({"mode": "full", "slippage_jitter_pct": 0.5})
-        bt = Backtester(cfg, historical_data=None, otm_pct=0.03, seed=0)
+        bt = Backtester(cfg, historical_data=MockHistoricalData(), otm_pct=0.03, seed=0)
         values = {bt._mc_jitter_slippage(1.0) for _ in range(50)}
         # With 50 draws, expect variation (not all 1.0)
         assert len(values) > 1
@@ -175,7 +267,7 @@ class TestSlippageJitter:
         """slippage_jitter_pct=0 means helper always returns base unchanged."""
         from backtest.backtester import Backtester
         cfg = _make_config({"mode": "full", "slippage_jitter_pct": 0.0})
-        bt = Backtester(cfg, historical_data=None, otm_pct=0.03, seed=5)
+        bt = Backtester(cfg, historical_data=MockHistoricalData(), otm_pct=0.03, seed=5)
         for _ in range(20):
             assert bt._mc_jitter_slippage(0.10) == pytest.approx(0.10)
 
@@ -199,7 +291,7 @@ class TestEntryDayJitter:
         """_mc_entry_day_shift attribute exists and is initialized to 0."""
         from backtest.backtester import Backtester
         cfg = _make_config({"mode": "full", "entry_day_jitter": 2})
-        bt = Backtester(cfg, historical_data=None, otm_pct=0.03, seed=1)
+        bt = Backtester(cfg, historical_data=MockHistoricalData(), otm_pct=0.03, seed=1)
         assert hasattr(bt, "_mc_entry_day_shift")
         assert bt._mc_entry_day_shift == 0  # initial value
 
@@ -207,7 +299,7 @@ class TestEntryDayJitter:
         """In dte mode, entry day shift is always 0 regardless of config."""
         from backtest.backtester import Backtester
         cfg = _make_config({"mode": "dte", "entry_day_jitter": 2})
-        bt = Backtester(cfg, historical_data=None, otm_pct=0.03, seed=1)
+        bt = Backtester(cfg, historical_data=MockHistoricalData(), otm_pct=0.03, seed=1)
         assert bt._mc_entry_day_jitter == 2   # stored
         assert bt._mc_mode == "dte"           # but mode is dte → shift never applied
 
@@ -215,7 +307,7 @@ class TestEntryDayJitter:
         """With entry_day_jitter=2, shift is always in [-2, +2]."""
         from backtest.backtester import Backtester
         cfg = _make_config({"mode": "full", "entry_day_jitter": 2})
-        bt = Backtester(cfg, historical_data=None, otm_pct=0.03, seed=5)
+        bt = Backtester(cfg, historical_data=MockHistoricalData(), otm_pct=0.03, seed=5)
         assert bt._mc_mode == "full"
         assert bt._mc_entry_day_jitter == 2
         # Simulate 100 draws of the per-day shift
@@ -236,28 +328,28 @@ class TestTradeSkip:
         """_mc_should_skip_trade() always returns False in dte mode."""
         from backtest.backtester import Backtester
         cfg = _make_config({"mode": "dte", "trade_skip_pct": 0.5})
-        bt = Backtester(cfg, historical_data=None, otm_pct=0.03, seed=0)
+        bt = Backtester(cfg, historical_data=MockHistoricalData(), otm_pct=0.03, seed=0)
         assert not any(bt._mc_should_skip_trade() for _ in range(100))
 
     def test_skip_helper_false_without_seed(self):
         """Without a seed, trade skip is never triggered."""
         from backtest.backtester import Backtester
         cfg = _make_config({"mode": "full", "trade_skip_pct": 0.5})
-        bt = Backtester(cfg, historical_data=None, otm_pct=0.03, seed=None)
+        bt = Backtester(cfg, historical_data=MockHistoricalData(), otm_pct=0.03, seed=None)
         assert not any(bt._mc_should_skip_trade() for _ in range(100))
 
     def test_skip_pct_zero_means_no_skip(self):
         """trade_skip_pct=0 means no trades are ever skipped."""
         from backtest.backtester import Backtester
         cfg = _make_config({"mode": "full", "trade_skip_pct": 0.0})
-        bt = Backtester(cfg, historical_data=None, otm_pct=0.03, seed=3)
+        bt = Backtester(cfg, historical_data=MockHistoricalData(), otm_pct=0.03, seed=3)
         assert not any(bt._mc_should_skip_trade() for _ in range(200))
 
     def test_skip_rate_matches_configured_pct(self):
         """With trade_skip_pct=0.5, roughly 50% of calls return True."""
         from backtest.backtester import Backtester
         cfg = _make_config({"mode": "full", "trade_skip_pct": 0.5})
-        bt = Backtester(cfg, historical_data=None, otm_pct=0.03, seed=42)
+        bt = Backtester(cfg, historical_data=MockHistoricalData(), otm_pct=0.03, seed=42)
         n = 1000
         skipped = sum(1 for _ in range(n) if bt._mc_should_skip_trade())
         # Allow ±10% around expected 50% (i.e. 400–600)
@@ -309,7 +401,7 @@ class TestCreditJitter:
         from backtest.backtester import Backtester
         # Set jitter larger than credit fraction itself
         cfg = _make_config({"mode": "full", "credit_jitter": 0.40})
-        bt = Backtester(cfg, historical_data=None, otm_pct=0.03, seed=0)
+        bt = Backtester(cfg, historical_data=MockHistoricalData(), otm_pct=0.03, seed=0)
         original = _c.BACKTEST_CREDIT_FRACTION
         # Run a short backtest and verify it completes without exception
         result = bt.run_backtest("SPY", datetime(2022, 1, 1), datetime(2022, 3, 31))
@@ -420,7 +512,7 @@ class TestBackwardCompatibility:
         from backtest.backtester import Backtester
         cfg = _make_config()
         cfg["backtest"]["monte_carlo"].pop("mode", None)  # remove mode key
-        bt = Backtester(cfg, historical_data=None, otm_pct=0.03, seed=1)
+        bt = Backtester(cfg, historical_data=MockHistoricalData(), otm_pct=0.03, seed=1)
         assert bt._mc_mode == "dte"
 
     def test_dte_mode_no_jitters_active(self):
@@ -428,7 +520,7 @@ class TestBackwardCompatibility:
         from backtest.backtester import Backtester
         cfg = _make_config({"mode": "dte", "slippage_jitter_pct": 0.5,
                             "trade_skip_pct": 0.5, "credit_jitter": 0.5})
-        bt = Backtester(cfg, historical_data=None, otm_pct=0.03, seed=1)
+        bt = Backtester(cfg, historical_data=MockHistoricalData(), otm_pct=0.03, seed=1)
         assert bt._mc_jitter_slippage(1.0) == 1.0
         assert not bt._mc_should_skip_trade()
 
@@ -436,7 +528,7 @@ class TestBackwardCompatibility:
         """Passing seed=None produces a valid result (non-MC mode)."""
         cfg = _make_config()
         from backtest.backtester import Backtester
-        bt = Backtester(cfg, historical_data=None, otm_pct=0.03, seed=None)
+        bt = Backtester(cfg, historical_data=MockHistoricalData(), otm_pct=0.03, seed=None)
         result = bt.run_backtest("SPY", datetime(2022, 1, 1), datetime(2022, 3, 31))
         assert result is not None
         assert "return_pct" in result

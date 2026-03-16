@@ -8,6 +8,11 @@ Build a validated, multi-strategy options trading system on SPY. Data-driven app
 - **≤30% max drawdown** in any year
 - **Multi-strategy, research-backed, validated**
 - **All 6 years (2020-2025) profitable**
+- **🚨 NO SYNTHETIC DATA — EVER.** All backtests, validation, and optimization MUST use real Polygon market data. Heuristic/synthetic pricing is permanently banned. Any results based on synthetic data are INVALID and must be re-run with real data before being trusted. This is a Carlos directive — no exceptions.
+  - **Enforced by:** `shared/iron_vault.py` (singleton data provider — hard fails on missing data)
+  - **Architecture docs:** `docs/DATA_ARCHITECTURE.md`
+  - **Setup/validation:** `scripts/iron_vault_setup.py`
+  - **READ THIS FIRST** if you're new to the repo or touching any data code.
 
 ---
 
@@ -107,6 +112,13 @@ All experiments are tracked here. Every new experiment gets an ID and entry.
 
 ### Key Files
 ```
+🔒 Iron Vault (Centralized Data Layer):
+├── shared/iron_vault.py           ← THE single data provider — all data access goes here
+├── scripts/iron_vault_setup.py    ← Bootstrap: validates keys, checks cache, reports gaps
+├── docs/DATA_ARCHITECTURE.md      ← Full data architecture documentation
+├── data/options_cache.db          ← 905MB, 5.67M daily bars, 168K contracts (2020-2026)
+└── data/macro_state.db            ← Regime/sector macro data
+
 configs/
 ├── champion.json              ← EXP-400 raw params
 ├── paper_champion.yaml        ← EXP-400 paper trading config

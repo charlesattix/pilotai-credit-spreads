@@ -52,3 +52,4 @@
 - **Simplicity First**: Make every change as simple as possible. Impact minimal code.
 - **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
 - **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
+- **NEVER use heuristic or synthetic data.** All option pricing must come from IronVault (`shared/iron_vault.py`). Any code path that falls back to synthetic pricing (fixed credit fractions, Black-Scholes estimates used as "prices", `BACKTEST_CREDIT_FRACTION`) is a **critical bug**. This is a Carlos directive — no exceptions. See `docs/DATA_ARCHITECTURE.md`.

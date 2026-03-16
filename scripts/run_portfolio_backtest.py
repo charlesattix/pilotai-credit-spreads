@@ -77,26 +77,24 @@ CACHE_DB_PATH = ROOT / "data" / "options_cache.db"
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _ticker_has_real_data(ticker: str, min_contracts: int = 50) -> bool:
-    """
-    Check if ticker has enough options data in the SQLite cache to use real mode.
+    """Check if ticker has enough options data via Iron Vault coverage report.
 
-    Queries option_contracts table for contract count. Returns True if count >= min_contracts.
-    Falls back to False if the DB is missing or the query fails.
+    Returns True if count >= min_contracts. Used for informational logging only —
+    all backtests now use IronVault regardless.
     """
     if not CACHE_DB_PATH.exists():
         return False
     try:
-        conn = sqlite3.connect(str(CACHE_DB_PATH))
+        import sqlite3 as _sqlite3
+        conn = _sqlite3.connect(str(CACHE_DB_PATH))
         row = conn.execute(
             "SELECT COUNT(*) AS cnt FROM option_contracts WHERE ticker = ?",
             (ticker,),
         ).fetchone()
         conn.close()
         count = row[0] if row else 0
-        logger.info("_ticker_has_real_data(%s): %d contracts in cache (min=%d)", ticker, count, min_contracts)
         return count >= min_contracts
-    except Exception as e:
-        logger.warning("_ticker_has_real_data(%s) query failed: %s", ticker, e)
+    except Exception:
         return False
 
 
@@ -301,7 +299,8 @@ def build_ticker_params(ticker: str, base_params: dict, year_rankings: List[Dict
 
 
 def run_portfolio_year(year: int, universe: Dict[str, float], params: dict,
-                       use_real_data: bool, year_rankings: Optional[List[Dict]] = None) -> Dict:
+                       use_real_data: bool = True,  # kept for call-site compatibility; always True
+                       year_rankings: Optional[List[Dict]] = None) -> Dict:
     """
     Run one year of the portfolio backtest.
 
@@ -330,15 +329,14 @@ def run_portfolio_year(year: int, universe: Dict[str, float], params: dict,
         if ticker != "SPY" and ticker_params.get("regime_mode") == "ma":
             regime_note = f" [{ticker_params.get('direction','both')}/ma]"
 
-        # Use real data for any ticker that has sufficient coverage in the SQLite cache.
-        # Sector ETFs with sparse data (< 50 contracts) automatically fall back to heuristic.
-        ticker_real = use_real_data and _ticker_has_real_data(ticker)
+        has_data = _ticker_has_real_data(ticker)
+        data_note = "" if has_data else " [sparse cache — heuristic skips expected]"
 
-        print(f"    {ticker} ({alloc_frac:.0%} = ${ticker_capital:,.0f}){regime_note}...",
+        print(f"    {ticker} ({alloc_frac:.0%} = ${ticker_capital:,.0f}){regime_note}{data_note}...",
               end=" ", flush=True)
         t0 = time.time()
         try:
-            r = run_year(ticker, year, ticker_params, ticker_real, starting_capital=ticker_capital)
+            r = run_year(ticker, year, ticker_params, starting_capital=ticker_capital)
             elapsed = time.time() - t0
             ret = r.get("return_pct", 0)
             trades = r.get("total_trades", 0)
@@ -504,7 +502,6 @@ def main():
     parser.add_argument("--universe",    help="Comma-separated fixed universe, e.g. SPY,QQQ,XLE")
     parser.add_argument("--years",       help="Comma-separated years, e.g. 2021,2022")
     parser.add_argument("--spy-alloc",   type=float, default=0.40, help="SPY allocation floor (0.40)")
-    parser.add_argument("--heuristic",   action="store_true", help="Fast mode (no Polygon data)")
     parser.add_argument("--run-id",      help="Override auto run ID")
     parser.add_argument("--note",        default="", help="Experiment note")
     args = parser.parse_args()
@@ -537,7 +534,6 @@ def main():
     n_sectors = n_sectors_map.get(portfolio_mode, 3)
 
     years = [int(y.strip()) for y in args.years.split(",")] if args.years else YEARS
-    use_real = not args.heuristic
     run_id = args.run_id or f"port_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
     print()
@@ -548,7 +544,7 @@ def main():
     print(f"  Years        : {years}")
     print(f"  SPY floor    : {spy_allocation:.0%}")
     print(f"  Leading pct  : {min_leading_pct:.0%} min to qualify")
-    print(f"  Data mode    : {'heuristic' if not use_real else 'real data where available (cache check per ticker)'}")
+    print(f"  Data mode    : real data (Iron Vault)")
     print(f"  Note         : {args.note or '(none)'}")
     print("═" * 80)
 
@@ -583,7 +579,7 @@ def main():
         universe = year_universes[year]
         year_rankings = get_year_sector_rankings(year)
         print(f"\n  Year {year} | Universe: {list(universe.keys())}")
-        r = run_portfolio_year(year, universe, params, use_real, year_rankings=year_rankings)
+        r = run_portfolio_year(year, universe, params, year_rankings=year_rankings)
         results_by_year[str(year)] = r
         print(f"  → Portfolio return: {r['return_pct']:+.1f}%  "
               f"Trades: {r['total_trades']}  DD: {r['max_drawdown']:.1f}%")

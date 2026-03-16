@@ -7,7 +7,6 @@ Usage:
     python3 scripts/run_optimization.py --config configs/exp.json
     python3 scripts/run_optimization.py --years 2022,2023       # subset
     python3 scripts/run_optimization.py --dry-run               # show params, don't run
-    python3 scripts/run_optimization.py --heuristic             # fast mode (no Polygon)
     python3 scripts/run_optimization.py --note "Testing wider DTE"
 
 Writes results to output/leaderboard.json and output/optimization_log.json.
@@ -188,36 +187,26 @@ def _build_config(params: dict, starting_capital: float = 100_000) -> dict:
     }
 
 
-def run_year(ticker: str, year: int, params: dict, use_real_data: bool,
+def run_year(ticker: str, year: int, params: dict,
+             use_real_data: bool = True,  # kept for call-site compatibility; always True
              seed: Optional[int] = None, starting_capital: float = 100_000) -> dict:
-    """Run a single-year backtest and return the results dict."""
+    """Run a single-year backtest using IronVault (real data only)."""
     from backtest.backtester import Backtester
+    from shared.iron_vault import IronVault
 
     config = _build_config(params, starting_capital=starting_capital)
     start = datetime(year, 1, 1)
     end   = datetime(year, 12, 31)
 
-    hd = None
-    if use_real_data:
-        try:
-            from backtest.historical_data import HistoricalOptionsData
-            polygon_api_key = os.getenv("POLYGON_API_KEY", "")
-            # offline_mode=True: use SQLite cache only — no live Polygon API calls.
-            # Cache misses return None (scan skips that time) instead of hanging on
-            # the 1s/call rate limiter.  All 2020-2025 data is pre-cached from
-            # prior exp runs.
-            hd = HistoricalOptionsData(polygon_api_key, offline_mode=True)
-        except Exception as e:
-            logger.warning("Could not init HistoricalOptionsData: %s — falling back to heuristic", e)
+    hd = IronVault.instance()
 
     bt = Backtester(config, historical_data=hd, otm_pct=params.get("otm_pct", 0.05), seed=seed)
     result = bt.run_backtest(ticker, start, end)
     result = result or {}
 
-    # Enrich with year label
     result["year"] = year
     result["ticker"] = ticker
-    result["mode"] = "real" if hd else "heuristic"
+    result["mode"] = "real"
     return result
 
 
@@ -240,7 +229,7 @@ def _monthly_diversity_score(monthly_pnl: dict) -> float:
     return months_with_trades / max(1, months_elapsed)
 
 
-def run_all_years(params: dict, years: list, use_real_data: bool, ticker: str = "SPY",
+def run_all_years(params: dict, years: list, use_real_data: bool = True, ticker: str = "SPY",
                   continuous_capital: bool = False) -> dict:
     """Run backtest for all requested years. Returns dict keyed by year string.
 
@@ -257,7 +246,7 @@ def run_all_years(params: dict, years: list, use_real_data: bool, ticker: str = 
         print(f"  Running {year}...", end=" ", flush=True)
         try:
             cap = current_capital if continuous_capital else 100_000
-            r = run_year(ticker, year, params, use_real_data, starting_capital=cap)
+            r = run_year(ticker, year, params, starting_capital=cap)
             elapsed = time.time() - t0
             ret = r.get("return_pct", 0)
             trades = r.get("total_trades", 0)
@@ -359,7 +348,6 @@ def main():
     parser.add_argument("--config",     help="JSON file with params (overrides baseline)")
     parser.add_argument("--years",      help="Comma-separated years, e.g. 2022,2023")
     parser.add_argument("--dry-run",    action="store_true", help="Show params without running")
-    parser.add_argument("--heuristic",  action="store_true", help="Fast heuristic mode (no Polygon)")
     parser.add_argument("--note",       default="", help="Experiment note for the log")
     parser.add_argument("--hypothesis", default="", help="Pre-run hypothesis")
     parser.add_argument("--ticker",     default="SPY", help="Ticker to backtest (default SPY)")
@@ -381,15 +369,13 @@ def main():
     else:
         years = YEARS
 
-    use_real = not args.heuristic
-
     run_id = args.run_id or f"run_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
     print()
     print("═" * 72)
     print("  OPERATION CRACK THE CODE — Optimization Run")
     print(f"  Run ID  : {run_id}")
-    print(f"  Mode    : {'heuristic (fast)' if not use_real else 'real data (Polygon)'}")
+    print(f"  Mode    : real data (Iron Vault)")
     print(f"  Years   : {years}")
     print(f"  Ticker  : {args.ticker}")
     print(f"  Note    : {args.note or '(none)'}")
@@ -419,7 +405,7 @@ def main():
 
     t_total = time.time()
     print("Running backtests...")
-    results_by_year = run_all_years(params, years, use_real, ticker=args.ticker,
+    results_by_year = run_all_years(params, years, ticker=args.ticker,
                                     continuous_capital=args.continuous_capital)
     elapsed_total = time.time() - t_total
 
@@ -434,7 +420,7 @@ def main():
         print("Running overfit validation...")
         try:
             from scripts.validate_params import validate_params
-            val = validate_params(params, results_by_year, years, use_real, args.ticker)
+            val = validate_params(params, results_by_year, years, True, args.ticker)
             overfit_score = val["overfit_score"]
             verdict       = val["verdict"]
             validation_detail = val
@@ -457,7 +443,7 @@ def main():
         "timestamp":            datetime.utcnow().isoformat(),
         "params":               params,
         "ticker":               args.ticker,
-        "mode":                 "real" if use_real else "heuristic",
+        "mode":                 "real",
         "continuous_capital":   args.continuous_capital,
         "years_run":            years,
         "results":          {yr: _slim(r) for yr, r in results_by_year.items()},

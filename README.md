@@ -2,6 +2,8 @@
 
 A comprehensive Python-based trading system for high-probability credit spreads (bull put spreads and bear call spreads) on SPY, QQQ, and IWM, targeting a 90%+ win rate with profitable P&L.
 
+> **🔒 Iron Vault: All data access is centralized through `shared/iron_vault.py`.** Synthetic/heuristic pricing is banned. See [`docs/DATA_ARCHITECTURE.md`](docs/DATA_ARCHITECTURE.md) for setup and architecture. Run `python3 scripts/iron_vault_setup.py` to validate your environment.
+
 ## Features
 
 ### 1. Strategy Engine

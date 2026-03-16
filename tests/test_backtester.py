@@ -80,139 +80,13 @@ def _make_mock_historical_data():
     return mock
 
 
-# ---------------------------------------------------------------------------
-# Tests for _estimate_spread_value (legacy heuristic mode)
-# ---------------------------------------------------------------------------
-
-class TestEstimateSpreadValue:
-
-    def setup_method(self):
-        self.bt = Backtester(_make_config())
-
-    def test_otm_value_decays(self):
-        """Far OTM spread should decay toward zero as DTE decreases."""
-        position = _make_position(short_strike=450, credit=1.50)
-        # Price well above short strike (OTM for bull put)
-        value_high_dte = self.bt._estimate_spread_value(position, current_price=480, dte=30)
-        value_low_dte = self.bt._estimate_spread_value(position, current_price=480, dte=5)
-        assert value_high_dte > value_low_dte
-        assert value_low_dte >= 0
-
-    def test_itm_value_increases_with_depth(self):
-        """Below short strike, value should approach spread width."""
-        position = _make_position(short_strike=450, long_strike=445, credit=1.50)
-        # Price below short strike (ITM for bull put)
-        value = self.bt._estimate_spread_value(position, current_price=420, dte=20)
-        assert value > 0
-        spread_width = position['short_strike'] - position['long_strike']
-        assert value <= spread_width
-
-    def test_zero_dte(self):
-        """At zero DTE, OTM spread should have near-zero value."""
-        position = _make_position(short_strike=450, credit=1.50)
-        value = self.bt._estimate_spread_value(position, current_price=480, dte=0)
-        assert value >= 0
-        assert value < position['credit'] * 0.5  # Should be decayed significantly
-
-    def test_near_the_money(self):
-        """Price near short strike should produce moderate value."""
-        position = _make_position(short_strike=450, credit=1.50)
-        value = self.bt._estimate_spread_value(position, current_price=451, dte=20)
-        assert value >= 0
-
-    def test_value_never_negative(self):
-        """Spread value should never be negative."""
-        position = _make_position(short_strike=450, credit=1.50)
-        for price in [400, 450, 500]:
-            for dte in [0, 10, 35]:
-                value = self.bt._estimate_spread_value(position, price, dte)
-                assert value >= 0
-
-    def test_bear_call_otm_decays(self):
-        """Bear call spread OTM should decay toward zero."""
-        position = _make_position(
-            short_strike=500, long_strike=505, credit=1.50,
-            spread_type='bear_call_spread', option_type='C',
-        )
-        # Price well below short strike (OTM for bear call)
-        value_high_dte = self.bt._estimate_spread_value(position, current_price=470, dte=30)
-        value_low_dte = self.bt._estimate_spread_value(position, current_price=470, dte=5)
-        assert value_high_dte > value_low_dte
-        assert value_low_dte >= 0
-
-    def test_bear_call_itm(self):
-        """Bear call spread ITM should increase in value."""
-        position = _make_position(
-            short_strike=500, long_strike=505, credit=1.50,
-            spread_type='bear_call_spread', option_type='C',
-        )
-        # Price above short strike (ITM for bear call)
-        value = self.bt._estimate_spread_value(position, current_price=530, dte=20)
-        assert value > 0
-
+# (TestEstimateSpreadValue and TestClosePosition removed — these methods were
+#  deleted as part of Iron Vault: heuristic/synthetic pricing is permanently
+#  banned. See docs/DATA_ARCHITECTURE.md and shared/iron_vault.py.)
 
 # ---------------------------------------------------------------------------
-# Tests for _close_position (legacy heuristic mode)
+# Tests for _record_close (real-data mode — kept and expanded)
 # ---------------------------------------------------------------------------
-
-class TestClosePosition:
-
-    def setup_method(self):
-        self.bt = Backtester(_make_config())
-        self.bt.capital = 100000
-        self.bt.trades = []
-
-    def test_expiration_profit(self):
-        """Expiration profit should earn full credit minus commissions."""
-        pos = _make_position(credit=1.50, contracts=2, commission=1.30)
-        self.bt._close_position(pos, datetime(2025, 2, 5), 460, 'expiration_profit')
-        assert len(self.bt.trades) == 1
-        expected_pnl = 1.50 * 2 * 100 - 1.30  # credit * contracts * 100 - commission
-        assert self.bt.trades[0]['pnl'] == pytest.approx(expected_pnl, rel=1e-6)
-        assert self.bt.capital == pytest.approx(100000 + expected_pnl, rel=1e-6)
-
-    def test_expiration_loss(self):
-        """Expiration loss should lose max_loss minus commissions."""
-        pos = _make_position(credit=1.50, max_loss=3.50, contracts=1, commission=1.30)
-        self.bt._close_position(pos, datetime(2025, 2, 5), 430, 'expiration_loss')
-        assert len(self.bt.trades) == 1
-        expected_pnl = -(3.50 * 1 * 100) - 1.30
-        assert self.bt.trades[0]['pnl'] == pytest.approx(expected_pnl, rel=1e-6)
-
-    def test_profit_target(self):
-        """Profit target should earn profit_target amount minus commissions and exit slippage."""
-        pos = _make_position(credit=1.50, contracts=1, commission=1.30)
-        self.bt._close_position(pos, datetime(2025, 1, 20), 460, 'profit_target')
-        # exit_slippage=0.10 now applied to profit-target exits (buy-back friction)
-        expected_pnl = pos['profit_target'] * 1 * 100 - self.bt.exit_slippage * 1 * 100 - 1.30
-        assert self.bt.trades[0]['pnl'] == pytest.approx(expected_pnl, rel=1e-6)
-
-    def test_stop_loss(self):
-        """Stop loss should lose stop_loss amount plus commissions and exit slippage."""
-        pos = _make_position(credit=1.50, contracts=1, commission=1.30)
-        self.bt._close_position(pos, datetime(2025, 1, 15), 440, 'stop_loss')
-        # exit_slippage=0.10 applied to stop-loss exits
-        expected_pnl = -(pos['stop_loss'] * 1 * 100) - self.bt.exit_slippage * 1 * 100 - 1.30
-        assert self.bt.trades[0]['pnl'] == pytest.approx(expected_pnl, rel=1e-6)
-
-    def test_other_reason(self):
-        """Unknown exit reason should result in 0 PnL minus commissions."""
-        pos = _make_position(credit=1.50, contracts=1, commission=1.30)
-        self.bt._close_position(pos, datetime(2025, 2, 5), 450, 'backtest_end')
-        expected_pnl = 0 - 1.30
-        assert self.bt.trades[0]['pnl'] == pytest.approx(expected_pnl, rel=1e-6)
-
-    def test_trade_record_fields(self):
-        """Closed trade should contain all required fields."""
-        pos = _make_position()
-        self.bt._close_position(pos, datetime(2025, 2, 5), 460, 'expiration_profit')
-        trade = self.bt.trades[0]
-        required_fields = [
-            'ticker', 'type', 'entry_date', 'exit_date', 'exit_reason',
-            'short_strike', 'long_strike', 'credit', 'contracts', 'pnl', 'return_pct',
-        ]
-        for field in required_fields:
-            assert field in trade, f"Missing field: {field}"
 
 
 # ---------------------------------------------------------------------------
@@ -700,30 +574,25 @@ class TestHistoricalDataIntegration:
 class TestBearCallBacktest:
 
     def setup_method(self):
-        self.bt = Backtester(_make_config())
+        self.mock_hd = _make_mock_historical_data()
+        self.bt = Backtester(_make_config(), historical_data=self.mock_hd)
         self.bt.capital = 100000
         self.bt.trades = []
-
-    def test_bear_call_heuristic_position(self):
-        """Heuristic mode should create bear call positions."""
-        pos = self.bt._find_heuristic_spread(
-            'SPY', datetime(2025, 1, 6), 480.0,
-            datetime(2025, 2, 10), 5.0, 'bear_call_spread',
-        )
-
-        assert pos is not None
-        assert pos['type'] == 'bear_call_spread'
-        assert pos['option_type'] == 'C'
-        assert pos['short_strike'] > 480.0  # OTM call
-        assert pos['long_strike'] == pos['short_strike'] + 5.0
 
     def test_bear_call_requires_bearish_trend(self):
         """Bear call should only trigger when price < MA20."""
         import pandas as pd
         dates = pd.date_range('2024-11-01', periods=50, freq='B')
         # Downtrending prices: final price well below MA20
+        # prices[-1] = 500 - 49*0.5 = 475.5; MA20 ≈ 488 → price < MA → bear call triggers
         prices = [500 - i * 0.5 for i in range(50)]
         price_data = pd.DataFrame({'Close': prices}, index=dates)
+
+        # Mock: OTM call strikes above 475.5 * 1.03 ≈ 490
+        self.mock_hd.get_available_strikes.return_value = [490.0, 495.0, 500.0, 505.0, 510.0]
+        self.mock_hd.get_spread_prices.return_value = {
+            'short_close': 2.00, 'long_close': 0.50, 'spread_value': 1.50,
+        }
 
         result = self.bt._find_bear_call_opportunity(
             'SPY', dates[-1].to_pydatetime(), prices[-1], price_data,
@@ -732,59 +601,35 @@ class TestBearCallBacktest:
         assert result['option_type'] == 'C'
         assert result['short_strike'] > prices[-1]  # OTM call
 
-    def test_bear_call_heuristic_expiration_profit_when_otm(self):
-        """Bear call: price below short strike at expiry → call OTM → expiration_profit."""
+    def test_bear_call_expiration_profit_when_otm(self):
+        """Bear call: spread expires worthless (OTM) → expiration_profit."""
         pos = _make_position(
             credit=1.50, max_loss=3.50, contracts=1, commission=1.30,
             spread_type='bear_call_spread', option_type='C',
             short_strike=500, long_strike=505,
         )
-        # Price 490 < short_strike 500 → call expired OTM → profit
+        # Call expired OTM: real spread value near zero → expiration_profit
+        self.mock_hd.get_spread_prices.return_value = {
+            'short_close': 0.01, 'long_close': 0.00, 'spread_value': 0.01,
+        }
         self.bt._manage_positions([pos], datetime(2025, 2, 5), 490.0, 'SPY')
         assert len(self.bt.trades) == 1
         assert self.bt.trades[0]['exit_reason'] == 'expiration_profit'
 
-    def test_bear_call_heuristic_expiration_loss_when_itm(self):
-        """Bear call: price above short strike at expiry → call ITM → expiration_loss."""
+    def test_bear_call_expiration_loss_when_itm(self):
+        """Bear call: spread has value at expiry (ITM) → expiration_loss."""
         pos = _make_position(
             credit=1.50, max_loss=3.50, contracts=1, commission=1.30,
             spread_type='bear_call_spread', option_type='C',
             short_strike=500, long_strike=505,
         )
-        # Price 510 > short_strike 500 → call expired ITM → loss
+        # Call expired ITM: real spread value large → expiration_loss
+        self.mock_hd.get_spread_prices.return_value = {
+            'short_close': 6.00, 'long_close': 1.00, 'spread_value': 5.00,
+        }
         self.bt._manage_positions([pos], datetime(2025, 2, 5), 510.0, 'SPY')
         assert len(self.bt.trades) == 1
         assert self.bt.trades[0]['exit_reason'] == 'expiration_loss'
-
-    def test_bear_call_heuristic_expiration_loss_at_exact_strike(self):
-        """Bear call: price == short_strike at expiry → call ITM → expiration_loss.
-
-        Code uses `current_price < pos['short_strike']` (strict <) for profit.
-        At exactly the short strike, the condition is False → loss branch fires.
-        This boundary catches any future >= vs > regression.
-        """
-        pos = _make_position(
-            credit=1.50, max_loss=3.50, contracts=1, commission=1.30,
-            spread_type='bear_call_spread', option_type='C',
-            short_strike=500, long_strike=505,
-        )
-        # Price == short_strike 500: strict < is False → expiration_loss
-        self.bt._manage_positions([pos], datetime(2025, 2, 5), 500.0, 'SPY')
-        assert len(self.bt.trades) == 1
-        assert self.bt.trades[0]['exit_reason'] == 'expiration_loss'
-
-    def test_bear_call_close_position(self):
-        """Bear call close should work same as bull put in heuristic mode."""
-        pos = _make_position(
-            credit=1.50, max_loss=3.50, contracts=1, commission=1.30,
-            spread_type='bear_call_spread', option_type='C',
-            short_strike=500, long_strike=505,
-        )
-        self.bt._close_position(pos, datetime(2025, 2, 5), 490, 'expiration_profit')
-        assert len(self.bt.trades) == 1
-        expected_pnl = 1.50 * 1 * 100 - 1.30
-        assert self.bt.trades[0]['pnl'] == pytest.approx(expected_pnl, rel=1e-6)
-        assert self.bt.trades[0]['type'] == 'bear_call_spread'
 
 
 # ---------------------------------------------------------------------------
@@ -1898,7 +1743,7 @@ class TestHeuristicModeGate:
     entries on a Monday that falls in the excluded month.
     """
 
-    def test_exclude_months_blocks_heuristic_entries(self):
+    def test_exclude_months_blocks_entries(self):
         from unittest.mock import patch
 
         import pandas as pd
@@ -1906,7 +1751,7 @@ class TestHeuristicModeGate:
         # Monday 2025-01-06; exclude_months=['2025-01'] → gate must fire.
         cfg = _make_config()
         cfg['backtest']['exclude_months'] = ['2025-01']
-        bt = Backtester(cfg)  # no historical_data → heuristic mode
+        bt = Backtester(cfg)  # historical_data=None: no real data, verifies gate before spread-find
 
         dates = pd.date_range('2024-11-18', periods=30, freq='B')
         prices = [450.0 + i * 2 for i in range(len(dates))]
@@ -1924,13 +1769,14 @@ class TestHeuristicModeGate:
             ),
         ])
 
+        # Patch _find_backtest_opportunity to detect if the gate fires before entry.
         with patch.object(bt, '_get_historical_data', return_value=price_data), \
-             patch.object(bt, '_find_heuristic_spread', return_value=None) as mock_h:
+             patch.object(bt, '_find_backtest_opportunity', return_value=None) as mock_bp:
             bt.run_backtest('SPY', datetime(2025, 1, 6), datetime(2025, 1, 6))
 
-        assert mock_h.call_count == 0, (
-            "_find_heuristic_spread was called despite exclude_months=['2025-01']. "
-            "The heuristic Monday gate is not checking _skip_new_entries."
+        assert mock_bp.call_count == 0, (
+            "_find_backtest_opportunity was called despite exclude_months=['2025-01']. "
+            "The entry gate is not checking _skip_new_entries before spread-finding."
         )
 
 
