@@ -57,7 +57,15 @@ class RiskGate:
         self.config = config or {}
         risk_cfg = self.config.get("risk", {})
         # BUG #19 fix: MAX_TOTAL_EXPOSURE is configurable; MASTERPLAN default 15%
-        cfg_pct = risk_cfg.get("max_total_exposure_pct")
+        # Fallback chain: risk.max_total_exposure_pct
+        #   -> risk.portfolio_risk.max_portfolio_risk_pct
+        #   -> risk.max_portfolio_risk_pct
+        #   -> MAX_TOTAL_EXPOSURE constant (15%)
+        cfg_pct = (
+            risk_cfg.get("max_total_exposure_pct")
+            or risk_cfg.get("portfolio_risk", {}).get("max_portfolio_risk_pct")
+            or risk_cfg.get("max_portfolio_risk_pct")
+        )
         self._max_total_exposure = (float(cfg_pct) / 100.0) if cfg_pct is not None else MAX_TOTAL_EXPOSURE
         # Per-trade risk cap: read from config.risk.max_risk_per_trade (default: constant 5%)
         cfg_per_trade = risk_cfg.get("max_risk_per_trade")

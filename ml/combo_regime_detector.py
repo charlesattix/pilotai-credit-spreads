@@ -55,6 +55,10 @@ class ComboRegimeDetector:
         self.bear_unanimous     = bool(config.get('bear_requires_unanimous', True))
         self.cooldown_days      = int(config.get('cooldown_days', 10))
         self.vix_extreme        = float(config.get('vix_extreme', 40.0))
+        # vix_extreme_regime: label forced when VIX circuit breaker fires.
+        # Default 'BEAR' preserves historical behavior. Set to 'NEUTRAL' to use ICs
+        # instead of bear calls during VIX spikes (e.g. flash crashes with fast recovery).
+        self.vix_extreme_regime = config.get('vix_extreme_regime', 'BEAR')
 
         # ma_crossover needs fast MA period
         self.ma_fast            = int(config.get('ma_fast_period', 50))
@@ -143,9 +147,9 @@ class ComboRegimeDetector:
 
             # --- VIX circuit breaker (overrides hysteresis) ---
             if not pd.isna(vix_val) and vix_val > self.vix_extreme:
-                result[ts] = 'BEAR'
-                if current_regime != 'BEAR':
-                    current_regime = 'BEAR'
+                result[ts] = self.vix_extreme_regime
+                if current_regime != self.vix_extreme_regime:
+                    current_regime = self.vix_extreme_regime
                     last_change_idx = idx
                 continue
 
@@ -173,6 +177,43 @@ class ComboRegimeDetector:
 
             result[ts] = current_regime
 
+        return result
+
+    def compute_ma200_vote_series(
+        self, price_data: pd.DataFrame
+    ) -> Dict[pd.Timestamp, str]:
+        """Return the price_vs_ma200 signal vote for each date.
+
+        Uses the same MA period and confidence band as compute_regime_series.
+        No hysteresis — raw per-day vote.  Used by the entry mapping layer to
+        distinguish NEUTRAL+MA200-bearish (block bull puts) from NEUTRAL+MA200-bull
+        (allow bull puts, matching backtester standard-mode NEUTRAL behaviour).
+
+        Returns:
+            {ts: 'bull' | 'bear' | 'neutral'} where 'neutral' means price is within
+            the ±ma200_neutral_pct confidence band or MA200 warmup is insufficient.
+        """
+        closes = price_data['Close']
+        ma_slow_series = closes.rolling(
+            self.ma_slow, min_periods=max(10, self.ma_slow // 2)
+        ).mean()
+        ma_slow_prev = ma_slow_series.shift(1)
+        closes_prev = closes.shift(1)
+
+        result: Dict[pd.Timestamp, str] = {}
+        for ts in price_data.index:
+            price = closes_prev.loc[ts]
+            ma_s = ma_slow_prev.loc[ts]
+            if pd.isna(price) or pd.isna(ma_s):
+                result[ts] = 'neutral'
+                continue
+            band = float(ma_s) * self.ma200_neutral_pct
+            if float(price) > float(ma_s) + band:
+                result[ts] = 'bull'
+            elif float(price) < float(ma_s) - band:
+                result[ts] = 'bear'
+            else:
+                result[ts] = 'neutral'
         return result
 
     def _vote(

@@ -93,6 +93,11 @@ class AlertGenerator:
 
         return outputs
 
+    @staticmethod
+    def _safe(opp: Dict, key: str, default=0.0):
+        """Return opp[key] if present, else default. Never raises KeyError."""
+        return opp.get(key, default)
+
     def _generate_text(self, alerts: Dict) -> str:
         """
         Generate human-readable text alerts.
@@ -108,50 +113,57 @@ class AlertGenerator:
         lines.append("")
 
         for i, opp in enumerate(alerts['opportunities'], 1):
-            lines.append(f"ALERT #{i} - {opp['ticker']} {opp['type'].upper()}")
+            g = lambda key, default=0.0: self._safe(opp, key, default)  # noqa: E731
+
+            opp_type = g('type', 'unknown')
+            short_strike = g('short_strike')
+            long_strike  = g('long_strike')
+            credit       = g('credit')
+            spread_width = g('spread_width', abs(short_strike - long_strike))
+
+            lines.append(f"ALERT #{i} - {g('ticker', 'N/A')} {opp_type.upper()}")
             lines.append("-" * 80)
 
-            lines.append(f"Score: {opp['score']:.1f}/100")
-            lines.append(f"Expiration: {opp['expiration']} (DTE: {opp['dte']})")
+            lines.append(f"Score: {g('score'):.1f}/100")
+            lines.append(f"Expiration: {g('expiration', 'N/A')} (DTE: {g('dte')})")
             lines.append("")
 
             lines.append("TRADE SETUP:")
-            if opp['type'] == 'iron_condor':
-                lines.append(f"  Sell ${opp['short_strike']:.2f} Put / Buy ${opp['long_strike']:.2f} Put  (Bull Put Wing)")
-                lines.append(f"  Sell ${opp['call_short_strike']:.2f} Call / Buy ${opp['call_long_strike']:.2f} Call (Bear Call Wing)")
-                lines.append(f"  Combined Credit: ${opp['credit']:.2f}")
-                # Breakevens
-                put_breakeven = opp['short_strike'] - opp['credit']
-                call_breakeven = opp['call_short_strike'] + opp['credit']
+            if opp_type == 'iron_condor':
+                lines.append(f"  Sell ${short_strike:.2f} Put / Buy ${long_strike:.2f} Put  (Bull Put Wing)")
+                lines.append(f"  Sell ${g('call_short_strike'):.2f} Call / Buy ${g('call_long_strike'):.2f} Call (Bear Call Wing)")
+                lines.append(f"  Combined Credit: ${credit:.2f}")
+                put_breakeven  = short_strike - credit
+                call_breakeven = g('call_short_strike') + credit
                 lines.append(f"  Breakevens: ${put_breakeven:.2f} / ${call_breakeven:.2f}")
-            elif opp['type'] == 'bull_put_spread':
-                lines.append(f"  Sell ${opp['short_strike']:.2f} Put")
-                lines.append(f"  Buy  ${opp['long_strike']:.2f} Put")
+            elif opp_type == 'bull_put_spread':
+                lines.append(f"  Sell ${short_strike:.2f} Put")
+                lines.append(f"  Buy  ${long_strike:.2f} Put")
             else:  # bear_call_spread
-                lines.append(f"  Sell ${opp['short_strike']:.2f} Call")
-                lines.append(f"  Buy  ${opp['long_strike']:.2f} Call")
+                lines.append(f"  Sell ${short_strike:.2f} Call")
+                lines.append(f"  Buy  ${long_strike:.2f} Call")
 
-            lines.append(f"  Spread Width: ${opp['spread_width']}")
-            if opp['type'] != 'iron_condor':
-                lines.append(f"  Credit Target: ${opp['credit']:.2f} per spread")
+            lines.append(f"  Spread Width: ${spread_width}")
+            if opp_type != 'iron_condor':
+                lines.append(f"  Credit Target: ${credit:.2f} per spread")
             lines.append("")
 
             lines.append("RISK/REWARD:")
-            lines.append(f"  Max Profit: ${opp['max_profit']:.2f} (100% of credit)")
-            lines.append(f"  Profit Target: ${opp['profit_target']:.2f} (50% of credit)")
-            lines.append(f"  Max Loss: ${opp['max_loss']:.2f}")
-            lines.append(f"  Stop Loss: ${opp['stop_loss']:.2f}")
-            lines.append(f"  Risk/Reward: 1:{opp['risk_reward']:.2f}")
+            lines.append(f"  Max Profit: ${g('max_profit'):.2f} (100% of credit)")
+            lines.append(f"  Profit Target: ${g('profit_target'):.2f} (50% of credit)")
+            lines.append(f"  Max Loss: ${g('max_loss'):.2f}")
+            lines.append(f"  Stop Loss: ${g('stop_loss'):.2f}")
+            lines.append(f"  Risk/Reward: 1:{g('risk_reward'):.2f}")
             lines.append("")
 
             lines.append("PROBABILITIES:")
-            lines.append(f"  Short Strike Delta: {opp['short_delta']:.3f}")
-            lines.append(f"  Probability of Profit: {opp['pop']:.1f}%")
+            lines.append(f"  Short Strike Delta: {g('short_delta'):.3f}")
+            lines.append(f"  Probability of Profit: {g('pop'):.1f}%")
             lines.append("")
 
             lines.append("MARKET CONTEXT:")
-            lines.append(f"  Current Price: ${opp['current_price']:.2f}")
-            lines.append(f"  Distance to Short Strike: ${opp['distance_to_short']:.2f}")
+            lines.append(f"  Current Price: ${g('current_price'):.2f}")
+            lines.append(f"  Distance to Short Strike: ${g('distance_to_short'):.2f}")
             lines.append("")
 
             lines.append("=" * 80)
@@ -197,7 +209,7 @@ class AlertGenerator:
                 for opp in alerts['opportunities']:
                     row = {k: opp.get(k, '') for k in fieldnames}
                     row['timestamp'] = alerts['timestamp']
-                    row['expiration'] = str(opp['expiration'])
+                    row['expiration'] = str(opp.get('expiration', ''))
                     writer.writerow(row)
             os.replace(tmp_path, csv_file)
         except BaseException:
@@ -221,46 +233,49 @@ class AlertGenerator:
         Returns:
             Formatted message string
         """
+        g = lambda key, default=0.0: self._safe(opportunity, key, default)  # noqa: E731
+        opp_type = g('type', 'unknown')
+
         msg_lines = []
 
         # Header with emoji
-        if opportunity['type'] == 'iron_condor':
+        if opp_type == 'iron_condor':
             emoji = "\U0001f7e1"  # yellow circle for neutral
-        elif opportunity['type'] == 'bull_put_spread':
+        elif opp_type == 'bull_put_spread':
             emoji = "\U0001f535"
         else:
             emoji = "\U0001f534"
-        msg_lines.append(f"{emoji} <b>{opportunity['ticker']} {opportunity['type'].replace('_', ' ').upper()}</b>")
-        msg_lines.append(f"Score: {opportunity['score']:.1f}/100 \u2b50")
+        msg_lines.append(f"{emoji} <b>{g('ticker', 'N/A')} {opp_type.replace('_', ' ').upper()}</b>")
+        msg_lines.append(f"Score: {g('score'):.1f}/100 \u2b50")
         msg_lines.append("")
 
         # Trade setup
         msg_lines.append("\U0001f4cb <b>TRADE:</b>")
-        if opportunity['type'] == 'iron_condor':
-            msg_lines.append(f"  Sell ${opportunity['short_strike']:.2f} Put / Buy ${opportunity['long_strike']:.2f} Put")
-            msg_lines.append(f"  Sell ${opportunity['call_short_strike']:.2f} Call / Buy ${opportunity['call_long_strike']:.2f} Call")
-        elif opportunity['type'] == 'bull_put_spread':
-            msg_lines.append(f"  Sell ${opportunity['short_strike']:.2f} Put")
-            msg_lines.append(f"  Buy  ${opportunity['long_strike']:.2f} Put")
+        if opp_type == 'iron_condor':
+            msg_lines.append(f"  Sell ${g('short_strike'):.2f} Put / Buy ${g('long_strike'):.2f} Put")
+            msg_lines.append(f"  Sell ${g('call_short_strike'):.2f} Call / Buy ${g('call_long_strike'):.2f} Call")
+        elif opp_type == 'bull_put_spread':
+            msg_lines.append(f"  Sell ${g('short_strike'):.2f} Put")
+            msg_lines.append(f"  Buy  ${g('long_strike'):.2f} Put")
         else:
-            msg_lines.append(f"  Sell ${opportunity['short_strike']:.2f} Call")
-            msg_lines.append(f"  Buy  ${opportunity['long_strike']:.2f} Call")
+            msg_lines.append(f"  Sell ${g('short_strike'):.2f} Call")
+            msg_lines.append(f"  Buy  ${g('long_strike'):.2f} Call")
 
-        msg_lines.append(f"  Exp: {opportunity['expiration']} ({opportunity['dte']} DTE)")
-        msg_lines.append(f"  Credit: ${opportunity['credit']:.2f}")
+        msg_lines.append(f"  Exp: {g('expiration', 'N/A')} ({g('dte')} DTE)")
+        msg_lines.append(f"  Credit: ${g('credit'):.2f}")
         msg_lines.append("")
 
         # Risk/Reward
         msg_lines.append("\U0001f4b0 <b>RISK/REWARD:</b>")
-        msg_lines.append(f"  Max Profit: ${opportunity['max_profit']:.2f}")
-        msg_lines.append(f"  Target (50%): ${opportunity['profit_target']:.2f}")
-        msg_lines.append(f"  Max Loss: ${opportunity['max_loss']:.2f}")
-        msg_lines.append(f"  R/R: 1:{opportunity['risk_reward']:.2f}")
+        msg_lines.append(f"  Max Profit: ${g('max_profit'):.2f}")
+        msg_lines.append(f"  Target (50%): ${g('profit_target'):.2f}")
+        msg_lines.append(f"  Max Loss: ${g('max_loss'):.2f}")
+        msg_lines.append(f"  R/R: 1:{g('risk_reward'):.2f}")
         msg_lines.append("")
 
         # Probabilities
         msg_lines.append("\U0001f4ca <b>PROBABILITY:</b>")
-        msg_lines.append(f"  POP: {opportunity['pop']:.1f}%")
-        msg_lines.append(f"  Delta: {opportunity['short_delta']:.3f}")
+        msg_lines.append(f"  POP: {g('pop'):.1f}%")
+        msg_lines.append(f"  Delta: {g('short_delta'):.3f}")
 
         return "\n".join(msg_lines)

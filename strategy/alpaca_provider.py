@@ -174,6 +174,15 @@ class AlpacaProvider:
     # Option symbol helpers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _exp_from_occ_symbol(symbol: str) -> str:
+        """Extract expiration date string from OCC symbol (e.g. SPY260402C00685000 → 2026-04-02)."""
+        try:
+            yymmdd = symbol[6:12]
+            return f"20{yymmdd[:2]}-{yymmdd[2:4]}-{yymmdd[4:6]}"
+        except (IndexError, ValueError):
+            return ""
+
     def _build_occ_symbol(self, ticker: str, expiration: str, strike: float, option_type: str) -> str:
         """
         Build OCC option symbol: SPY260320C00500000
@@ -197,19 +206,23 @@ class AlpacaProvider:
         strike_int = int(round(strike * 1000))
         return f"{ticker.upper():<6}{date_str}{cp}{strike_int:08d}".replace(" ", "")
 
-    def find_option_symbol(self, ticker: str, expiration: str, strike: float, option_type: str) -> Optional[str]:
+    def find_option_symbol(self, ticker: str, expiration: str, strike: float, option_type: str) -> str:
         """
         Look up the actual Alpaca option contract symbol via the API.
-        Falls back to OCC symbol construction if lookup fails.
+        If the target expiration has no contracts (e.g. paper trading only has near-term
+        expirations), falls back to the nearest available expiration >= 1 DTE.
+        Raises ProviderError if no usable contract can be found.
         """
-        # Round strike to avoid floating-point imprecision in API query
-        # (e.g. 682.9999... → "682.9999..." instead of "683.0")
+        import datetime as _dt
         strike = round(float(strike), 2)
+        target_exp = expiration.split(" ")[0] if " " in expiration else expiration
+        ct = ContractType.CALL if option_type.lower().startswith("c") else ContractType.PUT
+
         try:
-            ct = ContractType.CALL if option_type.lower().startswith("c") else ContractType.PUT
+            # 1. Try exact expiration first
             req = GetOptionContractsRequest(
                 underlying_symbols=[ticker.upper()],
-                expiration_date=expiration.split(" ")[0] if " " in expiration else expiration,
+                expiration_date=target_exp,
                 type=ct,
                 strike_price_gte=str(strike),
                 strike_price_lte=str(strike),
@@ -219,10 +232,50 @@ class AlpacaProvider:
             contracts = resp.option_contracts if hasattr(resp, 'option_contracts') else resp
             if contracts:
                 return contracts[0].symbol
-        except Exception as e:
-            logger.warning(f"Option contract lookup failed, using OCC symbol: {e}")
 
-        return self._build_occ_symbol(ticker, expiration, strike, option_type)
+            # 2. Exact expiration not available — find nearest available expiration >= 1 DTE
+            today = _dt.date.today()
+            min_exp = str(today + _dt.timedelta(days=1))  # at least 1 DTE
+            req2 = GetOptionContractsRequest(
+                underlying_symbols=[ticker.upper()],
+                expiration_date_gte=min_exp,
+                type=ct,
+                strike_price_gte=str(strike),
+                strike_price_lte=str(strike),
+                limit=50,
+            )
+            resp2 = self.client.get_option_contracts(req2)
+            contracts2 = resp2.option_contracts if hasattr(resp2, 'option_contracts') else resp2
+            if contracts2:
+                # Pick the contract whose expiration is closest to the target
+                try:
+                    target_date = _dt.date.fromisoformat(target_exp)
+                except ValueError:
+                    target_date = today + _dt.timedelta(days=30)
+                best = min(
+                    contracts2,
+                    key=lambda c: abs((_dt.date.fromisoformat(str(c.expiration_date)) - target_date).days),
+                )
+                actual_exp = str(best.expiration_date)
+                actual_dte = (_dt.date.fromisoformat(actual_exp) - today).days
+                logger.warning(
+                    "find_option_symbol: %s %s $%.2f — target exp %s not available; "
+                    "substituting nearest exp %s (DTE=%d)",
+                    ticker, option_type, strike, target_exp, actual_exp, actual_dte,
+                )
+                return best.symbol
+
+        except ProviderError:
+            raise
+        except Exception as e:
+            raise ProviderError(
+                f"Option contract API lookup failed for {ticker} {target_exp} ${strike} {option_type}: {e}"
+            ) from e
+
+        raise ProviderError(
+            f"No option contract found in Alpaca for {ticker} ${strike} {option_type} "
+            f"(target={target_exp}, no alternatives with strike match >= 1 DTE)"
+        )
 
     # ------------------------------------------------------------------
     # Shared MLEG order submission
@@ -336,6 +389,7 @@ class AlpacaProvider:
         try:
             order = self._submit_mleg_order(legs, contracts, limit_price, client_id)
 
+            actual_expiration = self._exp_from_occ_symbol(short_sym) or expiration
             result = {
                 "status": "submitted",
                 "order_id": str(order.id),
@@ -350,6 +404,7 @@ class AlpacaProvider:
                 "contracts": contracts,
                 "limit_price": limit_price,
                 "submitted_at": str(order.submitted_at),
+                "actual_expiration": actual_expiration,
             }
 
             logger.info(f"Order submitted: {result['order_id']} status={result['order_status']}")

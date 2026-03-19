@@ -109,7 +109,11 @@ class CreditSpreadStrategy:
         # In non-combo mode, fall back to _check_bullish/_check_bearish_conditions.
         combo_regime = technical_signals.get('combo_regime')
         if self.regime_mode == 'combo' and combo_regime is not None:
-            want_bull_put = (combo_regime == 'BULL')
+            # NEUTRAL + MA200 bearish → block bull puts (MA200 guard).
+            # NEUTRAL + MA200 bull/neutral → allow bull puts, matching backtester standard mode.
+            # ma200_vote is populated by main.py alongside combo_regime; absent = safe default 'neutral'.
+            _ma200_bearish = technical_signals.get('ma200_vote') == 'bear'
+            want_bull_put = (combo_regime == 'BULL') or (combo_regime == 'NEUTRAL' and not _ma200_bearish)
             want_bear_call = (combo_regime == 'BEAR')
         else:
             want_bull_put = self._check_bullish_conditions(technical_signals, iv_data)

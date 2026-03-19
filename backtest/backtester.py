@@ -405,7 +405,8 @@ class Backtester:
         # regime_mode='ma'    → legacy single-MA behavior (backward compat only)
         self._regime_mode: str = self.strategy_params.get('regime_mode', 'combo')
         self._regime_config: dict = self.strategy_params.get('regime_config', {})
-        self._regime_by_date: dict = {}  # populated by _build_combo_regime_series
+        self._regime_by_date: dict = {}    # populated by _build_combo_regime_series
+        self._ma200_vote_by_date: dict = {}  # price_vs_ma200 raw vote, same dates
 
         # DTE targeting — configurable for optimization sweep
         self._target_dte: int = int(self.strategy_params.get('target_dte', 35))
@@ -769,7 +770,10 @@ class Backtester:
                     _want_calls = _regime_today == 'BEAR'
                     _ic_enabled = _regime_today == 'NEUTRAL' and _ic_vix_ok
                 else:
-                    _want_puts  = _regime_today in ('BULL', 'NEUTRAL')
+                    # NEUTRAL + MA200 bearish → block bull puts (MA200 guard).
+                    # NEUTRAL + MA200 bull/neutral → allow bull puts (standard backtester behaviour).
+                    _ma200_vote_today = self._ma200_vote_by_date.get(pd.Timestamp(current_date.date()), 'neutral')
+                    _want_puts  = (_regime_today == 'BULL') or (_regime_today == 'NEUTRAL' and _ma200_vote_today != 'bear')
                     _want_calls = _regime_today == 'BEAR'
                     # ic_vix_min gates IC fallback in BULL regime only — blocks dangerous
                     # BULL-regime fallback ICs in low-vol fast-recovery markets (e.g. 2024)
@@ -1146,6 +1150,7 @@ class Backtester:
         self._regime_by_date = detector.compute_regime_series(
             price_data, self._vix_by_date, self._vix3m_by_date
         )
+        self._ma200_vote_by_date = detector.compute_ma200_vote_series(price_data)
         logger.info(
             "Combo regime series built: %d dates, BULL=%d BEAR=%d NEUTRAL=%d",
             len(self._regime_by_date),

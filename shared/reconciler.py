@@ -218,9 +218,11 @@ class PositionReconciler:
         """
         from shared.database import get_trades, upsert_trade
 
-        open_trades = get_trades(status="open", path=self.db_path)
+        # Include both open and pending_open — pending_open trades have live orders in flight
+        open_trades = get_trades(status="open", path=self.db_path) + \
+                      get_trades(status="pending_open", path=self.db_path)
 
-        # Build the full set of OCC symbols managed by open DB trades
+        # Build the full set of OCC symbols managed by open/pending_open DB trades
         managed_symbols: set = set()
         for trade in open_trades:
             ticker = trade.get("ticker", "")
@@ -297,16 +299,28 @@ class PositionReconciler:
     # Private helpers
     # ------------------------------------------------------------------
 
+    def _fetch_recent_orders_by_client_id(self) -> dict:
+        """Batch-fetch recent Alpaca orders and index them by client_order_id.
+
+        get_order_by_client_id() returns 404 for MLEG (multi-leg) orders — a known
+        Alpaca paper trading limitation. get_orders() returns them correctly.
+        We pre-fetch all recent orders once and use that dict for all lookups,
+        which also reduces per-trade API calls.
+        """
+        try:
+            orders = self.alpaca.get_orders(status="all", limit=100)
+            return {o["client_order_id"]: o for o in orders if o.get("client_order_id")}
+        except Exception as e:
+            logger.warning("Reconciler: could not batch-fetch orders (%s) — will use per-trade lookup", e)
+            return {}
+
     def _reconcile_pending_opens(self, result: ReconciliationResult) -> None:
         """Resolve all pending_open trades.
 
-        For each trade in ``pending_open`` status:
-        - No alpaca_client_order_id: treat as DB-only, promote to open.
-        - Has alpaca_client_order_id: look up the Alpaca order.
-          - filled → promote to open, record fill price.
-          - terminal non-fill → mark failed_open.
-          - still pending/submitted → leave as pending_open (try again next cycle).
-          - too old (> _PENDING_MAX_AGE_HOURS) + not found → mark failed_open.
+        Uses a batch order fetch (handles MLEG orders that fail get_order_by_client_id).
+        Falls back to per-trade get_order_by_client_id for orders not in the batch.
+        Only marks failed_open when order is confirmed absent AND older than
+        _PENDING_MAX_AGE_HOURS (avoids race conditions on just-submitted orders).
         """
         from shared.database import get_trades, insert_reconciliation_event, upsert_trade
 
@@ -317,20 +331,19 @@ class PositionReconciler:
         logger.info("Reconciling %d pending_open trade(s)", len(pending))
         now = datetime.now(timezone.utc)
 
+        # Pre-fetch all recent orders indexed by client_order_id (handles MLEG 404 issue)
+        orders_by_client_id = self._fetch_recent_orders_by_client_id()
+
         for trade in pending:
             trade_id = trade.get("id", "?")
             client_order_id = trade.get("alpaca_client_order_id")
 
             # Case 1: No Alpaca order ID — order was never submitted to the broker
-            # (e.g. crash or network failure after DB write but before Alpaca submission).
-            # The reconciler only runs when Alpaca is active, so a missing order ID
-            # means there is no live position to track. Mark failed_open immediately
-            # rather than promoting to open where the trade would have no Alpaca coverage.
             if not client_order_id:
                 if trade.get('dry_run'):
-                    status = 'open'  # Dry run, expected no order ID
+                    status = 'open'
                 else:
-                    status = 'failed_open'  # Submission may have failed
+                    status = 'failed_open'
                 trade["status"] = status
                 upsert_trade(trade, source="scanner", path=self.db_path)
                 insert_reconciliation_event(
@@ -346,16 +359,18 @@ class PositionReconciler:
                     logger.warning("Trade %s marked failed_open (no order ID, not dry_run)", trade_id)
                 continue
 
-            # Case 2: Look up order in Alpaca
-            order = self.alpaca.get_order_by_client_id(client_order_id)
+            # Case 2: Look up from batch first (handles MLEG); fall back to per-trade lookup
+            order = orders_by_client_id.get(client_order_id)
+            if order is None:
+                order = self.alpaca.get_order_by_client_id(client_order_id)
 
             if order is None:
-                # Alpaca returned error or 404
+                # Not found via either method — only fail if old enough to rule out race condition
                 age_hours = self._trade_age_hours(trade, now)
                 if age_hours >= _PENDING_MAX_AGE_HOURS:
                     trade["status"] = "failed_open"
                     trade["exit_reason"] = "alpaca_order_not_found"
-                    upsert_trade(trade, source="scanner", path=self.db_path)
+                    upsert_trade(trade, source="reconciler", path=self.db_path)
                     insert_reconciliation_event(
                         trade_id, "failed_open",
                         {"reason": "order_not_found", "age_hours": age_hours},
@@ -363,13 +378,12 @@ class PositionReconciler:
                     )
                     result.pending_failed += 1
                     logger.warning(
-                        "Trade %s marked failed_open (order not found, %.1fh old)",
-                        trade_id, age_hours,
+                        "Trade %s marked failed_open (order not found, %.1fh old)", trade_id, age_hours
                     )
                 else:
                     logger.debug(
-                        "Trade %s still young (%.1fh), skipping until %dh threshold",
-                        trade_id, age_hours, _PENDING_MAX_AGE_HOURS,
+                        "Trade %s not found in Alpaca yet (%.1fh old) — leaving pending_open",
+                        trade_id, age_hours,
                     )
                 continue
 

@@ -151,7 +151,7 @@ class ExecutionEngine:
         # If dedup layer fails (Bug #2) the same opportunity can arrive again.
         try:
             existing = get_trade_by_id(client_id, path=self.db_path)
-            if existing and existing.get("status") not in ("rejected", "cancelled"):
+            if existing and existing.get("status") not in ("rejected", "cancelled", "failed_open"):
                 logger.info(
                     "ExecutionEngine: trade %s already exists (status=%s), skipping duplicate",
                     client_id, existing.get("status"),
@@ -284,17 +284,62 @@ class ExecutionEngine:
                     "ExecutionEngine: submitted %s %s x%d order_id=%s",
                     ticker, spread_type, contracts, result.get("order_id"),
                 )
+                # If Alpaca substituted a different expiration, update the DB record to match
+                actual_exp = result.get("actual_expiration")
+                if actual_exp and actual_exp != str(expiration).split(" ")[0]:
+                    logger.warning(
+                        "ExecutionEngine: expiration substituted for %s: %s → %s; updating DB",
+                        client_id, expiration, actual_exp,
+                    )
+                    try:
+                        upsert_trade(
+                            {"id": client_id, "expiration": actual_exp},
+                            source="execution",
+                            path=self.db_path,
+                        )
+                    except Exception as db_err:
+                        logger.error(
+                            "ExecutionEngine: DB expiration update failed for %s: %s", client_id, db_err
+                        )
             else:
                 logger.warning(
                     "ExecutionEngine: Alpaca returned non-submitted status for %s: %s",
                     client_id, result,
                 )
+                try:
+                    upsert_trade(
+                        {
+                            "id": client_id,
+                            "status": "failed_open",
+                            "exit_reason": f"alpaca_rejected: {result.get('message', result.get('status', 'unknown'))}",
+                        },
+                        source="execution",
+                        path=self.db_path,
+                    )
+                except Exception as db_err:
+                    logger.error(
+                        "ExecutionEngine: DB update to failed_open failed for %s: %s", client_id, db_err
+                    )
 
             result["client_order_id"] = client_id
             return result
 
         except Exception as e:
             logger.error("ExecutionEngine: Alpaca submission failed for %s: %s", client_id, e, exc_info=True)
+            try:
+                upsert_trade(
+                    {
+                        "id": client_id,
+                        "status": "failed_open",
+                        "exit_reason": f"alpaca_exception: {e}",
+                    },
+                    source="execution",
+                    path=self.db_path,
+                )
+            except Exception as db_err:
+                logger.error(
+                    "ExecutionEngine: DB update to failed_open failed for %s: %s", client_id, db_err
+                )
             return {"status": "error", "message": str(e), "client_order_id": client_id}
 
     def _check_drawdown_cb(self) -> bool:

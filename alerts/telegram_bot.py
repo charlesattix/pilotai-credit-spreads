@@ -3,6 +3,7 @@ Telegram Bot Integration
 Sends alerts via Telegram bot.
 """
 
+import asyncio
 import logging
 from typing import Dict, List
 
@@ -82,12 +83,12 @@ class TelegramBot:
             return False
 
         try:
-            self.bot.send_message(
-                chat_id=self.chat_id,
-                text=message,
-                parse_mode='HTML',
-                read_timeout=10,
-                write_timeout=10,
+            asyncio.run(
+                self.bot.send_message(
+                    chat_id=self.chat_id,
+                    text=message,
+                    parse_mode='HTML',
+                )
             )
             logger.info("Telegram alert sent")
             return True

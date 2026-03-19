@@ -319,7 +319,7 @@ class CreditSpreadSystem:
         logger.info("Top 5 opportunities:")
 
         for i, opp in enumerate(all_opportunities[:5], 1):
-            logger.info(f"{i}. {opp['ticker']} {opp['type']} - Score: {opp['score']:.1f}")
+            logger.info(f"{i}. {opp.get('ticker', '?')} {opp.get('type', '?')} - Score: {opp.get('score', 0):.1f}")
 
         # Generate alerts
         self._generate_alerts(all_opportunities)

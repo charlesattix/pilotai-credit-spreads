@@ -10,6 +10,8 @@ Tests verify:
   6. VIX circuit breaker — VIX > 40 → BEAR regardless of other signals
   7. Hysteresis — regime just changed; raw signal wants to flip again → keeps current
   8. MA200 confidence zone — price within 0.5% of MA200 → MA200 abstains
+  9. vix_extreme_regime config — VIX spike forces NEUTRAL instead of BEAR when configured
+ 10. compute_ma200_vote_series — correctly returns bull/bear/neutral per date
 """
 
 import pandas as pd
@@ -306,3 +308,82 @@ def test_ma200_confidence_zone():
     assert label == "NEUTRAL", (
         f"MA200 confidence zone: all signals abstaining, expected NEUTRAL, got {label}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test 9: vix_extreme_regime='NEUTRAL' — VIX spike forces NEUTRAL not BEAR
+# ---------------------------------------------------------------------------
+
+def test_vix_extreme_regime_neutral():
+    """
+    vix_extreme_regime='NEUTRAL': when VIX circuit breaker fires the regime
+    should be NEUTRAL instead of the default BEAR.  All other signals are
+    bullish — this isolates the CB path.
+    """
+    values = [300 + i for i in range(210)]  # rising → all signals BULL
+    df = _make_price_data(values)
+
+    # Spike VIX on second-to-last day so CB fires on the last date (prev-day logic)
+    vix = {ts: 15.0 for ts in df.index}
+    vix[df.index[-2]] = 45.0
+
+    vix3m = _make_vix3m_dict(df, 18.0)
+
+    detector = _make_detector({"cooldown_days": 0, "vix_extreme": 40.0, "vix_extreme_regime": "NEUTRAL"})
+    label = _last_regime(detector, df, vix, vix3m)
+    assert label == "NEUTRAL", (
+        f"vix_extreme_regime=NEUTRAL: VIX CB should force NEUTRAL, got {label}"
+    )
+
+
+def test_vix_extreme_regime_default_is_bear():
+    """
+    Default vix_extreme_regime is 'BEAR' — backward-compatible with existing tests.
+    """
+    values = [300 + i for i in range(210)]
+    df = _make_price_data(values)
+
+    vix = {ts: 15.0 for ts in df.index}
+    vix[df.index[-2]] = 45.0
+    vix3m = _make_vix3m_dict(df, 18.0)
+
+    detector = _make_detector({"cooldown_days": 0, "vix_extreme": 40.0})
+    label = _last_regime(detector, df, vix, vix3m)
+    assert label == "BEAR", (
+        f"Default vix_extreme_regime: expected BEAR, got {label}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 10: compute_ma200_vote_series — bull / bear / neutral votes
+# ---------------------------------------------------------------------------
+
+def test_compute_ma200_vote_series_bull():
+    """Price well above MA200 → vote series ends with 'bull'."""
+    values = [300 + i for i in range(210)]  # steadily rising
+    df = _make_price_data(values)
+    detector = _make_detector()
+    votes = detector.compute_ma200_vote_series(df)
+    last_vote = votes[df.index[-1]]
+    assert last_vote == "bull", f"Expected 'bull', got '{last_vote}'"
+
+
+def test_compute_ma200_vote_series_bear():
+    """Price well below MA200 → vote series ends with 'bear'."""
+    # 300 days descending: price drops far below where MA200 anchors
+    values = [600 - i for i in range(210)]
+    df = _make_price_data(values)
+    detector = _make_detector()
+    votes = detector.compute_ma200_vote_series(df)
+    last_vote = votes[df.index[-1]]
+    assert last_vote == "bear", f"Expected 'bear', got '{last_vote}'"
+
+
+def test_compute_ma200_vote_series_neutral_band():
+    """Price flat at MA200 (within band) → vote is 'neutral'."""
+    values = [400.0] * 210
+    df = _make_price_data(values)
+    detector = _make_detector()
+    votes = detector.compute_ma200_vote_series(df)
+    last_vote = votes[df.index[-1]]
+    assert last_vote == "neutral", f"Expected 'neutral' (within band), got '{last_vote}'"
