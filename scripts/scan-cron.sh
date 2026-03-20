@@ -4,10 +4,8 @@
 # Called by crontab at scheduled market hours (ET, weekdays only).
 #
 # Experiments:
-#   exp036 — configs/paper_exp036.yaml  .env.exp036  data/pilotai_exp036.db
-#   exp059 — configs/paper_exp059.yaml  .env.exp059  data/pilotai_exp059.db
-#   exp154 — configs/paper_exp154.yaml  .env.exp154  data/pilotai_exp154.db
-#   exp305 — configs/paper_exp305.yaml  .env.exp305  data/pilotai_exp305.db
+#   champion — configs/paper_champion.yaml  .env.champion  data/pilotai_champion.db
+#   exp401   — configs/paper_exp401.yaml    .env.exp401    data/pilotai_exp401.db
 
 set -euo pipefail
 
@@ -55,7 +53,5 @@ _run_scan() {
   echo "---" >> "$LOG_FILE"
 }
 
-_run_scan "exp036" "configs/paper_exp036.yaml" ".env.exp036" "data/pilotai_exp036.db"
-_run_scan "exp059" "configs/paper_exp059.yaml" ".env.exp059" "data/pilotai_exp059.db"
-_run_scan "exp154" "configs/paper_exp154.yaml" ".env.exp154" "data/pilotai_exp154.db"
-_run_scan "exp305" "configs/paper_exp305.yaml" ".env.exp305" "data/pilotai_exp305.db"
+_run_scan "exp400" "configs/paper_champion.yaml" ".env.exp400" "data/pilotai_exp400.db"
+_run_scan "exp401"   "configs/paper_exp401.yaml"   ".env.exp401"   "data/pilotai_exp401.db"

@@ -306,8 +306,10 @@ class PositionMonitor:
         if self.alpaca:
             self._reconcile_pending_closes()
 
-        # Step 2: Load open positions
+        # Step 2: Load open positions (also include pending_open so orphan detection
+        # doesn't flag positions whose orders are still in flight)
         open_positions = get_trades(status="open", source="execution", path=self.db_path)
+        pending_positions = get_trades(status="pending_open", source="execution", path=self.db_path)
         if open_positions:
             logger.info("PositionMonitor: checking %d open position(s)", len(open_positions))
 
@@ -353,7 +355,7 @@ class PositionMonitor:
 
         # Step 3c: Detect option positions in Alpaca with no DB record (orphans).
         # Runs unconditionally — orphans can appear even when we have no open trades.
-        self._detect_orphans(open_positions, alpaca_positions)
+        self._detect_orphans(open_positions + pending_positions, alpaca_positions)
 
         if not open_positions:
             logger.debug("PositionMonitor: no open positions to check")

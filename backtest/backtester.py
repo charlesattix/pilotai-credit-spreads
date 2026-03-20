@@ -1640,8 +1640,9 @@ class Backtester:
             and scan_time_mins >= market_open_mins
         )
 
-        def _get_prices(ss: float, ls: float) -> Optional[Dict]:
-            if use_intraday:
+        def _get_prices(ss: float, ls: float, daily: bool = False) -> Optional[Dict]:
+            """Fetch spread prices.  daily=True forces the option_daily cache regardless of use_intraday."""
+            if use_intraday and not daily:
                 return self.historical_data.get_intraday_spread_prices(
                     ticker, expiration, ss, ls, ot,
                     date_str, scan_hour, scan_minute,
@@ -1650,24 +1651,20 @@ class Backtester:
                 ticker, expiration, ss, ls, ot, date_str,
             )
 
-        def _get_daily_prices(ss: float, ls: float) -> Optional[Dict]:
-            """Daily-close fallback using real Polygon OHLCV bars (option_daily table)."""
-            return self.historical_data.get_spread_prices(
-                ticker, expiration, ss, ls, ot, date_str,
-            )
+        def _try_offsets(daily: bool = False):
+            """Try adjacent strikes ±1, ±2.  Returns (prices, short_strike, long_strike)."""
+            for offset in [1, -1, 2, -2]:
+                alt_short = short_strike + offset
+                alt_long = alt_short - spread_width if ot == "P" else alt_short + spread_width
+                p = _get_prices(alt_short, alt_long, daily=daily)
+                if p is not None:
+                    return p, alt_short, alt_long
+            return None, short_strike, long_strike
 
         prices = _get_prices(short_strike, long_strike)
 
         if prices is None:
-            # Try adjacent strikes (+/- $1)
-            for offset in [1, -1, 2, -2]:
-                alt_short = short_strike + offset
-                alt_long = alt_short - spread_width if ot == "P" else alt_short + spread_width
-                prices = _get_prices(alt_short, alt_long)
-                if prices is not None:
-                    short_strike = alt_short
-                    long_strike = alt_long
-                    break
+            prices, short_strike, long_strike = _try_offsets()
 
         # When intraday data is unavailable (e.g. pre-2024 history purged from Polygon),
         # fall back to daily close prices from the option_daily cache.
@@ -1675,16 +1672,7 @@ class Backtester:
         _used_daily_fallback = False
         if prices is None and use_intraday:
             _used_daily_fallback = True
-            prices = _get_daily_prices(short_strike, long_strike)
-            if prices is None:
-                for offset in [1, -1, 2, -2]:
-                    alt_short = short_strike + offset
-                    alt_long = alt_short - spread_width if ot == "P" else alt_short + spread_width
-                    prices = _get_daily_prices(alt_short, alt_long)
-                    if prices is not None:
-                        short_strike = alt_short
-                        long_strike = alt_long
-                        break
+            prices, short_strike, long_strike = _try_offsets(daily=True)
 
         if prices is None:
             logger.debug(
