@@ -175,7 +175,11 @@ class RiskGate:
                 continue
             stopped_at = stop.get("stopped_at")
             if isinstance(stopped_at, str):
-                stopped_at = datetime.fromisoformat(stopped_at)
+                try:
+                    stopped_at = datetime.fromisoformat(stopped_at)
+                except (ValueError, TypeError):
+                    logger.warning("RiskGate: unparseable stopped_at '%s', skipping cooldown check", stopped_at)
+                    continue
             if stopped_at and (now - stopped_at).total_seconds() < COOLDOWN_AFTER_STOP:
                 remaining = COOLDOWN_AFTER_STOP - (now - stopped_at).total_seconds()
                 reason = (
