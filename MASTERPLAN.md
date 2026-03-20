@@ -4,15 +4,12 @@
 Build a validated, multi-strategy options trading system on SPY. Data-driven approach: kill losing strategies, optimize winners, follow what the data says. Paper trade the winners, then go live.
 
 ## North Star
-- **55% avg annual return** (aspirational)
+- **55% avg annual return**
+- **Sharpe ratio of 6**
 - **≤30% max drawdown** in any year
 - **Multi-strategy, research-backed, validated**
 - **All 6 years (2020-2025) profitable**
-- **🚨 NO SYNTHETIC DATA — EVER.** All backtests, validation, and optimization MUST use real Polygon market data. Heuristic/synthetic pricing is permanently banned. Any results based on synthetic data are INVALID and must be re-run with real data before being trusted. This is a Carlos directive — no exceptions.
-  - **Enforced by:** `shared/iron_vault.py` (singleton data provider — hard fails on missing data)
-  - **Architecture docs:** `docs/DATA_ARCHITECTURE.md`
-  - **Setup/validation:** `scripts/iron_vault_setup.py`
-  - **READ THIS FIRST** if you're new to the repo or touching any data code.
+- **🚫 NO SYNTHETIC DATA — EVER.** All pricing must come from `IronVault.instance()` → `data/options_cache.db`. Black-Scholes/heuristic pricing is permanently BANNED. Cache miss → skip trade (return `None`), NEVER fabricate. See `docs/DATA_ARCHITECTURE.md`, `shared/iron_vault.py`, `scripts/iron_vault_setup.py`.
 
 ---
 
@@ -49,6 +46,22 @@ All experiments are tracked here. Every new experiment gets an ID and entry.
 - **After slippage:** 2020: +13.5% | 2021: +84.0% | 2022: +2.2% | 2023: +27.9% | 2024: +11.2% | 2025: +22.4%
 - **Paper trader support:** ✅ Full — Operation Unified Front completed (straddle/strangle wired, unified entry+exit paths)
 - **Branch:** `maximus/unified-front`
+
+| **EXP-500** | **ML Champion** | ML-enhanced EXP-400 (CS+IC) | TBD | TBD | TBD | TBD | 🔄 Phase 1: Data Collection |
+| **EXP-501** | **ML Blend** | ML-enhanced EXP-401 (CS+S/S) | TBD | TBD | TBD | TBD | ⏳ Pending EXP-500 |
+
+#### EXP-500: ML Champion (ML-Enhanced EXP-400)
+- **Approach:** XGBoost confidence overlay on rule-based signals
+- **ML Role:** FILTER only — ML can reduce/block signals, never create new ones
+- **Kill switch:** `min_confidence=0.0` reverts to pure rule-based
+- **Phases:** 1) Data collection 2) Model training 3) Strategy wrapper 4) Backtest validation 5) Paper trading
+- **Training data:** ~200-400 samples from backtests (mitigated with shallow trees + strong regularization)
+- **Time-series CV:** mandatory (no random splits)
+- **Status:** Phase 1 — Data Collection
+
+#### EXP-501: ML Blend (ML-Enhanced EXP-401)
+- **Approach:** Same ML overlay applied to EXP-401 blend
+- **Status:** Pending — starts after EXP-500 proves concept
 
 ### Retired / Failed Experiments
 
@@ -113,11 +126,20 @@ All experiments are tracked here. Every new experiment gets an ID and entry.
 ### Key Files
 ```
 🔒 Iron Vault (Centralized Data Layer):
+<<<<<<< Updated upstream
 ├── shared/iron_vault.py           ← THE single data provider — all data access goes here
 ├── scripts/iron_vault_setup.py    ← Bootstrap: validates keys, checks cache, reports gaps
 ├── docs/DATA_ARCHITECTURE.md      ← Full data architecture documentation
 ├── data/options_cache.db          ← 905MB, 5.67M daily bars, 168K contracts (2020-2026)
 └── data/macro_state.db            ← Regime/sector macro data
+=======
+├── shared/iron_vault.py            ← THE single data provider (singleton)
+├── scripts/iron_vault_setup.py     ← Bootstrap & validation
+├── docs/DATA_ARCHITECTURE.md       ← Full architecture docs
+├── data/options_cache.db           ← ~905 MB source of truth (real Polygon data)
+├── data/macro_state.db             ← Regime/sector data (COMPASS)
+└── backtest/historical_data.py     ← Raw DB queries (wrapped by IronVault)
+>>>>>>> Stashed changes
 
 configs/
 ├── champion.json              ← EXP-400 raw params
