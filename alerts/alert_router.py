@@ -25,7 +25,7 @@ from typing import Dict, List, Optional
 from alerts.alert_position_sizer import AlertPositionSizer
 from alerts.alert_schema import Alert, AlertType
 from alerts.formatters.telegram import TelegramAlertFormatter
-from alerts.risk_gate import RiskGate
+from compass.risk_gate import RiskGate
 from shared.database import delete_old_dedup_entries, insert_alert, load_dedup_entries, upsert_dedup_entry
 
 logger = logging.getLogger(__name__)
