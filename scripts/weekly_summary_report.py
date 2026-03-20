@@ -35,7 +35,7 @@ EXPERIMENTS = {
         "label": "Champion (exp_213)",
         "annual_return_pct": 32.7,
         "win_rate_pct": 78.0,
-        "db_path": str(ROOT / "data" / "pilotai_champion.db"),
+        "db_path": str(ROOT / "data" / "pilotai_exp400.db"),
     },
     "EXP-401": {
         "label": "EXP-401",

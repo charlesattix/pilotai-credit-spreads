@@ -38,7 +38,7 @@ EXPECTATIONS = {
         "label": "Champion (exp_213)",
         "annual_return_pct": 32.7,   # conservative 2x-slippage estimate
         "win_rate_pct": 78.0,
-        "db_path": str(ROOT / "data" / "pilotai_champion.db"),
+        "db_path": str(ROOT / "data" / "pilotai_exp400.db"),
         "env_file": str(ROOT / ".env.champion"),
     },
     "EXP-401": {
