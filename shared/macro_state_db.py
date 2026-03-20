@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 MACRO_DB_PATH = Path(DATA_DIR) / "macro_state.db"
 
 # Schema version — increment when adding columns/indexes via MIGRATIONS
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 # Keys are TARGET versions. Migration runs when stored schema_version < key.
 MIGRATIONS: Dict[int, str] = {
@@ -42,6 +42,28 @@ MIGRATIONS: Dict[int, str] = {
         ALTER TABLE macro_score ADD COLUMN updated_at TEXT;
         ALTER TABLE macro_events ADD COLUMN is_emergency INTEGER DEFAULT 0;
         CREATE INDEX IF NOT EXISTS idx_macro_score_date ON macro_score(date);
+    """,
+    3: """
+        CREATE TABLE IF NOT EXISTS crypto_regime (
+            snapshot_date       TEXT PRIMARY KEY,
+            btc_price           REAL,
+            eth_price           REAL,
+            fear_greed_value    INTEGER,
+            fear_greed_class    TEXT,
+            btc_funding_rate    REAL,
+            eth_funding_rate    REAL,
+            btc_realized_vol_7d  REAL,
+            btc_realized_vol_30d REAL,
+            btc_iv_percentile   REAL,
+            btc_dominance       REAL,
+            btc_put_call_ratio  REAL,
+            composite_score     REAL,
+            score_band          TEXT,
+            ma200_position      TEXT,
+            overnight_gap_pct   REAL,
+            created_at          TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_crypto_regime_date ON crypto_regime(snapshot_date);
     """,
 }
 
@@ -506,6 +528,81 @@ def get_snapshot_count(db_path: Optional[str] = None) -> int:
     try:
         row = conn.execute("SELECT COUNT(*) AS n FROM snapshots").fetchone()
         return row["n"] if row else 0
+    finally:
+        conn.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Crypto regime helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def save_crypto_regime(snapshot: Dict, db_path: Optional[str] = None) -> None:
+    """Persist a crypto regime snapshot to the crypto_regime table.
+
+    Args:
+        snapshot: Dict with keys matching crypto_regime columns.
+                  snapshot_date is required; all other fields are optional.
+    """
+    conn = get_db(db_path)
+    try:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO crypto_regime
+              (snapshot_date, btc_price, eth_price, fear_greed_value, fear_greed_class,
+               btc_funding_rate, eth_funding_rate, btc_realized_vol_7d, btc_realized_vol_30d,
+               btc_iv_percentile, btc_dominance, btc_put_call_ratio,
+               composite_score, score_band, ma200_position, overnight_gap_pct)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                snapshot["snapshot_date"],
+                snapshot.get("btc_price"),
+                snapshot.get("eth_price"),
+                snapshot.get("fear_greed_value"),
+                snapshot.get("fear_greed_class"),
+                snapshot.get("btc_funding_rate"),
+                snapshot.get("eth_funding_rate"),
+                snapshot.get("btc_realized_vol_7d"),
+                snapshot.get("btc_realized_vol_30d"),
+                snapshot.get("btc_iv_percentile"),
+                snapshot.get("btc_dominance"),
+                snapshot.get("btc_put_call_ratio"),
+                snapshot.get("composite_score"),
+                snapshot.get("score_band"),
+                snapshot.get("ma200_position"),
+                snapshot.get("overnight_gap_pct"),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_latest_crypto_regime(db_path: Optional[str] = None) -> Optional[Dict]:
+    """Return the most recent crypto regime snapshot as a dict, or None."""
+    conn = get_db(db_path)
+    try:
+        row = conn.execute(
+            "SELECT * FROM crypto_regime ORDER BY snapshot_date DESC LIMIT 1"
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_crypto_regime_history(days: int = 30, db_path: Optional[str] = None) -> List[Dict]:
+    """Return the last *days* days of crypto regime snapshots, newest first."""
+    conn = get_db(db_path)
+    try:
+        rows = conn.execute(
+            """
+            SELECT * FROM crypto_regime
+            ORDER BY snapshot_date DESC
+            LIMIT ?
+            """,
+            (days,),
+        ).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()
 

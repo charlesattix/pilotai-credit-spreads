@@ -44,9 +44,11 @@ from shared.macro_event_gate import compute_composite_scaling, get_upcoming_even
 from shared.macro_state_db import (
     MACRO_DB_PATH,
     get_current_macro_score,
+    get_crypto_regime_history,
     get_db,
     get_eligible_underlyings,
     get_event_scaling_factor,
+    get_latest_crypto_regime,
     get_latest_snapshot_date,
     get_sector_rankings,
     get_snapshot_count,
@@ -198,6 +200,29 @@ class HealthResponse(BaseModel):
     latest_date:     Optional[str]
     db_path:         str
     timestamp:       str
+
+
+class CryptoRegimeResponse(BaseModel):
+    snapshot_date:        str
+    btc_price:            Optional[float] = Field(None, description="BTC/USD spot price")
+    eth_price:            Optional[float] = Field(None, description="ETH/USD spot price")
+    fear_greed_value:     Optional[int]   = Field(None, description="Crypto Fear & Greed index (0-100)")
+    fear_greed_class:     Optional[str]   = Field(None, description="Fear & Greed classification")
+    btc_funding_rate:     Optional[float] = Field(None, description="BTC perpetual funding rate (%/8h)")
+    eth_funding_rate:     Optional[float] = Field(None, description="ETH perpetual funding rate (%/8h)")
+    btc_realized_vol_7d:  Optional[float] = Field(None, description="BTC 7-day annualized realized volatility")
+    btc_realized_vol_30d: Optional[float] = Field(None, description="BTC 30-day annualized realized volatility")
+    btc_iv_percentile:    Optional[float] = Field(None, description="BTC IV percentile (1-year rank, 0-100)")
+    btc_dominance:        Optional[float] = Field(None, description="BTC market cap dominance (%)")
+    btc_put_call_ratio:   Optional[float] = Field(None, description="BTC options put/call ratio by OI")
+    composite_score:      Optional[float] = Field(None, description="Weighted composite regime score (0-100)")
+    score_band:           Optional[str]   = Field(
+        None,
+        description="EXTREME_FEAR | CAUTIOUS | NEUTRAL | BULLISH | EXTREME_GREED",
+    )
+    ma200_position:       Optional[str]   = Field(None, description="BTC vs 200-day MA: above | below | crossing")
+    overnight_gap_pct:    Optional[float] = Field(None, description="BTC close-to-close daily return (proxy for IBIT/ETHA gap)")
+    created_at:           Optional[str]   = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -658,6 +683,75 @@ def get_history(
         )
         for r in rows
     ]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Crypto endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get(
+    "/api/v1/crypto/regime",
+    response_model=CryptoRegimeResponse,
+    tags=["Crypto"],
+    summary="Latest crypto regime snapshot",
+)
+def get_crypto_regime(
+    _key: str = Depends(require_api_key),
+) -> CryptoRegimeResponse:
+    """
+    Returns the most recent daily crypto regime snapshot including:
+    - BTC and ETH spot prices
+    - Crypto Fear & Greed index
+    - BTC perpetual funding rates (Binance)
+    - BTC realized volatility (7-day and 30-day, annualized)
+    - BTC market dominance
+    - BTC options put/call ratio (Deribit)
+    - Composite regime score (0–100) and band
+
+    **Score bands:**
+    - 0–25: EXTREME_FEAR — wide put premiums, high crash risk
+    - 25–40: CAUTIOUS — reduce size
+    - 40–60: NEUTRAL — iron condors preferred
+    - 60–75: BULLISH — sell puts
+    - 75–100: EXTREME_GREED — sell calls
+
+    Updated daily via `scripts/run_crypto_snapshot.py --daily`.
+    """
+    row = get_latest_crypto_regime()
+    if not row:
+        raise HTTPException(
+            status_code=404,
+            detail="No crypto regime snapshot found. Run: python3 scripts/run_crypto_snapshot.py --daily",
+        )
+    return CryptoRegimeResponse(**row)
+
+
+@app.get(
+    "/api/v1/crypto/regime/history",
+    response_model=List[CryptoRegimeResponse],
+    tags=["Crypto"],
+    summary="Historical crypto regime snapshots",
+)
+def get_crypto_regime_history_endpoint(
+    days: int = Query(30, ge=1, le=365, description="Number of recent daily snapshots to return"),
+    _key: str = Depends(require_api_key),
+) -> List[CryptoRegimeResponse]:
+    """
+    Returns up to `days` daily crypto regime snapshots, newest first.
+
+    Useful for charting composite score trends, funding rate history,
+    and Fear & Greed momentum over time.
+
+    Max: 365 days. Coverage starts from when `run_crypto_snapshot.py --daily`
+    was first deployed.
+    """
+    rows = get_crypto_regime_history(days=days)
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail="No crypto regime history found. Run: python3 scripts/run_crypto_snapshot.py --daily",
+        )
+    return [CryptoRegimeResponse(**r) for r in rows]
 
 
 # ─────────────────────────────────────────────────────────────────────────────

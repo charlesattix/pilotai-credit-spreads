@@ -117,6 +117,28 @@ def init_db(path: Optional[str] = None) -> None:
 
             CREATE INDEX IF NOT EXISTS idx_sector_rs_date ON sector_rs(date);
             CREATE INDEX IF NOT EXISTS idx_macro_events_date ON macro_events(event_date);
+
+            CREATE TABLE IF NOT EXISTS crypto_regime (
+                snapshot_date       TEXT PRIMARY KEY,
+                btc_price           REAL,
+                eth_price           REAL,
+                fear_greed_value    INTEGER,
+                fear_greed_class    TEXT,
+                btc_funding_rate    REAL,
+                eth_funding_rate    REAL,
+                btc_realized_vol_7d  REAL,
+                btc_realized_vol_30d REAL,
+                btc_iv_percentile   REAL,
+                btc_dominance       REAL,
+                btc_put_call_ratio  REAL,
+                composite_score     REAL,
+                score_band          TEXT,
+                ma200_position      TEXT,
+                overnight_gap_pct   REAL,
+                created_at          TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_crypto_regime_date ON crypto_regime(snapshot_date);
         """)
         conn.commit()
         logger.debug("macro_state.db schema verified")
@@ -381,5 +403,34 @@ def get_snapshot_count(db_path: Optional[str] = None) -> int:
     try:
         row = conn.execute("SELECT COUNT(*) AS n FROM snapshots").fetchone()
         return row["n"] if row else 0
+    finally:
+        conn.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Crypto regime helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_latest_crypto_regime(db_path: Optional[str] = None) -> Optional[Dict]:
+    """Return the most recent crypto regime snapshot as a dict, or None."""
+    conn = get_db(db_path)
+    try:
+        row = conn.execute(
+            "SELECT * FROM crypto_regime ORDER BY snapshot_date DESC LIMIT 1"
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_crypto_regime_history(days: int = 30, db_path: Optional[str] = None) -> List[Dict]:
+    """Return the last *days* daily crypto regime snapshots, newest first."""
+    conn = get_db(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT * FROM crypto_regime ORDER BY snapshot_date DESC LIMIT ?",
+            (days,),
+        ).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()
