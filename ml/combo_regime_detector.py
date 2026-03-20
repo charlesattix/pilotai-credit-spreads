@@ -8,9 +8,9 @@ v2 Architecture (Phase 6 revised):
     3. vix_structure   — VIX/VIX3M term structure ratio (backwardation = stress)
 
 Asymmetric voting rule:
-  bull_votes >= 2 → BULL   (2/3 consensus, biased toward safe default)
-  bear_votes == 3 → BEAR   (unanimous, only enter bear when all signals agree)
-  else            → NEUTRAL (bull puts allowed; conservative in uncertain environments)
+  bull_votes >= 2 → bull    (2/3 consensus, biased toward safe default)
+  bear_votes == 3 → bear    (unanimous, only enter bear when all signals agree)
+  else            → neutral  (bull puts allowed; conservative in uncertain environments)
 
 Additional safeguards:
   - Hysteresis: cooldown_days before any regime change is accepted
@@ -18,9 +18,9 @@ Additional safeguards:
   - MA200 confidence band: price within ±0.5% of MA200 → MA200 abstains
 
 Regime → strategy mapping (applied to ALL experiments regardless of direction config):
-  BULL    → allow bull puts; bear calls blocked
-  BEAR    → allow bear calls; bull puts blocked
-  NEUTRAL → allow bull puts; conservative default for uncertain environments
+  bull    → allow bull puts; bear calls blocked
+  bear    → allow bear calls; bull puts blocked
+  neutral → allow bull puts; conservative default for uncertain environments
 """
 
 import logging
@@ -81,7 +81,7 @@ class ComboRegimeDetector:
                            If None or empty, vix_structure signal abstains.
 
         Returns:
-            {pd.Timestamp: 'BULL' | 'BEAR' | 'NEUTRAL'} for every date in price_data.
+            {pd.Timestamp: 'bull' | 'bear' | 'neutral'} for every date in price_data.
 
         Lookahead handling:
             All series are shifted by 1 so regime on date T uses data through T-1.
@@ -122,7 +122,7 @@ class ComboRegimeDetector:
         vix_ratio_prev = vix_prev / vix3m_prev  # NaN when either is missing → abstain
 
         # --- Iterate with hysteresis state ---
-        current_regime = 'BULL'      # default starting regime (optimistic prior)
+        current_regime = 'bull'      # default starting regime (optimistic prior)
         last_change_idx = -1         # index of last regime change (-1 = never changed)
         n_signals = len(self.signals)
         bear_required = n_signals if self.bear_unanimous else 2
@@ -143,9 +143,9 @@ class ComboRegimeDetector:
 
             # --- VIX circuit breaker (overrides hysteresis) ---
             if not pd.isna(vix_val) and vix_val > self.vix_extreme:
-                result[ts] = 'BEAR'
-                if current_regime != 'BEAR':
-                    current_regime = 'BEAR'
+                result[ts] = 'bear'
+                if current_regime != 'bear':
+                    current_regime = 'bear'
                     last_change_idx = idx
                 continue
 
@@ -154,11 +154,11 @@ class ComboRegimeDetector:
 
             # --- Determine raw regime ---
             if bull_votes >= 2:
-                raw_regime = 'BULL'
+                raw_regime = 'bull'
             elif bear_votes >= bear_required:
-                raw_regime = 'BEAR'
+                raw_regime = 'bear'
             else:
-                raw_regime = 'NEUTRAL'
+                raw_regime = 'neutral'
 
             # --- Apply hysteresis ---
             if raw_regime != current_regime:

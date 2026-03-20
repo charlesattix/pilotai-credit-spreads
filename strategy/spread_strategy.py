@@ -103,14 +103,14 @@ class CreditSpreadStrategy:
         # Determine direction flags once, outside the expiration loop.
         # In combo mode, direction is decided SOLELY by ComboRegimeDetector output
         # (technical_signals['combo_regime']), mirroring backtester.py:
-        #   _want_puts = (regime == 'BULL')
-        #   _want_calls = (regime == 'BEAR')
-        # NEUTRAL → ICs only; no directional spreads opened.
+        #   _want_puts = (regime == 'bull')
+        #   _want_calls = (regime == 'bear')
+        # neutral → ICs only; no directional spreads opened.
         # In non-combo mode, fall back to _check_bullish/_check_bearish_conditions.
         combo_regime = technical_signals.get('combo_regime')
         if self.regime_mode == 'combo' and combo_regime is not None:
-            want_bull_put = (combo_regime == 'BULL')
-            want_bear_call = (combo_regime == 'BEAR')
+            want_bull_put = (combo_regime == 'bull')
+            want_bear_call = (combo_regime == 'bear')
         else:
             want_bull_put = self._check_bullish_conditions(technical_signals, iv_data)
             want_bear_call = self._check_bearish_conditions(technical_signals, iv_data)
@@ -321,17 +321,17 @@ class CreditSpreadStrategy:
         _find_spreads() logic for each wing, then pair them.
 
         Args:
-            current_regime: Regime label (BULL/BEAR/NEUTRAL) from ComboRegimeDetector.
+            current_regime: Regime label (bull/bear/neutral) from ComboRegimeDetector.
                            If ic_neutral_regime_only=true in config, ICs are blocked
-                           unless regime == NEUTRAL.
+                           unless regime == neutral.
         """
         condor_config = self.strategy_params.get('iron_condor', {})
 
         # P1 Fix 5: IC-in-NEUTRAL-only regime gating
         if condor_config.get('ic_neutral_regime_only', False) and current_regime is not None:
-            if current_regime != 'NEUTRAL':
+            if current_regime != 'neutral':
                 logger.info(
-                    "find_iron_condors: IC blocked for %s — regime=%s (NEUTRAL required)",
+                    "find_iron_condors: IC blocked for %s — regime=%s (neutral required)",
                     ticker, current_regime,
                 )
                 return []

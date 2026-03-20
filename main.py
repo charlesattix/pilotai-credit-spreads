@@ -375,7 +375,7 @@ class CreditSpreadSystem:
             # derive regime directly from the RRG quadrant so each sector gets its own
             # independent signal rather than inheriting SPY's macro regime.
             if direction_override is not None:
-                rrg_regime = 'BULL' if direction_override == 'bull_put' else 'BEAR'
+                rrg_regime = 'bull' if direction_override == 'bull_put' else 'bear'
                 technical_signals['combo_regime'] = rrg_regime
                 if rrg_quadrant:
                     technical_signals['compass_rrg_quadrant'] = rrg_quadrant
@@ -412,7 +412,7 @@ class CreditSpreadSystem:
                     # BULL matches ComboRegimeDetector's optimistic prior and the backtester's
                     # starting state. Defense-in-depth: blocks ICs (which require NEUTRAL regime).
                     # Without this, combo_regime is absent → ic_neutral_regime_only check skips.
-                    technical_signals['combo_regime'] = 'BULL'
+                    technical_signals['combo_regime'] = 'bull'
 
             # IV analysis
             current_iv = self.options_analyzer.get_current_iv(options_chain)

@@ -447,6 +447,8 @@ class Backtester:
         # Trend MA period for direction filter (default 20).
         # Use 50 to avoid whipsawing on short-term MA crosses (e.g. brief 2024 dips).
         self._trend_ma_period: int = int(self.strategy_params.get('trend_ma_period', 20))
+        # Trend MA type: 'sma' (simple) or 'ema' (exponential).
+        self._trend_ma_type: str = self.strategy_params.get('trend_ma_type', 'sma')
 
         # P1: Portfolio-level exposure constraint — sum of max losses across all open
         # positions as a % of current equity.  Default 100% = no constraint.
@@ -758,24 +760,24 @@ class Backtester:
 
             # Phase 6: Combo regime override — replaces single-MA gate in opportunity finders
             if self._regime_mode == 'combo':
-                _regime_today = self._regime_by_date.get(pd.Timestamp(current_date.date()), 'NEUTRAL')
+                _regime_today = self._regime_by_date.get(pd.Timestamp(current_date.date()), 'neutral')
                 _ic_neutral_only = self.strategy_params.get('iron_condor', {}).get('neutral_regime_only', False)
                 if _ic_neutral_only:
                     # IC-in-NEUTRAL mode: BULL→puts only, NEUTRAL→IC only, BEAR→calls only
                     # ic_vix_min: if VIX < threshold on a NEUTRAL day, fall back to bull puts
                     _ic_vix_min = self.strategy_params.get('iron_condor', {}).get('vix_min', 0)
                     _ic_vix_ok = (self._current_vix >= _ic_vix_min) if _ic_vix_min > 0 else True
-                    _want_puts  = (_regime_today == 'BULL') or (_regime_today == 'NEUTRAL' and not _ic_vix_ok)
-                    _want_calls = _regime_today == 'BEAR'
-                    _ic_enabled = _regime_today == 'NEUTRAL' and _ic_vix_ok
+                    _want_puts  = (_regime_today == 'bull') or (_regime_today == 'neutral' and not _ic_vix_ok)
+                    _want_calls = _regime_today == 'bear'
+                    _ic_enabled = _regime_today == 'neutral' and _ic_vix_ok
                 else:
-                    _want_puts  = _regime_today in ('BULL', 'NEUTRAL')
-                    _want_calls = _regime_today == 'BEAR'
+                    _want_puts  = _regime_today in ('bull', 'neutral')
+                    _want_calls = _regime_today == 'bear'
                     # ic_vix_min gates IC fallback in BULL regime only — blocks dangerous
                     # BULL-regime fallback ICs in low-vol fast-recovery markets (e.g. 2024)
                     # while retaining ICs in NEUTRAL/BEAR regimes where they are appropriate.
                     _ic_vix_min_bull = self.strategy_params.get('iron_condor', {}).get('vix_min', 0)
-                    if (_ic_vix_min_bull > 0 and _regime_today == 'BULL'
+                    if (_ic_vix_min_bull > 0 and _regime_today == 'bull'
                             and self._current_vix < _ic_vix_min_bull):
                         _ic_enabled = False
 
@@ -789,7 +791,7 @@ class Backtester:
                 _rrg_block = True
                 if self._regime_mode == 'combo':
                     # _regime_today is guaranteed to exist here: set in the combo block above
-                    _rrg_block = (_regime_today == 'BEAR')
+                    _rrg_block = (_regime_today == 'bear')
                 if _rrg_block:
                     _want_puts = False
 
@@ -1147,11 +1149,11 @@ class Backtester:
             price_data, self._vix_by_date, self._vix3m_by_date
         )
         logger.info(
-            "Combo regime series built: %d dates, BULL=%d BEAR=%d NEUTRAL=%d",
+            "Combo regime series built: %d dates, bull=%d bear=%d neutral=%d",
             len(self._regime_by_date),
-            sum(1 for v in self._regime_by_date.values() if v == 'BULL'),
-            sum(1 for v in self._regime_by_date.values() if v == 'BEAR'),
-            sum(1 for v in self._regime_by_date.values() if v == 'NEUTRAL'),
+            sum(1 for v in self._regime_by_date.values() if v == 'bull'),
+            sum(1 for v in self._regime_by_date.values() if v == 'bear'),
+            sum(1 for v in self._regime_by_date.values() if v == 'neutral'),
         )
 
     def _build_compass_series(self, start_date: datetime, end_date: datetime) -> None:
@@ -1223,6 +1225,13 @@ class Backtester:
     # Opportunity finding
     # ------------------------------------------------------------------
 
+    def _compute_trend_ma(self, closes: pd.Series) -> float:
+        """Compute trend MA (SMA or EMA) from a Close price series."""
+        _mp = self._trend_ma_period
+        if self._trend_ma_type == 'ema':
+            return closes.ewm(span=_mp, min_periods=max(10, _mp // 2)).mean().iloc[-1]
+        return closes.rolling(_mp, min_periods=max(10, _mp // 2)).mean().iloc[-1]
+
     def _find_backtest_opportunity(
         self,
         ticker: str,
@@ -1242,7 +1251,7 @@ class Backtester:
         if len(recent_data) < min(20, _mp):
             return None
 
-        trend_ma = recent_data['Close'].rolling(_mp, min_periods=max(10, _mp // 2)).mean().iloc[-1]
+        trend_ma = self._compute_trend_ma(recent_data['Close'])
 
         # Combo mode: direction already decided by regime at the outer gate — skip MA filter
         if self._regime_mode != 'combo' and price < trend_ma:
@@ -1316,7 +1325,7 @@ class Backtester:
         if len(recent_data) < min(20, _mp):
             return None
 
-        trend_ma = recent_data['Close'].rolling(_mp, min_periods=max(10, _mp // 2)).mean().iloc[-1]
+        trend_ma = self._compute_trend_ma(recent_data['Close'])
 
         # Combo mode: direction already decided by regime at the outer gate — skip MA filter
         if self._regime_mode != 'combo' and price > trend_ma:

@@ -433,7 +433,7 @@ class TestAnalyzeTickerRegimeInjection:
 
     @patch('main.build_live_market_snapshot')
     def test_bull_put_override_injects_bull_regime(self, mock_snapshot):
-        """direction_override='bull_put' → combo_regime='BULL' in technical_signals."""
+        """direction_override='bull_put' → combo_regime='bull' in technical_signals."""
         from unittest.mock import MagicMock as MM
         mock_snapshot.return_value = MM()
 
@@ -448,12 +448,12 @@ class TestAnalyzeTickerRegimeInjection:
 
         sys._analyze_ticker('XLK', direction_override='bull_put', rrg_quadrant='Leading')
 
-        assert captured_signals.get('combo_regime') == 'BULL'
+        assert captured_signals.get('combo_regime') == 'bull'
         assert captured_signals.get('compass_rrg_quadrant') == 'Leading'
 
     @patch('main.build_live_market_snapshot')
     def test_bear_call_override_injects_bear_regime(self, mock_snapshot):
-        """direction_override='bear_call' → combo_regime='BEAR' in technical_signals."""
+        """direction_override='bear_call' → combo_regime='bear' in technical_signals."""
         from unittest.mock import MagicMock as MM
         mock_snapshot.return_value = MM()
 
@@ -467,7 +467,7 @@ class TestAnalyzeTickerRegimeInjection:
 
         sys._analyze_ticker('XLE', direction_override='bear_call', rrg_quadrant='Lagging')
 
-        assert captured_signals.get('combo_regime') == 'BEAR'
+        assert captured_signals.get('combo_regime') == 'bear'
         assert captured_signals.get('compass_rrg_quadrant') == 'Lagging'
 
     @patch('main.build_live_market_snapshot')
@@ -493,7 +493,7 @@ class TestAnalyzeTickerRegimeInjection:
         # Provide a mock regime series result
         from datetime import date
         sys.strategy._combo_regime_detector.compute_regime_series.return_value = {
-            date(2024, 1, 5): 'BULL'
+            date(2024, 1, 5): 'bull'
         }
 
         sys._analyze_ticker('SPY', direction_override=None, rrg_quadrant=None)

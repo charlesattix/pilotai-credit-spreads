@@ -624,7 +624,7 @@ def get_regime(
     _key: str = Depends(require_api_key),
 ) -> RegimeResponse:
     """
-    Returns the current ComboRegimeDetector regime (BULL / NEUTRAL / BEAR) for
+    Returns the current ComboRegimeDetector regime (bull / neutral / bear) for
     the requested underlying, computed from daily price history in the local cache.
 
     Only tickers in `REGIME_SUPPORTED_UNDERLYINGS` are accepted (currently: SPY).
@@ -674,7 +674,7 @@ def get_regime(
 
         return RegimeResponse(
             underlying=ticker,
-            regime=regime_result.get("regime", "NEUTRAL"),
+            regime=regime_result.get("regime", "neutral"),
             signals=regime_result,
             as_of_date=as_of,
         )
