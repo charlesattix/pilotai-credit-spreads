@@ -265,7 +265,6 @@ class TestBuildAccountState:
              patch('main.TechnicalAnalyzer'), \
              patch('main.OptionsAnalyzer'), \
              patch('main.PnLDashboard'), \
-             patch('ml.ml_pipeline.MLPipeline', side_effect=ImportError, create=True), \
              patch('execution.execution_engine.ExecutionEngine'):
             system = CreditSpreadSystem(config=config)
         # Ensure no real alpaca in test
@@ -783,7 +782,6 @@ class TestVixFallbackNeutral:
              patch('main.TechnicalAnalyzer'), \
              patch('main.OptionsAnalyzer'), \
              patch('main.PnLDashboard'), \
-             patch('ml.ml_pipeline.MLPipeline', side_effect=ImportError, create=True), \
              patch('execution.execution_engine.ExecutionEngine'):
             system = CreditSpreadSystem(config=cfg)
         return system
