@@ -409,10 +409,9 @@ class CreditSpreadSystem:
                         logger.info("%s: ComboRegime = %s", ticker, current_regime)
                 except Exception as e:
                     logger.warning("ComboRegimeDetector failed for %s: %s", ticker, e)
-                    # BULL matches ComboRegimeDetector's optimistic prior and the backtester's
-                    # starting state. Defense-in-depth: blocks ICs (which require NEUTRAL regime).
-                    # Without this, combo_regime is absent → ic_neutral_regime_only check skips.
-                    technical_signals['combo_regime'] = 'bull'
+                    # Safe default: 'neutral' allows bull puts but blocks aggressive
+                    # bear calls.  Previous 'bull' was optimistic and could misfire.
+                    technical_signals['combo_regime'] = 'neutral'
 
             # IV analysis
             current_iv = self.options_analyzer.get_current_iv(options_chain)
