@@ -45,6 +45,21 @@ MIGRATIONS: Dict[int, str] = {
     """,
 }
 
+# ── SQLite pragmas ────────────────────────────────────────────────────────────
+SQLITE_BUSY_TIMEOUT_MS = 5000     # wait up to 5 s for locked database
+SQLITE_WAL_AUTOCHECKPOINT = 1000  # checkpoint every N pages
+
+# ── Macro regime thresholds ──────────────────────────────────────────────────
+MACRO_BULL_THRESHOLD = 65   # overall score >= this → BULL_MACRO
+MACRO_BEAR_THRESHOLD = 45   # overall score < this  → BEAR_MACRO
+
+# ── Integration API defaults ────────────────────────────────────────────────
+NEUTRAL_SCORE_FALLBACK = 50.0  # returned when no macro data available
+DEFAULT_STALENESS_DAYS = 10    # warn if most recent snapshot is older
+
+# ── Universe expansion ───────────────────────────────────────────────────────
+SECTOR_RANK_CUTOFF = 4  # top/bottom N sectors eligible for universe expansion
+
 # Sectors eligible for universe expansion (liquid options, >300K daily options vol)
 LIQUID_SECTOR_ETFS = ["XLE", "XLF", "XLV", "XLK", "XLI", "XLU", "XLY"]
 BASE_UNIVERSE = ["SPY", "QQQ", "IWM"]
@@ -65,9 +80,9 @@ def get_db(path: Optional[str] = None) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
     conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout = 5000")  # wait up to 5 s instead of failing immediately
+    conn.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_MS}")
     conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA wal_autocheckpoint=1000")  # checkpoint every 1000 pages
+    conn.execute(f"PRAGMA wal_autocheckpoint={SQLITE_WAL_AUTOCHECKPOINT}")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -209,9 +224,9 @@ def migrate_db(path: Optional[str] = None) -> None:
 def _macro_regime(overall: Optional[float]) -> str:
     if overall is None:
         return "NEUTRAL_MACRO"
-    if overall >= 65:
+    if overall >= MACRO_BULL_THRESHOLD:
         return "BULL_MACRO"
-    if overall < 45:
+    if overall < MACRO_BEAR_THRESHOLD:
         return "BEAR_MACRO"
     return "NEUTRAL_MACRO"
 
@@ -399,7 +414,7 @@ def get_current_macro_score(
             "SELECT date, overall FROM macro_score ORDER BY date DESC LIMIT 1"
         ).fetchone()
         if not row or row["overall"] is None:
-            return 50.0
+            return NEUTRAL_SCORE_FALLBACK
         # Staleness detection
         try:
             snapshot_date = datetime.strptime(row["date"], "%Y-%m-%d").date()
@@ -470,7 +485,7 @@ def get_eligible_underlyings(
     - In BEAR_MACRO (macro score < 45): contract to base universe only
     """
     macro_score = get_current_macro_score(db_path)
-    if macro_score < 45:
+    if macro_score < MACRO_BEAR_THRESHOLD:
         # Macro veto: bear macro conditions, contract universe
         return BASE_UNIVERSE.copy()
 
@@ -483,9 +498,9 @@ def get_eligible_underlyings(
         if ticker not in LIQUID_SECTOR_ETFS:
             continue
         rank = item.get("rank_3m") or 99
-        if regime_upper in ("BULL", "NEUTRAL") and rank <= 4:
+        if regime_upper in ("BULL", "NEUTRAL") and rank <= SECTOR_RANK_CUTOFF:
             eligible.append(ticker)
-        elif regime_upper == "BEAR" and rank >= len(rankings) - 3:
+        elif regime_upper == "BEAR" and rank >= len(rankings) - (SECTOR_RANK_CUTOFF - 1):
             eligible.append(ticker)
 
     return list(dict.fromkeys(eligible))  # dedupe, preserve order

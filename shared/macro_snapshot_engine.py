@@ -88,6 +88,74 @@ RS_12M_DAYS  = 252   # trading-day lookback for 12-month RS
 RS_MOM_DAYS  = 21    # lookback for RS-Ratio momentum (4 weeks)
 WARMUP_DAYS  = 280   # calendar days before first snapshot date needed in cache
 
+# ── Scoring defaults ─────────────────────────────────────────────────────────
+NEUTRAL_SCORE_DEFAULT = 50.0   # score returned when underlying data is missing
+
+# ── HTTP / rate-limit config ─────────────────────────────────────────────────
+POLYGON_RATE_LIMIT_INTERVAL = 0.25  # seconds between Polygon calls (4 req/sec)
+HTTP_CONNECT_TIMEOUT = 5            # seconds
+HTTP_READ_TIMEOUT = 30              # seconds
+MAX_PAGINATION_PAGES = 20           # Polygon pagination safety limit
+FRED_RATE_LIMIT_SLEEP = 0.5        # seconds between FRED CSV fetches
+
+# ── Price lookback helpers ───────────────────────────────────────────────────
+TRADING_TO_CALENDAR_RATIO = 1.6  # multiply trading-day lookback by this for calendar days
+MONTHLY_RELEASE_OFFSET = 31      # calendar days from FRED obs_date to approx month-end
+
+# ── RRG (Relative Rotation Graph) ────────────────────────────────────────────
+RRG_EMA_SPAN = 10             # EMA span for RS-Ratio smoothing
+RRG_NORM_SCALE = 10           # standard-deviation multiplier for cross-sectional normalization
+RRG_NORM_CENTER = 100         # center value after normalization
+RRG_QUADRANT_THRESHOLD = 100  # RS-Ratio / RS-Momentum above this → Leading or Weakening
+SORT_SENTINEL = -9999         # placeholder for tickers missing RS data (sorts last)
+
+# ── Growth dimension scoring ─────────────────────────────────────────────────
+# CFNAI: 3-month moving average; 0 = trend, positive = expansion, negative = contraction
+CFNAI_SCORE_XP = [-2.5, -1.5, -1.0, -0.5, -0.2, 0.0, 0.2, 0.5, 0.75, 1.0, 1.5]
+CFNAI_SCORE_FP = [   0,    8,   18,   30,   40,  52,  62,  72,   82,  90,  100]
+# Nonfarm payrolls: 3-month average monthly job gains (thousands)
+PAYROLL_SCORE_XP = [-300, -100,  0,  50, 100, 150, 250, 400]
+PAYROLL_SCORE_FP = [   0,   10, 25,  40,  55,  70,  85, 100]
+GROWTH_CFNAI_WEIGHT = 0.5
+GROWTH_PAYROLL_WEIGHT = 0.5
+
+# ── Inflation dimension scoring ──────────────────────────────────────────────
+# "Goldilocks" curve: peaks at 2.0-2.5% YoY (used for both headline and core CPI)
+INFLATION_GOLDILOCKS_XP = [-1,  0, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.5, 9.0]
+INFLATION_GOLDILOCKS_FP = [30, 40,  55,  70,  85, 100,  85,  60,  45,  25,   5]
+# 5-year breakeven inflation rate: moderate expectations are healthy
+BREAKEVEN_SCORE_XP = [0.5, 1.0, 1.5, 2.0, 2.3, 2.7, 3.5]
+BREAKEVEN_SCORE_FP = [ 20,  40,  60,  85, 100,  75,  35]
+INFLATION_CPI_WEIGHT = 0.35
+INFLATION_CORE_WEIGHT = 0.40
+INFLATION_BREAKEVEN_WEIGHT = 0.25
+
+# ── Fed policy dimension scoring ─────────────────────────────────────────────
+# 10Y-2Y yield spread: positive = steep curve = expansionary
+YIELD_CURVE_SCORE_XP = [-2.0, -1.0, -0.5, 0.0, 0.3, 0.75, 1.5, 2.5, 3.5]
+YIELD_CURVE_SCORE_FP = [   5,   15,   25,  40,  52,   65,  80,  92,  100]
+# Effective fed funds rate: low = accommodative, high = restrictive
+FED_FUNDS_SCORE_XP = [0.0, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5]
+FED_FUNDS_SCORE_FP = [ 80,  85,  75,  65,  55,  40,  28,  15]
+FED_YIELD_CURVE_WEIGHT = 0.55
+FED_FUNDS_RATE_WEIGHT = 0.45
+
+# ── Risk appetite dimension scoring ──────────────────────────────────────────
+# VIX: low vol = high risk appetite; inverted mapping
+VIX_SCORE_XP = [  9,  12,  15,  18,  22,  27,  35,  50,  70]
+VIX_SCORE_FP = [100,  92,  82,  68,  52,  35,  20,   8,   0]
+# HY OAS spread (percentage points): tight spreads = risk-on
+HY_SPREAD_SCORE_XP = [ 1.5, 2.5, 3.5, 4.5, 6.0, 8.0, 12.0, 20.0]
+HY_SPREAD_SCORE_FP = [ 100,  90,  75,  55,  38,  20,    8,    0]
+RISK_VIX_WEIGHT = 0.50
+RISK_HY_WEIGHT = 0.50
+
+# ── Overall macro score weights ──────────────────────────────────────────────
+MACRO_GROWTH_WEIGHT = 0.25
+MACRO_INFLATION_WEIGHT = 0.25
+MACRO_FED_POLICY_WEIGHT = 0.25
+MACRO_RISK_APPETITE_WEIGHT = 0.25
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Scoring helpers
@@ -96,7 +164,7 @@ WARMUP_DAYS  = 280   # calendar days before first snapshot date needed in cache
 def _score(value: float, xp: List[float], fp: List[float]) -> float:
     """Map a raw value to a 0-100 score via piecewise-linear interpolation."""
     if value is None or np.isnan(value):
-        return 50.0  # neutral default when data missing
+        return NEUTRAL_SCORE_DEFAULT
     return float(np.clip(np.interp(value, xp, fp), 0.0, 100.0))
 
 
@@ -140,8 +208,8 @@ class MacroSnapshotEngine:
         )
         self._session.mount("https://", HTTPAdapter(max_retries=_retry))
         self._last_polygon_call = 0.0
-        self._polygon_min_interval = 0.25  # 4 req/sec
-        self._http_timeout = (5, 30)  # (connect_timeout, read_timeout) in seconds
+        self._polygon_min_interval = POLYGON_RATE_LIMIT_INTERVAL
+        self._http_timeout = (HTTP_CONNECT_TIMEOUT, HTTP_READ_TIMEOUT)
 
         # SQLite cache path — connections are opened per-call (E1: thread-safe)
         self._db_path = self.cache_dir / "macro_cache.db"
@@ -246,7 +314,7 @@ class MacroSnapshotEngine:
         # Handle pagination (unlikely for 6yr daily but be safe)
         next_url = data.get("next_url")
         pages = 0
-        while next_url and pages < 20:
+        while next_url and pages < MAX_PAGINATION_PAGES:
             self._polygon_rate_limit()
             try:
                 resp = self._session.get(
@@ -310,7 +378,7 @@ class MacroSnapshotEngine:
         Return a date-indexed close price Series ending on or before as_of_date,
         covering at least lookback_days trading days (we fetch a bit extra).
         """
-        earliest = as_of_date - timedelta(days=int(lookback_days * 1.6))
+        earliest = as_of_date - timedelta(days=int(lookback_days * TRADING_TO_CALENDAR_RATIO))
         with self._cache_conn() as conn:
             rows = conn.execute(
                 """
@@ -382,7 +450,7 @@ class MacroSnapshotEngine:
                 logger.info("  Stored %d observations for %s", len(rows), series_id)
             else:
                 logger.warning("  No observations returned for %s", series_id)
-            time.sleep(0.5)  # courteous rate limiting
+            time.sleep(FRED_RATE_LIMIT_SLEEP)
 
     def prefetch_all_data(self, start_date: date, end_date: date) -> None:
         """Bulk download all prices and FRED series (call once before generate loop)."""
@@ -407,7 +475,7 @@ class MacroSnapshotEngine:
         if freq == "monthly":
             # obs_date is the first of the reference month; add ~31 days for month-end
             # then add lag_days for publication delay
-            cutoff_offset = 31 + lag_days
+            cutoff_offset = MONTHLY_RELEASE_OFFSET + lag_days
         else:
             cutoff_offset = lag_days
 
@@ -433,7 +501,7 @@ class MacroSnapshotEngine:
         """Return the last n_obs FRED observations available as of as_of_date."""
         lag_days = FRED_SERIES[series_id]["lag_days"]
         freq = FRED_SERIES[series_id]["freq"]
-        cutoff_offset = (31 + lag_days) if freq == "monthly" else lag_days
+        cutoff_offset = (MONTHLY_RELEASE_OFFSET + lag_days) if freq == "monthly" else lag_days
         cutoff_date = (as_of_date - timedelta(days=cutoff_offset)).strftime("%Y-%m-%d")
 
         with self._cache_conn() as conn:
@@ -504,11 +572,10 @@ class MacroSnapshotEngine:
             # Build a daily rel-strength series for the past ~100 trading days
             rel_series = s / spy.reindex(s.index).ffill()
             rel_series = rel_series.dropna()
-            if len(rel_series) >= RS_MOM_DAYS + 10:
-                # Current RS-Ratio = EMA(10) of relative series, scaled to 100
-                rs_ratio_val = float(rel_series.ewm(span=10, adjust=False).mean().iloc[-1])
+            if len(rel_series) >= RS_MOM_DAYS + RRG_EMA_SPAN:
+                rs_ratio_val = float(rel_series.ewm(span=RRG_EMA_SPAN, adjust=False).mean().iloc[-1])
                 # Momentum = RS-Ratio change over last RS_MOM_DAYS
-                rs_ratio_series = rel_series.ewm(span=10, adjust=False).mean()
+                rs_ratio_series = rel_series.ewm(span=RRG_EMA_SPAN, adjust=False).mean()
                 if len(rs_ratio_series) >= RS_MOM_DAYS:
                     rs_mom_val = float(
                         (rs_ratio_series.iloc[-1] / rs_ratio_series.iloc[-RS_MOM_DAYS] - 1.0) * 100
@@ -540,23 +607,23 @@ class MacroSnapshotEngine:
                 t = row["ticker"]
                 if t in rrg_raw:
                     raw_ratio, raw_mom = rrg_raw[t]
-                    norm_ratio = (raw_ratio - ratio_mean) / ratio_std * 10 + 100
-                    norm_mom = (raw_mom - mom_mean) / mom_std * 10 + 100
+                    norm_ratio = (raw_ratio - ratio_mean) / ratio_std * RRG_NORM_SCALE + RRG_NORM_CENTER
+                    norm_mom = (raw_mom - mom_mean) / mom_std * RRG_NORM_SCALE + RRG_NORM_CENTER
                     row["rs_ratio"] = round(float(norm_ratio), 2)
                     row["rs_momentum"] = round(float(norm_mom), 2)
                     # Quadrant classification
-                    if norm_ratio >= 100 and norm_mom >= 100:
+                    if norm_ratio >= RRG_QUADRANT_THRESHOLD and norm_mom >= RRG_QUADRANT_THRESHOLD:
                         row["rrg_quadrant"] = "Leading"
-                    elif norm_ratio >= 100 and norm_mom < 100:
+                    elif norm_ratio >= RRG_QUADRANT_THRESHOLD and norm_mom < RRG_QUADRANT_THRESHOLD:
                         row["rrg_quadrant"] = "Weakening"
-                    elif norm_ratio < 100 and norm_mom < 100:
+                    elif norm_ratio < RRG_QUADRANT_THRESHOLD and norm_mom < RRG_QUADRANT_THRESHOLD:
                         row["rrg_quadrant"] = "Lagging"
                     else:
                         row["rrg_quadrant"] = "Improving"
 
         # Rank by rs_3m (tickers without rs_3m go to end)
         results.sort(
-            key=lambda x: x["rs_3m"] if x["rs_3m"] is not None else -9999,
+            key=lambda x: x["rs_3m"] if x["rs_3m"] is not None else SORT_SENTINEL,
             reverse=True,
         )
         for i, row in enumerate(results):
@@ -565,7 +632,7 @@ class MacroSnapshotEngine:
         # Also add rank_12m
         sorted_12m = sorted(
             results,
-            key=lambda x: x["rs_12m"] if x["rs_12m"] is not None else -9999,
+            key=lambda x: x["rs_12m"] if x["rs_12m"] is not None else SORT_SENTINEL,
             reverse=True,
         )
         rank_map = {row["ticker"]: i + 1 for i, row in enumerate(sorted_12m)}
@@ -590,29 +657,21 @@ class MacroSnapshotEngine:
 
         # Use 3-month moving average of CFNAI for stability
         cfnai_3m: Optional[float] = None
-        cfnai_score = 50.0
+        cfnai_score = NEUTRAL_SCORE_DEFAULT
         if len(cfnai_series) >= 1:
             cfnai_3m = float(cfnai_series.iloc[-min(3, len(cfnai_series)):].mean())
-            cfnai_score = _score(
-                cfnai_3m,
-                [-2.5, -1.5, -1.0, -0.5, -0.2, 0.0, 0.2, 0.5, 0.75, 1.0, 1.5],
-                [  0,    8,   18,   30,   40,  52,  62,  72,   82,  90,  100],
-            )
+            cfnai_score = _score(cfnai_3m, CFNAI_SCORE_XP, CFNAI_SCORE_FP)
 
         # 3-month avg of monthly job additions (in thousands)
         payroll_3m_avg: Optional[float] = None
-        payroll_score = 50.0
+        payroll_score = NEUTRAL_SCORE_DEFAULT
         if len(payems_series) >= 2:
             diffs = payems_series.diff().dropna()
             if len(diffs) >= 1:
                 payroll_3m_avg = float(diffs.iloc[-min(3, len(diffs)):].mean())
-                payroll_score = _score(
-                    payroll_3m_avg,
-                    [-300, -100, 0, 50, 100, 150, 250, 400],
-                    [   0,   10, 25, 40,  55,  70,  85, 100],
-                )
+                payroll_score = _score(payroll_3m_avg, PAYROLL_SCORE_XP, PAYROLL_SCORE_FP)
 
-        score = cfnai_score * 0.5 + payroll_score * 0.5
+        score = cfnai_score * GROWTH_CFNAI_WEIGHT + payroll_score * GROWTH_PAYROLL_WEIGHT
         indicators = {
             "cfnai_3m": round(cfnai_3m, 3) if cfnai_3m is not None else None,
             "payrolls_3m_avg_k": round(payroll_3m_avg, 1) if payroll_3m_avg is not None else None,
@@ -636,21 +695,11 @@ class MacroSnapshotEngine:
         cpi_yoy = yoy_pct(cpi_series)
         core_yoy = yoy_pct(core_series)
 
-        # Goldilocks curve: peaks at 2-2.5%
-        goldilocks_xp = [-1, 0, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.5, 9.0]
-        goldilocks_fp = [30, 40, 55, 70, 85, 100, 85, 60, 45, 25, 5]
+        cpi_score = _score(cpi_yoy, INFLATION_GOLDILOCKS_XP, INFLATION_GOLDILOCKS_FP)
+        core_score = _score(core_yoy, INFLATION_GOLDILOCKS_XP, INFLATION_GOLDILOCKS_FP)
+        be_score = _score(breakeven, BREAKEVEN_SCORE_XP, BREAKEVEN_SCORE_FP)
 
-        cpi_score = _score(cpi_yoy, goldilocks_xp, goldilocks_fp)
-        core_score = _score(core_yoy, goldilocks_xp, goldilocks_fp)
-
-        # Breakeven: rising but not too high
-        be_score = _score(
-            breakeven,
-            [0.5, 1.0, 1.5, 2.0, 2.3, 2.7, 3.5],
-            [20, 40, 60, 85, 100, 75, 35],
-        )
-
-        weights = [0.35, 0.40, 0.25]
+        weights = [INFLATION_CPI_WEIGHT, INFLATION_CORE_WEIGHT, INFLATION_BREAKEVEN_WEIGHT]
         scores = [cpi_score, core_score, be_score]
         score = sum(w * s for w, s in zip(weights, scores))
 
@@ -669,20 +718,12 @@ class MacroSnapshotEngine:
         fedfunds = self._get_fred_value("FEDFUNDS", as_of_date)
 
         # Steep/positive yield curve is expansionary
-        yc_score = _score(
-            t10y2y,
-            [-2.0, -1.0, -0.5, 0.0, 0.3, 0.75, 1.5, 2.5, 3.5],
-            [5, 15, 25, 40, 52, 65, 80, 92, 100],
-        )
+        yc_score = _score(t10y2y, YIELD_CURVE_SCORE_XP, YIELD_CURVE_SCORE_FP)
 
         # Low rates are accommodative; tight rates reduce equity multiples
-        ff_score = _score(
-            fedfunds,
-            [0.0, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5],
-            [80, 85, 75, 65, 55, 40, 28, 15],
-        )
+        ff_score = _score(fedfunds, FED_FUNDS_SCORE_XP, FED_FUNDS_SCORE_FP)
 
-        score = yc_score * 0.55 + ff_score * 0.45
+        score = yc_score * FED_YIELD_CURVE_WEIGHT + ff_score * FED_FUNDS_RATE_WEIGHT
         indicators = {
             "t10y2y": round(t10y2y, 3) if t10y2y else None,
             "fedfunds": round(fedfunds, 3) if fedfunds else None,
@@ -697,20 +738,12 @@ class MacroSnapshotEngine:
         vix = self._get_fred_value("VIXCLS", as_of_date)
         hy_spread = self._get_fred_value("BAMLH0A0HYM2", as_of_date)
 
-        vix_score = _score(
-            vix,
-            [9, 12, 15, 18, 22, 27, 35, 50, 70],
-            [100, 92, 82, 68, 52, 35, 20, 8, 0],
-        )
+        vix_score = _score(vix, VIX_SCORE_XP, VIX_SCORE_FP)
 
         # HY OAS in percentage points (FRED stores as %)
-        hy_score = _score(
-            hy_spread,
-            [1.5, 2.5, 3.5, 4.5, 6.0, 8.0, 12.0, 20.0],
-            [100, 90, 75, 55, 38, 20, 8, 0],
-        )
+        hy_score = _score(hy_spread, HY_SPREAD_SCORE_XP, HY_SPREAD_SCORE_FP)
 
-        score = vix_score * 0.50 + hy_score * 0.50
+        score = vix_score * RISK_VIX_WEIGHT + hy_score * RISK_HY_WEIGHT
         indicators = {
             "vix": round(vix, 2) if vix else None,
             "hy_oas_pct": round(hy_spread, 3) if hy_spread else None,
@@ -727,8 +760,11 @@ class MacroSnapshotEngine:
         # Validate individual dimension scores (guard against NaN propagation)
         def _safe_score(s: float, name: str) -> float:
             if s is None or np.isnan(s):
-                logger.warning("Dimension score '%s' is NaN for %s — using neutral 50.0", name, as_of_date)
-                return 50.0
+                logger.warning(
+                    "Dimension score '%s' is NaN for %s — using neutral %.1f",
+                    name, as_of_date, NEUTRAL_SCORE_DEFAULT,
+                )
+                return NEUTRAL_SCORE_DEFAULT
             return float(np.clip(s, 0.0, 100.0))
 
         growth_score    = _safe_score(growth_score,    "growth")
@@ -738,10 +774,10 @@ class MacroSnapshotEngine:
 
         overall = round(
             float(np.clip(
-                growth_score * 0.25
-                + inflation_score * 0.25
-                + fed_score * 0.25
-                + risk_score * 0.25,
+                growth_score * MACRO_GROWTH_WEIGHT
+                + inflation_score * MACRO_INFLATION_WEIGHT
+                + fed_score * MACRO_FED_POLICY_WEIGHT
+                + risk_score * MACRO_RISK_APPETITE_WEIGHT,
                 0.0, 100.0,
             )),
             1,

@@ -122,10 +122,23 @@ ALL_FOMC_DATES = sorted(
     )
 )
 
-# Scaling table: days_out -> factor
+# ── Scaling tables: days_out → position-size multiplier ───────────────────────
 FOMC_SCALING: Dict[int, float] = {5: 1.00, 4: 0.90, 3: 0.80, 2: 0.70, 1: 0.60, 0: 0.50}
 CPI_SCALING:  Dict[int, float] = {2: 1.00, 1: 0.75, 0: 0.65}
 NFP_SCALING:  Dict[int, float] = {2: 1.00, 1: 0.80, 0: 0.75}
+
+# ── Post-event buffer scaling factors ────────────────────────────────────────
+# Residual volatility persists 1 trading day after major announcements
+POST_FOMC_BUFFER_SCALING = 0.70  # 1 day after FOMC decision
+POST_CPI_BUFFER_SCALING = 0.80   # 1 day after CPI release
+POST_NFP_BUFFER_SCALING = 0.80   # 1 day after NFP (jobs) report
+
+# ── CPI release date approximation ──────────────────────────────────────────
+CPI_RELEASE_DAY_OF_MONTH = 12  # BLS typically releases CPI around the 12th
+
+# ── Event horizons (calendar days) ───────────────────────────────────────────
+DEFAULT_HORIZON_DAYS = 14  # default lookahead for event scanning
+DAILY_CHECK_HORIZON_DAYS = 5  # reduced window for daily operational checks
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -151,7 +164,7 @@ def _cpi_release_date(year: int, month: int) -> date:
     if release_month > 12:
         release_month = 1
         release_year += 1
-    d = date(release_year, release_month, 12)
+    d = date(release_year, release_month, CPI_RELEASE_DAY_OF_MONTH)
     # Advance past weekends
     while d.weekday() >= 5:
         d += timedelta(days=1)
@@ -186,7 +199,7 @@ def _iter_months(base: date, delta_range: range):
 
 def get_upcoming_events(
     as_of: Optional[date] = None,
-    horizon_days: int = 14,
+    horizon_days: int = DEFAULT_HORIZON_DAYS,
 ) -> List[Dict]:
     """
     Return all scheduled events within horizon_days calendar days of as_of.
@@ -222,7 +235,7 @@ def get_upcoming_events(
                 "event_type": "FOMC_POST",
                 "description": f"Post-FOMC Buffer — {fd.strftime('%b %d, %Y')}",
                 "days_out": (post_fomc - today).days,
-                "scaling_factor": 0.70,
+                "scaling_factor": POST_FOMC_BUFFER_SCALING,
             })
 
     # CPI + NFP — G7: use corrected month arithmetic
@@ -246,7 +259,7 @@ def get_upcoming_events(
                     "event_type": "CPI_POST",
                     "description": f"Post-CPI Buffer ({year}-{month:02d})",
                     "days_out": (post_cpi - today).days,
-                    "scaling_factor": 0.80,
+                    "scaling_factor": POST_CPI_BUFFER_SCALING,
                 })
 
         nfp_date = _nfp_release_date(year, month)
@@ -268,7 +281,7 @@ def get_upcoming_events(
                     "event_type": "NFP_POST",
                     "description": f"Post-NFP Buffer ({year}-{month:02d})",
                     "days_out": (post_nfp - today).days,
-                    "scaling_factor": 0.80,
+                    "scaling_factor": POST_NFP_BUFFER_SCALING,
                 })
 
     # Deduplicate (same date/type)
@@ -325,7 +338,7 @@ def run_daily_event_check(
     from shared.macro_state_db import set_state, upsert_events
 
     today = as_of or date.today()
-    events = get_upcoming_events(as_of=today, horizon_days=5)
+    events = get_upcoming_events(as_of=today, horizon_days=DAILY_CHECK_HORIZON_DAYS)
     scaling = compute_composite_scaling(events)
 
     if events:
