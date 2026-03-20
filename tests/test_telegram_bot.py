@@ -1,5 +1,5 @@
 """Tests for TelegramBot."""
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from alerts.telegram_bot import TelegramBot
 
@@ -43,6 +43,7 @@ class TestTelegramBot:
     def test_send_alert_calls_bot(self):
         """send_alert should call bot.send_message with timeout."""
         mock_bot = MagicMock()
+        mock_bot.send_message = AsyncMock()
 
         bot = TelegramBot(_make_config(enabled=False))
         bot.enabled = True
