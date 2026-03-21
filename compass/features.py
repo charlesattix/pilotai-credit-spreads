@@ -35,14 +35,17 @@ class FeatureEngine:
     5. Seasonal: day of week, month, OPEX
     """
 
-    def __init__(self, data_cache=None):
+    def __init__(self, data_cache=None, data_provider=None):
         """
         Initialize feature engine.
 
         Args:
-            data_cache: Optional DataCache instance for shared data retrieval.
+            data_cache: Deprecated alias for data_provider.
+            data_provider: Data provider (DataCache or IronVault-compatible)
+                           with get_history(ticker, period) method.
+                           Returns None on cache miss — caller skips trade.
         """
-        self.data_cache = data_cache
+        self.data_provider = data_provider or data_cache
 
         # Known FOMC meeting dates 2025-2026
         self.fomc_dates = FOMC_DATES
@@ -50,12 +53,12 @@ class FeatureEngine:
         logger.info("FeatureEngine initialized")
 
     def _download(self, ticker, period='6mo'):
-        """Fetch equity OHLCV via data_cache. Returns None on cache miss."""
-        if self.data_cache:
-            result = self.data_cache.get_history(ticker, period)
+        """Fetch equity OHLCV via data_provider. Returns None on cache miss."""
+        if self.data_provider:
+            result = self.data_provider.get_history(ticker, period)
             if result is not None and not (isinstance(result, pd.DataFrame) and result.empty):
                 return result
-        logger.warning("No data source for %s (data_cache=%s)", ticker, bool(self.data_cache))
+        logger.warning("No data source for %s (data_provider=%s)", ticker, bool(self.data_provider))
         return None
 
     def build_features(
@@ -318,10 +321,10 @@ class FeatureEngine:
             features = {}
             now = datetime.now(timezone.utc)
 
-            # Days to next earnings (via data_cache only)
+            # Days to next earnings (via data_provider only)
             try:
-                if self.data_cache and hasattr(self.data_cache, 'get_ticker_obj'):
-                    stock = self.data_cache.get_ticker_obj(ticker)
+                if self.data_provider and hasattr(self.data_provider, 'get_ticker_obj'):
+                    stock = self.data_provider.get_ticker_obj(ticker)
                     calendar = stock.calendar
 
                     if calendar is not None and 'Earnings Date' in calendar:
@@ -511,25 +514,6 @@ class FeatureEngine:
         tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
         atr = tr.rolling(period).mean()
         return atr
-
-    def _get_default_technical_features(self) -> Dict:
-        """Return default technical features."""
-        return {
-            'rsi_14': 50.0,
-            'macd': 0.0,
-            'macd_signal': 0.0,
-            'macd_histogram': 0.0,
-            'bollinger_pct_b': 0.5,
-            'atr_14': 1.0,
-            'atr_pct': 2.0,
-            'volume_ratio': 1.0,
-            'return_5d': 0.0,
-            'return_10d': 0.0,
-            'return_20d': 0.0,
-            'dist_from_sma20_pct': 0.0,
-            'dist_from_sma50_pct': 0.0,
-            'dist_from_sma200_pct': 0.0,
-        }
 
     @staticmethod
     def compute_credit_to_width_ratio(

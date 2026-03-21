@@ -32,16 +32,18 @@ class IVAnalyzer:
     - Skew inversion (unusual patterns indicating opportunities)
     """
 
-    def __init__(self, lookback_days: int = 252, data_cache=None):
+    def __init__(self, lookback_days: int = 252, data_cache=None, data_provider=None):
         """
         Initialize IV analyzer.
 
         Args:
             lookback_days: Historical IV lookback period
-            data_cache: Optional DataCache instance for shared data retrieval.
+            data_cache: Deprecated alias for data_provider.
+            data_provider: Data provider (DataCache or IronVault-compatible)
+                           with get_history(ticker, period) method.
         """
         self.lookback_days = lookback_days
-        self.data_cache = data_cache
+        self.data_provider = data_provider or data_cache
         self.iv_history_cache = {}
         self.cache_timestamp = {}
 
@@ -293,7 +295,7 @@ class IVAnalyzer:
         """
         Get historical implied volatility (using HV as proxy).
 
-        Requires data_cache. Returns None on cache miss.
+        Requires data_provider. Returns None on cache miss.
         Caches results for 1 day.
         """
         # Check in-memory cache
@@ -303,11 +305,11 @@ class IVAnalyzer:
                 return self.iv_history_cache[ticker]
 
         try:
-            if not self.data_cache:
-                logger.warning("No data_cache — cannot compute IV history for %s", ticker)
+            if not self.data_provider:
+                logger.warning("No data_provider — cannot compute IV history for %s", ticker)
                 return None
 
-            stock = self.data_cache.get_history(ticker, period='1y')
+            stock = self.data_provider.get_history(ticker, period='1y')
 
             if stock is None or stock.empty:
                 return None
