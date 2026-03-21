@@ -167,6 +167,14 @@
 - **Fix**: Added `expiration: pos.get('expiration')` and `option_type: 'C' if pos_type == 'bear_call_spread' else 'P'` to the trade dict. Added a guard in `replay_2021_trades.py` to skip Polygon check if contract_symbol == "UNKNOWN".
 - **Rule**: `_record_close` is the source of truth for all closed trade data. When writing any analysis tool that reads `self.trades`, first check what fields `_record_close` actually stores. If a field is needed, add it to `_record_close`, not as a workaround in the consumer.
 
+### Lesson 021: ML filter over-prunes already-optimized strategies
+- **Date**: 2026-03-21
+- **What happened**: X-003 combined test applied ML confidence gate (threshold 0.55) on top of COMPASS C-001 backtest. ML model was trained on a baseline with 58% win rate and -11.8% avg return per trade.
+- **Impact**: Combined performance was WORSE: avg return dropped from +37.9% to +32.2%. 2022 flipped from +8.2% to -4.6%. The ML model rejected bear-market trades that were actually profitable in the portfolio context.
+- **Root cause**: ML model was trained to distinguish wins from losses on a WEAKER baseline (430 unfiltered trades, 58% WR). The optimized strategy already has ~80% WR — the ML model's "low confidence" trades are still mostly winners in this context. Different baselines = misaligned decision boundaries.
+- **Fix**: ML gates should be trained ON the optimized strategy's trade population, not on a weaker baseline. Or: use ML for sizing (confidence → position size), not binary accept/reject.
+- **Rule**: NEVER stack an ML filter trained on baseline X onto strategy Y unless the ML was trained and validated on Y's trade population. If base strategy WR >> ML training WR, the filter will over-prune. Test combined performance BEFORE declaring victory.
+
 ## 📐 Template for New Lessons
 
 ```markdown
@@ -182,7 +190,7 @@
 ---
 
 ## Summary Stats
-- Total lessons: 20
+- Total lessons: 21
 - Backtester accuracy: 4
 - System architecture: 3
 - Optimization process: 5 (+1: IC bug)
