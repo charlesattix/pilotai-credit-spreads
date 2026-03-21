@@ -220,15 +220,50 @@ class TestFearGreed(unittest.TestCase):
 
 
 # ===========================================================================
-# Funding Rates
+# Funding Rates (OKX)
 # ===========================================================================
+
+def _okx_ok(data_list):
+    """Wrap data_list in an OKX-style response envelope."""
+    return _ok({"code": "0", "msg": "", "data": data_list})
+
+
+def _okx_err_envelope():
+    """OKX error response (code != '0', HTTP 200)."""
+    return _ok({"code": "50001", "msg": "Service unavailable", "data": []})
+
+
+def _okx_current_entry(inst_id, sett_rate, funding_time_ms):
+    """Build an OKX /funding-rate response entry."""
+    return {
+        "instId": inst_id,
+        "instType": "SWAP",
+        "settFundingRate": str(sett_rate),
+        "fundingRate": str(sett_rate),
+        "fundingTime": str(funding_time_ms),
+        "nextFundingRate": "",
+        "nextFundingTime": str(funding_time_ms + 28800000),
+    }
+
+
+def _okx_history_entry(inst_id, funding_rate, realized_rate, funding_time_ms):
+    """Build an OKX /funding-rate-history response entry."""
+    return {
+        "instId": inst_id,
+        "instType": "SWAP",
+        "fundingRate": str(funding_rate),
+        "realizedRate": str(realized_rate),
+        "fundingTime": str(funding_time_ms),
+        "method": "current_period",
+    }
+
 
 class TestFundingRates(unittest.TestCase):
 
     @patch("compass.crypto.funding_rates.time.sleep")
     @patch("compass.crypto.funding_rates.requests.get")
     def test_get_btc_funding_happy(self, mock_get, _sleep):
-        mock_get.return_value = _ok([{"fundingRate": "0.00010000", "fundingTime": 1710000000}])
+        mock_get.return_value = _okx_ok([_okx_current_entry("BTC-USDT-SWAP", "0.00010000", 1710000000000)])
         from compass.crypto.funding_rates import get_btc_funding
         result = get_btc_funding()
         self.assertAlmostEqual(result, 0.0001)
@@ -236,14 +271,23 @@ class TestFundingRates(unittest.TestCase):
     @patch("compass.crypto.funding_rates.time.sleep")
     @patch("compass.crypto.funding_rates.requests.get")
     def test_get_eth_funding_happy(self, mock_get, _sleep):
-        mock_get.return_value = _ok([{"fundingRate": "-0.00005000", "fundingTime": 1710000000}])
+        mock_get.return_value = _okx_ok([_okx_current_entry("ETH-USDT-SWAP", "-0.00005000", 1710000000000)])
         from compass.crypto.funding_rates import get_eth_funding
         result = get_eth_funding()
         self.assertAlmostEqual(result, -0.00005)
 
     @patch("compass.crypto.funding_rates.time.sleep")
     @patch("compass.crypto.funding_rates.requests.get")
-    def test_get_btc_funding_api_failure_returns_none(self, mock_get, _sleep):
+    def test_get_btc_funding_negative_rate(self, mock_get, _sleep):
+        """Negative funding rates (shorts pay longs) parse correctly."""
+        mock_get.return_value = _okx_ok([_okx_current_entry("BTC-USDT-SWAP", "-0.00075", 1710000000000)])
+        from compass.crypto.funding_rates import get_btc_funding
+        result = get_btc_funding()
+        self.assertAlmostEqual(result, -0.00075)
+
+    @patch("compass.crypto.funding_rates.time.sleep")
+    @patch("compass.crypto.funding_rates.requests.get")
+    def test_get_btc_funding_http_error_returns_none(self, mock_get, _sleep):
         mock_get.return_value = _err()
         from compass.crypto.funding_rates import get_btc_funding
         self.assertIsNone(get_btc_funding())
@@ -251,30 +295,47 @@ class TestFundingRates(unittest.TestCase):
 
     @patch("compass.crypto.funding_rates.time.sleep")
     @patch("compass.crypto.funding_rates.requests.get")
+    def test_get_btc_funding_okx_error_envelope_returns_none(self, mock_get, _sleep):
+        """HTTP 200 but OKX code != '0' → None."""
+        mock_get.return_value = _okx_err_envelope()
+        from compass.crypto.funding_rates import get_btc_funding
+        self.assertIsNone(get_btc_funding())
+
+    @patch("compass.crypto.funding_rates.time.sleep")
+    @patch("compass.crypto.funding_rates.requests.get")
     def test_get_btc_funding_empty_list_returns_none(self, mock_get, _sleep):
-        mock_get.return_value = _ok([])
+        mock_get.return_value = _okx_ok([])
         from compass.crypto.funding_rates import get_btc_funding
         self.assertIsNone(get_btc_funding())
 
     @patch("compass.crypto.funding_rates.time.sleep")
     @patch("compass.crypto.funding_rates.requests.get")
     def test_get_funding_history_happy(self, mock_get, _sleep):
-        data = [
-            {"symbol": "BTCUSDT", "fundingRate": "0.0001", "fundingTime": 1710000000000},
-            {"symbol": "BTCUSDT", "fundingRate": "0.0002", "fundingTime": 1710028800000},
+        entries = [
+            _okx_history_entry("BTC-USDT-SWAP", "0.0001", "0.0001", 1710000000000),
+            _okx_history_entry("BTC-USDT-SWAP", "0.0002", "0.0002", 1710028800000),
         ]
-        mock_get.return_value = _ok(data)
+        mock_get.return_value = _okx_ok(entries)
         from compass.crypto.funding_rates import get_funding_history
         result = get_funding_history("BTCUSDT", days=1)
         self.assertEqual(len(result), 2)
-        self.assertEqual(result[0]["symbol"], "BTCUSDT")
+        self.assertEqual(result[0]["symbol"], "BTC-USDT-SWAP")
         self.assertAlmostEqual(result[0]["funding_rate"], 0.0001)
         self.assertEqual(result[0]["funding_time"], 1710000000000)
+        self.assertAlmostEqual(result[1]["funding_rate"], 0.0002)
+        self.assertEqual(result[1]["funding_time"], 1710028800000)
 
     @patch("compass.crypto.funding_rates.time.sleep")
     @patch("compass.crypto.funding_rates.requests.get")
-    def test_get_funding_history_api_failure_returns_empty(self, mock_get, _sleep):
+    def test_get_funding_history_http_error_returns_empty(self, mock_get, _sleep):
         mock_get.return_value = _err()
+        from compass.crypto.funding_rates import get_funding_history
+        self.assertEqual(get_funding_history("BTCUSDT"), [])
+
+    @patch("compass.crypto.funding_rates.time.sleep")
+    @patch("compass.crypto.funding_rates.requests.get")
+    def test_get_funding_history_okx_error_returns_empty(self, mock_get, _sleep):
+        mock_get.return_value = _okx_err_envelope()
         from compass.crypto.funding_rates import get_funding_history
         self.assertEqual(get_funding_history("BTCUSDT"), [])
 
@@ -283,12 +344,63 @@ class TestFundingRates(unittest.TestCase):
     def test_retry_on_connection_error(self, mock_get, _sleep):
         mock_get.side_effect = [
             requests.ConnectionError("reset"),
-            _ok([{"fundingRate": "0.0001", "fundingTime": 1710000000}]),
+            _okx_ok([_okx_current_entry("BTC-USDT-SWAP", "0.0001", 1710000000000)]),
         ]
         from compass.crypto.funding_rates import get_btc_funding
         result = get_btc_funding()
         self.assertAlmostEqual(result, 0.0001)
         self.assertEqual(mock_get.call_count, 2)
+
+    def test_normalise_symbol_legacy_names(self):
+        """Legacy Binance-style symbols map to OKX instrument IDs."""
+        from compass.crypto.funding_rates import _normalise_symbol
+        self.assertEqual(_normalise_symbol("BTCUSDT"), "BTC-USDT-SWAP")
+        self.assertEqual(_normalise_symbol("ETHUSDT"), "ETH-USDT-SWAP")
+        self.assertEqual(_normalise_symbol("BTC-USDT-SWAP"), "BTC-USDT-SWAP")
+
+    def test_get_btc_funding_uses_okx_url(self):
+        """Verify the module targets OKX, not Binance or Bybit."""
+        import compass.crypto.funding_rates as fr
+        self.assertIn("okx.com", fr._BASE_URL)
+        self.assertNotIn("binance.com", fr._BASE_URL)
+        self.assertNotIn("bybit.com", fr._BASE_URL)
+
+
+class TestFundingRatesLive(unittest.TestCase):
+    """Live integration tests — hit the real OKX API.
+
+    These verify that funding rates come back non-null from US IPs
+    (OKX public market data is accessible where Binance/Bybit block US).
+    """
+
+    def test_get_btc_funding_live_non_null(self):
+        from compass.crypto.funding_rates import get_btc_funding
+        result = get_btc_funding()
+        self.assertIsNotNone(result, "BTC funding rate should be non-null from OKX")
+        self.assertIsInstance(result, float)
+        # Sanity: funding rate is typically in the range -0.5% to +0.5% per 8h
+        self.assertGreater(result, -0.005, f"BTC funding rate {result} out of expected range")
+        self.assertLess(result, 0.005, f"BTC funding rate {result} out of expected range")
+
+    def test_get_eth_funding_live_non_null(self):
+        from compass.crypto.funding_rates import get_eth_funding
+        result = get_eth_funding()
+        self.assertIsNotNone(result, "ETH funding rate should be non-null from OKX")
+        self.assertIsInstance(result, float)
+        self.assertGreater(result, -0.005, f"ETH funding rate {result} out of expected range")
+        self.assertLess(result, 0.005, f"ETH funding rate {result} out of expected range")
+
+    def test_get_btc_funding_history_live(self):
+        from compass.crypto.funding_rates import get_funding_history
+        result = get_funding_history("BTCUSDT", days=3)
+        self.assertIsInstance(result, list)
+        self.assertGreater(len(result), 0, "Should return at least 1 history entry for 3 days")
+        entry = result[0]
+        self.assertIn("symbol", entry)
+        self.assertIn("funding_rate", entry)
+        self.assertIn("funding_time", entry)
+        self.assertIsInstance(entry["funding_rate"], float)
+        self.assertIsInstance(entry["funding_time"], int)
 
 
 # ===========================================================================
