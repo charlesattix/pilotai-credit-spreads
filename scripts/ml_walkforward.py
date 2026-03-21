@@ -495,8 +495,14 @@ def main():
         "elapsed_seconds": round(elapsed, 1),
     }
 
+    def _json_default(obj):
+        """Convert numpy types for JSON serialization."""
+        if hasattr(obj, "item"):
+            return obj.item()
+        raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
     with open(OUTPUT_PATH, "w") as f:
-        json.dump(output, f, indent=2)
+        json.dump(output, f, indent=2, default=_json_default)
     logger.info("Results saved to %s", OUTPUT_PATH)
 
 

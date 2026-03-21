@@ -1,0 +1,256 @@
+{
+  "timestamp": "2026-03-21T01:19:08.151427",
+  "data_source": "/home/node/openclaw/workspace/pilotai-credit-spreads/compass/training_data_combined.csv",
+  "n_trades": 430,
+  "features_used": [
+    "dte_at_entry",
+    "hold_days",
+    "day_of_week",
+    "days_since_last_trade",
+    "rsi_14",
+    "momentum_5d_pct",
+    "momentum_10d_pct",
+    "vix",
+    "iv_rank",
+    "dist_from_ma20_pct",
+    "dist_from_ma50_pct",
+    "dist_from_ma80_pct",
+    "dist_from_ma200_pct",
+    "realized_vol_atr20",
+    "realized_vol_5d",
+    "realized_vol_10d",
+    "realized_vol_20d",
+    "net_credit",
+    "otm_pct",
+    "contracts",
+    "credit_to_width_ratio",
+    "regime_duration_days",
+    "vix_change_5d"
+  ],
+  "n_features": 23,
+  "folds": [
+    {
+      "fold": "fold_1",
+      "train_years": [
+        2020,
+        2021,
+        2022
+      ],
+      "test_year": 2023,
+      "n_train": 219,
+      "n_test": 73,
+      "train_auc": 0.9783,
+      "test_auc": 0.8946,
+      "calibration_error": 0.0882,
+      "accuracy": 0.8493,
+      "test_win_rate": 0.589,
+      "top5_features": [
+        "otm_pct",
+        "net_credit",
+        "contracts",
+        "iv_rank",
+        "hold_days"
+      ],
+      "max_feature_importance": 0.13439999520778656,
+      "feature_importances": {
+        "otm_pct": 0.13439999520778656,
+        "net_credit": 0.11069999635219574,
+        "contracts": 0.10790000110864639,
+        "iv_rank": 0.055399999022483826,
+        "hold_days": 0.04610000178217888,
+        "credit_to_width_ratio": 0.04270000010728836,
+        "realized_vol_20d": 0.042100001126527786,
+        "vix_change_5d": 0.03189999982714653,
+        "realized_vol_10d": 0.03150000050663948,
+        "dist_from_ma50_pct": 0.03150000050663948,
+        "vix": 0.029999999329447746,
+        "regime_duration_days": 0.029899999499320984,
+        "dist_from_ma80_pct": 0.029600000008940697,
+        "realized_vol_5d": 0.029600000008940697,
+        "momentum_5d_pct": 0.029500000178813934,
+        "realized_vol_atr20": 0.02879999950528145,
+        "dte_at_entry": 0.02850000001490116,
+        "dist_from_ma200_pct": 0.0284000001847744,
+        "day_of_week": 0.028300000354647636,
+        "momentum_10d_pct": 0.02810000069439411,
+        "rsi_14": 0.026000000536441803,
+        "days_since_last_trade": 0.025699999183416367,
+        "dist_from_ma20_pct": 0.02329999953508377
+      }
+    },
+    {
+      "fold": "fold_2",
+      "train_years": [
+        2020,
+        2021,
+        2022,
+        2023
+      ],
+      "test_year": 2024,
+      "n_train": 292,
+      "n_test": 69,
+      "train_auc": 0.9873,
+      "test_auc": 0.8093,
+      "calibration_error": 0.1361,
+      "accuracy": 0.7536,
+      "test_win_rate": 0.6522,
+      "top5_features": [
+        "net_credit",
+        "credit_to_width_ratio",
+        "contracts",
+        "otm_pct",
+        "iv_rank"
+      ],
+      "max_feature_importance": 0.12359999865293503,
+      "feature_importances": {
+        "net_credit": 0.12359999865293503,
+        "credit_to_width_ratio": 0.11940000206232071,
+        "contracts": 0.1152999997138977,
+        "otm_pct": 0.10559999942779541,
+        "iv_rank": 0.04910000041127205,
+        "hold_days": 0.04320000112056732,
+        "vix_change_5d": 0.03009999915957451,
+        "dist_from_ma80_pct": 0.029999999329447746,
+        "realized_vol_20d": 0.029400000348687172,
+        "realized_vol_10d": 0.0284000001847744,
+        "momentum_5d_pct": 0.028300000354647636,
+        "momentum_10d_pct": 0.028200000524520874,
+        "realized_vol_atr20": 0.0272000003606081,
+        "dist_from_ma50_pct": 0.027000000700354576,
+        "vix": 0.026000000536441803,
+        "rsi_14": 0.025299999862909317,
+        "dist_from_ma200_pct": 0.025200000032782555,
+        "regime_duration_days": 0.02459999918937683,
+        "realized_vol_5d": 0.02370000071823597,
+        "dte_at_entry": 0.02319999970495701,
+        "days_since_last_trade": 0.023099999874830246,
+        "dist_from_ma20_pct": 0.022700000554323196,
+        "day_of_week": 0.021299999207258224
+      }
+    },
+    {
+      "fold": "fold_3",
+      "train_years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ],
+      "test_year": 2025,
+      "n_train": 361,
+      "n_test": 69,
+      "train_auc": 0.988,
+      "test_auc": 0.8795,
+      "calibration_error": 0.1096,
+      "accuracy": 0.7826,
+      "test_win_rate": 0.5652,
+      "top5_features": [
+        "otm_pct",
+        "contracts",
+        "net_credit",
+        "credit_to_width_ratio",
+        "iv_rank"
+      ],
+      "max_feature_importance": 0.19290000200271606,
+      "feature_importances": {
+        "otm_pct": 0.19290000200271606,
+        "contracts": 0.120899997651577,
+        "net_credit": 0.07720000296831131,
+        "credit_to_width_ratio": 0.05950000137090683,
+        "iv_rank": 0.04659999907016754,
+        "hold_days": 0.039000000804662704,
+        "momentum_10d_pct": 0.03310000151395798,
+        "day_of_week": 0.03200000151991844,
+        "realized_vol_10d": 0.03060000017285347,
+        "dist_from_ma20_pct": 0.03009999915957451,
+        "realized_vol_5d": 0.029200000688433647,
+        "momentum_5d_pct": 0.02850000001490116,
+        "regime_duration_days": 0.0284000001847744,
+        "vix_change_5d": 0.028300000354647636,
+        "dist_from_ma80_pct": 0.02810000069439411,
+        "dist_from_ma50_pct": 0.02800000086426735,
+        "realized_vol_atr20": 0.026499999687075615,
+        "vix": 0.025699999183416367,
+        "rsi_14": 0.02539999969303608,
+        "realized_vol_20d": 0.024900000542402267,
+        "dist_from_ma200_pct": 0.02459999918937683,
+        "dte_at_entry": 0.02160000056028366,
+        "days_since_last_trade": 0.01899999938905239
+      }
+    }
+  ],
+  "gates": {
+    "all_gates_passed": false,
+    "n_folds": 3,
+    "G1": {
+      "gate": "G1_AUC",
+      "threshold": 0.55,
+      "values": [
+        0.8946,
+        0.8093,
+        0.8795
+      ],
+      "min_auc": 0.8093,
+      "passed": true
+    },
+    "G2": {
+      "gate": "G2_Calibration",
+      "threshold": 0.1,
+      "values": [
+        0.0882,
+        0.1361,
+        0.1096
+      ],
+      "max_cal_error": 0.1361,
+      "passed": false
+    },
+    "G3": {
+      "gate": "G3_Stability",
+      "threshold": "top-5 pairwise overlap >= 3",
+      "min_pairwise_overlap": 4,
+      "common_top5": [
+        "contracts",
+        "iv_rank",
+        "net_credit",
+        "otm_pct"
+      ],
+      "all_top5": [
+        [
+          "contracts",
+          "hold_days",
+          "iv_rank",
+          "net_credit",
+          "otm_pct"
+        ],
+        [
+          "contracts",
+          "credit_to_width_ratio",
+          "iv_rank",
+          "net_credit",
+          "otm_pct"
+        ],
+        [
+          "contracts",
+          "credit_to_width_ratio",
+          "iv_rank",
+          "net_credit",
+          "otm_pct"
+        ]
+      ],
+      "passed": true
+    },
+    "G4": {
+      "gate": "G4_NoFeatureDominance",
+      "threshold": 0.4,
+      "values": [
+        0.13439999520778656,
+        0.12359999865293503,
+        0.19290000200271606
+      ],
+      "max_across_folds": 0.19290000200271606,
+      "passed": true
+    }
+  },
+  "elapsed_seconds": 4.8
+}
