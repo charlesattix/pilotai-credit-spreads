@@ -19,38 +19,19 @@ from datetime import date, timedelta
 
 import pytest
 
-# --------------------------------------------------------------------------
-# Import will switch from shared.macro_event_gate → compass.events after
-# Phase 2 move. Until then, test against the pre-move source.
-# --------------------------------------------------------------------------
-try:
-    from compass.events import (
-        ALL_FOMC_DATES,
-        FOMC_SCALING,
-        CPI_SCALING,
-        NFP_SCALING,
-        get_upcoming_events,
-        compute_composite_scaling,
-        run_daily_event_check,
-        _first_friday_of_month,
-        _cpi_release_date,
-        _nfp_release_date,
-        _iter_months,
-    )
-except ImportError:
-    from shared.macro_event_gate import (
-        ALL_FOMC_DATES,
-        FOMC_SCALING,
-        CPI_SCALING,
-        NFP_SCALING,
-        get_upcoming_events,
-        compute_composite_scaling,
-        run_daily_event_check,
-        _first_friday_of_month,
-        _cpi_release_date,
-        _nfp_release_date,
-        _iter_months,
-    )
+from compass.events import (
+    ALL_FOMC_DATES,
+    FOMC_SCALING,
+    CPI_SCALING,
+    NFP_SCALING,
+    get_upcoming_events,
+    compute_composite_scaling,
+    run_daily_event_check,
+    _first_friday_of_month,
+    _cpi_release_date,
+    _nfp_release_date,
+    _iter_months,
+)
 
 from tests.compass_helpers import (
     KNOWN_FOMC_DATES,

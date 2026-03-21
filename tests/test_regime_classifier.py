@@ -19,14 +19,7 @@ Blueprint spec: 15+ tests, all green (Phase 3 exit criteria).
 import pandas as pd
 import pytest
 
-# --------------------------------------------------------------------------
-# Import will switch from engine.regime → compass.regime after Phase 2 move.
-# Until then, test against the pre-move source.
-# --------------------------------------------------------------------------
-try:
-    from compass.regime import Regime, RegimeClassifier, REGIME_INFO
-except ImportError:
-    from engine.regime import Regime, RegimeClassifier, REGIME_INFO
+from compass.regime import Regime, RegimeClassifier, REGIME_INFO
 
 from tests.compass_helpers import (
     mock_spy_prices,

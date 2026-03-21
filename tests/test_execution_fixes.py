@@ -497,7 +497,7 @@ class TestRiskGateDrawdownCB:
         return alert
 
     def test_drawdown_cb_blocks_when_breached(self):
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
         config = _make_config(drawdown_cb=35)
         gate = RiskGate(config=config)
         alert = self._make_alert()
@@ -514,7 +514,7 @@ class TestRiskGateDrawdownCB:
         assert "Drawdown CB" in reason
 
     def test_drawdown_cb_allows_when_not_breached(self):
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
         config = _make_config(drawdown_cb=35)
         gate = RiskGate(config=config)
         alert = self._make_alert()
@@ -530,7 +530,7 @@ class TestRiskGateDrawdownCB:
         assert passed
 
     def test_drawdown_cb_disabled_when_zero(self):
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
         config = _make_config(drawdown_cb=0)
         gate = RiskGate(config=config)
         alert = self._make_alert()
@@ -547,7 +547,7 @@ class TestRiskGateDrawdownCB:
 
     def test_riskgate_no_config_still_works(self):
         """Backward compat: RiskGate() with no config should not crash."""
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
         gate = RiskGate()
         alert = self._make_alert()
         account_state = {
@@ -594,7 +594,7 @@ class TestAlertRouterExecution:
     def test_execution_engine_called_after_dispatch(self):
         from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
 
         mock_telegram = MagicMock()
         mock_telegram.send_alert = MagicMock()
@@ -637,7 +637,7 @@ class TestAlertRouterExecution:
         """When execution_engine=None, no orders submitted (alert-only mode)."""
         from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
 
         router = AlertRouter(
             risk_gate=RiskGate(),
@@ -659,7 +659,7 @@ class TestAlertRouterDteGate:
     def _router(self, min_dte=25, max_dte=45):
         from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
         return AlertRouter(
             risk_gate=RiskGate(),
             position_sizer=AlertPositionSizer(),
@@ -717,7 +717,7 @@ class TestAlertRouterDteGate:
         """When no DTE config, gate is disabled — all expirations allowed."""
         from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
         router = AlertRouter(
             risk_gate=RiskGate(),
             position_sizer=AlertPositionSizer(),

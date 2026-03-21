@@ -1143,7 +1143,7 @@ class Backtester:
         Called after _build_iv_rank_series so self._vix_by_date is populated.
         Logs a breakdown of BULL/BEAR/NEUTRAL day counts for diagnostics.
         """
-        from ml.combo_regime_detector import ComboRegimeDetector
+        from compass.regime import ComboRegimeDetector
         detector = ComboRegimeDetector(self._regime_config)
         self._regime_by_date = detector.compute_regime_series(
             price_data, self._vix_by_date, self._vix3m_by_date
@@ -1173,7 +1173,7 @@ class Backtester:
         using max(k <= today) lookup, identical to the seasonal sizing pattern.
         """
         try:
-            from shared.macro_state_db import get_db
+            from compass.macro_db import get_db
             conn = get_db()
             # Fetch all macro scores in backtest window (+ 90-day buffer for warmup)
             fetch_start = (start_date - timedelta(days=90)).strftime("%Y-%m-%d")
@@ -1464,7 +1464,7 @@ class Backtester:
 
         # P0-B fix: mirror _find_real_spread sizing logic exactly —
         # use compound-aware account_base and respect sizing_mode (flat vs iv_scaled).
-        from ml.position_sizer import calculate_dynamic_risk, get_contract_size
+        from compass.sizing import calculate_dynamic_risk, get_contract_size
         account_base = self.capital if self._compound else self.starting_capital
         max_contracts_cap = self.risk_params.get('max_contracts', 999)
         if self._sizing_mode == 'flat':
@@ -1741,7 +1741,7 @@ class Backtester:
             return None
         # Position sizing — Phase 2: compound + flat-risk support
         # account_base: current equity when compounding, starting capital otherwise
-        from ml.position_sizer import calculate_dynamic_risk, get_contract_size
+        from compass.sizing import calculate_dynamic_risk, get_contract_size
         account_base = self.capital if self._compound else self.starting_capital
         max_contracts_cap = self.risk_params.get('max_contracts', 999)
         if self._sizing_mode == 'flat':

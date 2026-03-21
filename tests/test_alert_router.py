@@ -10,7 +10,7 @@ from alerts.alert_position_sizer import AlertPositionSizer
 from alerts.alert_router import AlertRouter
 from alerts.alert_schema import Alert, AlertType, Direction, Leg
 from alerts.formatters.telegram import TelegramAlertFormatter
-from alerts.risk_gate import RiskGate
+from compass.risk_gate import RiskGate
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -26,13 +26,13 @@ from pathlib import Path
 # Allow running from project root
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from shared.macro_event_gate import (
+from compass.events import (
     ALL_FOMC_DATES,
     FOMC_EMERGENCY_DATES,
     _cpi_release_date,
     _nfp_release_date,
 )
-from shared.macro_state_db import get_db, init_db
+from compass.macro_db import get_db, init_db
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)

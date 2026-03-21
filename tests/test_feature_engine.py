@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ml.feature_engine import FeatureEngine
+from compass.features import FeatureEngine
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -22,7 +22,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
 
-from shared.macro_state_db import (
+from compass.macro_db import (
     LIQUID_SECTOR_ETFS,
     get_current_macro_score,
     get_sector_rankings,
@@ -43,7 +43,7 @@ from alerts import AlertGenerator, TelegramBot
 from alerts.alert_position_sizer import AlertPositionSizer
 from alerts.alert_router import AlertRouter
 from alerts.formatters.telegram import TelegramAlertFormatter
-from alerts.risk_gate import RiskGate
+from compass.risk_gate import RiskGate
 from backtest import Backtester, HistoricalOptionsData, PerformanceMetrics
 from shared.data_cache import DataCache
 from shared.database import get_trades, insert_alert, save_scanner_state, load_scanner_state

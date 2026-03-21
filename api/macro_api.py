@@ -40,8 +40,8 @@ PROJECT_ROOT = API_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 load_dotenv(PROJECT_ROOT / ".env")
 
-from shared.macro_event_gate import compute_composite_scaling, get_upcoming_events
-from shared.macro_state_db import (
+from compass.events import compute_composite_scaling, get_upcoming_events
+from compass.macro_db import (
     MACRO_DB_PATH,
     get_current_macro_score,
     get_db,
@@ -648,7 +648,7 @@ def get_regime(
 
     try:
         import pandas as pd
-        from ml.combo_regime_detector import ComboRegimeDetector
+        from compass.regime import ComboRegimeDetector
 
         conn = sqlite3.connect(str(MACRO_CACHE_DB))
         try:

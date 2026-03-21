@@ -141,7 +141,7 @@ def collect_live_scanner_signals(
     via build_live_market_snapshot() and runs generate_signals().
     """
     import yfinance as yf
-    from engine.regime import RegimeClassifier
+    from compass.regime import RegimeClassifier
     from shared.economic_calendar import EconomicCalendar
     from shared.indicators import calculate_iv_rank as _calc_ivr
     from strategies.pricing import calculate_rsi

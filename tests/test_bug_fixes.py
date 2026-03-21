@@ -73,7 +73,7 @@ def _make_account_state(**kwargs):
 
 class TestDirectionsMatch:
     def _fn(self):
-        from alerts.risk_gate import _directions_match
+        from compass.risk_gate import _directions_match
         return _directions_match
 
     def test_bullish_matches_bull_put_spread(self):
@@ -111,7 +111,7 @@ class TestRiskGateCorrelatedDirectionCheck:
     """Rule 5 now correctly counts correlated positions with strategy_type directions."""
 
     def _gate(self, config=None):
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
         return RiskGate(config or {})
 
     def test_bull_put_spread_counted_as_bullish(self):
@@ -202,7 +202,7 @@ class TestICMaxLossFormula:
 
 class TestCircuitBreaker:
     def _gate(self):
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
         return RiskGate({})
 
     def test_circuit_breaker_blocks_trade(self):
@@ -249,7 +249,7 @@ class TestSQLiteBusyTimeout:
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
             db_path = f.name
         try:
-            from shared.macro_state_db import get_db
+            from compass.macro_db import get_db
             conn = get_db(db_path)
             timeout_ms = conn.execute("PRAGMA busy_timeout").fetchone()[0]
             conn.close()
@@ -323,7 +323,7 @@ class TestDedupAfterExecution:
     def _make_router(self, exec_engine=None):
         from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
 
         rg = MagicMock(spec=RiskGate)
         rg.check.return_value = (True, "")
@@ -399,17 +399,17 @@ class TestDedupAfterExecution:
 
 class TestConfigurableMaxTotalExposure:
     def test_default_15_pct_from_constant(self):
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
         gate = RiskGate({})
         assert gate._max_total_exposure == pytest.approx(0.15)
 
     def test_config_override_25_pct(self):
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
         gate = RiskGate({"risk": {"max_total_exposure_pct": 25}})
         assert gate._max_total_exposure == pytest.approx(0.25)
 
     def test_exposure_cap_uses_config_value(self):
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
         # 2 positions at 10% each = 20%, alert adds 4% = 24% → passes 25% limit
         # Use neutral positions so correlated-position rule (rule 5) doesn't fire
         gate = RiskGate({"risk": {"max_total_exposure_pct": 25}})
@@ -421,7 +421,7 @@ class TestConfigurableMaxTotalExposure:
         assert passed, f"Should pass at 25% limit but got: {reason}"
 
     def test_exposure_blocked_above_config_limit(self):
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
         gate = RiskGate({"risk": {"max_total_exposure_pct": 20}})
         alert = _make_alert(risk_pct=0.05)
         positions = [{"direction": "bear_call_spread", "risk_pct": 0.08} for _ in range(2)]
@@ -567,7 +567,7 @@ class TestRealRiskPctPipeline:
         """After routing, approved alerts have risk_pct from sizer, not hardcoded 0.02."""
         from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
 
         # Use real RiskGate with 25% limit so we don't accidentally block
         rg = RiskGate({"risk": {"max_total_exposure_pct": 25}})
@@ -610,7 +610,7 @@ class TestRealRiskPctPipeline:
         """If sizer returns risk_pct > MAX_RISK_PER_TRADE, risk gate blocks it."""
         from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
         from shared.constants import MAX_RISK_PER_TRADE
 
         rg = RiskGate({})

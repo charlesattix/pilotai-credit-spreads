@@ -61,7 +61,7 @@ class CreditSpreadStrategy:
         self._combo_regime_detector = None
         if self.regime_mode == 'combo':
             try:
-                from ml.combo_regime_detector import ComboRegimeDetector
+                from compass.regime import ComboRegimeDetector
                 regime_config = self.strategy_params.get('regime_config', {})
                 self._combo_regime_detector = ComboRegimeDetector(regime_config)
                 logger.info("CreditSpreadStrategy: using ComboRegimeDetector v2 (BULL/BEAR/NEUTRAL)")

@@ -46,9 +46,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-from shared.macro_event_gate import get_upcoming_events, run_daily_event_check
-from shared.macro_snapshot_engine import MacroSnapshotEngine
-from shared.macro_state_db import (
+from compass.events import get_upcoming_events, run_daily_event_check
+from compass.macro import MacroSnapshotEngine
+from compass.macro_db import (
     get_latest_snapshot_date,
     get_snapshot_count,
     init_db,
@@ -285,7 +285,7 @@ def _print_snapshot_report(snap: dict):
         print("\n  UPCOMING EVENTS:")
         for ev in events:
             print(f"    {ev['event_type']:6s}  {ev['event_date']}  (T-{ev['days_out']}d)  scale={ev['scaling_factor']:.2f}")
-        from shared.macro_event_gate import compute_composite_scaling
+        from compass.events import compute_composite_scaling
         composite = compute_composite_scaling(events)
         print(f"\n  EVENT SCALING FACTOR: {composite:.2f}")
     else:

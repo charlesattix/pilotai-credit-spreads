@@ -14,7 +14,7 @@ Tests verify:
 
 import pandas as pd
 
-from ml.combo_regime_detector import ComboRegimeDetector
+from compass.regime import ComboRegimeDetector
 
 # ---------------------------------------------------------------------------
 # Helpers

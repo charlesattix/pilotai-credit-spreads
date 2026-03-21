@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from shared.macro_state_db import (
+from compass.macro_db import (
     backfill_macro_score_velocities,
     get_current_macro_score,
     get_db,

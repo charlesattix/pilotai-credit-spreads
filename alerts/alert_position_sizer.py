@@ -25,7 +25,7 @@ from alerts.alert_schema import Alert, SizeResult
 
 # Module-level import for testability (allows unittest.mock.patch to replace it)
 try:
-    from shared.macro_state_db import get_current_macro_score
+    from compass.macro_db import get_current_macro_score
 except ImportError:  # pragma: no cover
     def get_current_macro_score():  # type: ignore[misc]
         return 50.0
@@ -397,7 +397,7 @@ class AlertPositionSizer:
         calculate_dynamic_risk applies. The MAX_RISK_PER_TRADE extra cap layer
         and weekly-loss breach reduction are removed (backtester has neither).
         """
-        from ml.position_sizer import calculate_dynamic_risk, get_contract_size
+        from compass.sizing import calculate_dynamic_risk, get_contract_size
         from shared.constants import MAX_RISK_PER_TRADE
 
         dollar_risk = calculate_dynamic_risk(account_value, iv_rank, current_portfolio_risk)

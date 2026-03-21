@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 import api.macro_api as _api_module
 import shared.macro_state_db as _db_module
 from api.macro_api import MACRO_CACHE_DB, app
-from shared.macro_state_db import init_db, save_snapshot
+from compass.macro_db import init_db, save_snapshot
 
 # Whether the real price cache is available (required for /regime endpoint)
 _CACHE_AVAILABLE = MACRO_CACHE_DB.exists()

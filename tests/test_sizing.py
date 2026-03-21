@@ -13,13 +13,7 @@ Blueprint spec: 5+ tests, all green (Phase 3 exit criteria).
 
 import pytest
 
-# --------------------------------------------------------------------------
-# Import will switch from ml.position_sizer → compass.sizing after Phase 2.
-# --------------------------------------------------------------------------
-try:
-    from compass.sizing import calculate_dynamic_risk, get_contract_size
-except ImportError:
-    from ml.position_sizer import calculate_dynamic_risk, get_contract_size
+from compass.sizing import calculate_dynamic_risk, get_contract_size
 
 from tests.compass_helpers import (
     ACCOUNT_100K,

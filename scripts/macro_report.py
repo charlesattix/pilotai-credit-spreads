@@ -32,8 +32,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
-from shared.macro_event_gate import compute_composite_scaling, get_upcoming_events
-from shared.macro_state_db import get_db
+from compass.events import compute_composite_scaling, get_upcoming_events
+from compass.macro_db import get_db
 
 QUADRANT_EMOJI = {
     "Leading":   "✅",
@@ -281,7 +281,7 @@ def generate_markdown(data: Dict, events: List[Dict]) -> str:
         lines.append("No scheduled events in the next 14 days. Scaling factor: **1.00x**")
 
     # Trade ideas
-    from shared.macro_state_db import get_eligible_underlyings
+    from compass.macro_db import get_eligible_underlyings
     eligible = get_eligible_underlyings(regime="BULL" if (overall or 50) >= 55 else "NEUTRAL")
 
     lines += [
@@ -356,7 +356,7 @@ def generate_markdown(data: Dict, events: List[Dict]) -> str:
 
 
 def _count_snapshots() -> int:
-    from shared.macro_state_db import get_snapshot_count
+    from compass.macro_db import get_snapshot_count
     return get_snapshot_count()
 
 

@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ml.iv_analyzer import IVAnalyzer
+from compass.iv_surface import IVAnalyzer
 
 # ---------------------------------------------------------------------------
 # Helpers

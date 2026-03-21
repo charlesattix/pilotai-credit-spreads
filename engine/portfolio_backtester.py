@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
-from engine.regime import RegimeClassifier
+from compass.regime import RegimeClassifier
 from shared.constants import DEFAULT_RISK_FREE_RATE
 from shared.economic_calendar import EconomicCalendar
 from shared.indicators import calculate_iv_rank as _calc_ivr
@@ -787,6 +787,7 @@ class PortfolioBacktester:
                     }
                     for leg in t.legs
                 ],
+                "metadata": dict(t.metadata) if t.metadata else {},
             }
             log.append(entry)
         return log
