@@ -1,0 +1,472 @@
+{
+  "generated_at": "2026-03-21T03:50:36.824874",
+  "tickers": [
+    "SPY"
+  ],
+  "starting_capital": 100000,
+  "years": [
+    2020,
+    2021,
+    2022,
+    2023,
+    2024,
+    2025
+  ],
+  "experiments": {
+    "baseline": {
+      "experiment_id": "COMPASS-BASELINE",
+      "config_path": "compass_baseline.yaml",
+      "compass": {
+        "macro_sizing": false,
+        "rrg_filter": false,
+        "portfolio_mode": false
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 24.07,
+          "max_drawdown": -6.61,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.93,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 0,
+            "rrg_blocks": 0
+          }
+        },
+        "2021": {
+          "return_pct": 107.4,
+          "max_drawdown": -3.67,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.78,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 0,
+            "rrg_blocks": 0
+          }
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 0,
+            "rrg_blocks": 0
+          }
+        },
+        "2023": {
+          "return_pct": 43.18,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.94,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 0,
+            "rrg_blocks": 0
+          }
+        },
+        "2024": {
+          "return_pct": 26.44,
+          "max_drawdown": -6.6,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.73,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 0,
+            "rrg_blocks": 0
+          }
+        },
+        "2025": {
+          "return_pct": 34.97,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 0,
+            "rrg_blocks": 0
+          }
+        }
+      },
+      "avg_return": 40.7,
+      "min_return": 8.11,
+      "max_return": 107.4,
+      "worst_dd": -6.96,
+      "total_trades": 353,
+      "years_profitable": 6,
+      "year_2022_return": 8.11,
+      "compass_stats": {
+        "macro_boosts": 0,
+        "macro_reduces": 0,
+        "rrg_blocks": 0
+      },
+      "gates": {
+        "robust_score": 0.954,
+        "robust_components": {
+          "A_consistency": 1.0,
+          "B_return_quality": 1.0,
+          "C_drawdown": 0.768,
+          "D_trade_count": 1.0,
+          "E_worst_year": 1.0
+        },
+        "robust_pass": true,
+        "profitable_6_6": true,
+        "trades_pass": true,
+        "year_2022_pass": true,
+        "all_pass": true
+      }
+    },
+    "c001": {
+      "experiment_id": "COMPASS-C001",
+      "config_path": "compass_c001.yaml",
+      "compass": {
+        "macro_sizing": true,
+        "rrg_filter": false,
+        "portfolio_mode": false
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 25.63,
+          "max_drawdown": -7.23,
+          "total_trades": 51,
+          "win_rate": 78.43,
+          "sharpe_ratio": 1.95,
+          "compass_stats": {
+            "macro_boosts": 19,
+            "macro_reduces": 0,
+            "rrg_blocks": 0
+          }
+        },
+        "2021": {
+          "return_pct": 101.8,
+          "max_drawdown": -3.21,
+          "total_trades": 86,
+          "win_rate": 89.53,
+          "sharpe_ratio": 6.92,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 27,
+            "rrg_blocks": 0
+          }
+        },
+        "2022": {
+          "return_pct": 8.11,
+          "max_drawdown": -6.96,
+          "total_trades": 39,
+          "win_rate": 74.36,
+          "sharpe_ratio": 0.59,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 0,
+            "rrg_blocks": 0
+          }
+        },
+        "2023": {
+          "return_pct": 43.18,
+          "max_drawdown": -3.62,
+          "total_trades": 60,
+          "win_rate": 86.67,
+          "sharpe_ratio": 3.94,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 0,
+            "rrg_blocks": 0
+          }
+        },
+        "2024": {
+          "return_pct": 26.44,
+          "max_drawdown": -6.6,
+          "total_trades": 62,
+          "win_rate": 79.03,
+          "sharpe_ratio": 2.73,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 0,
+            "rrg_blocks": 0
+          }
+        },
+        "2025": {
+          "return_pct": 34.97,
+          "max_drawdown": -3.56,
+          "total_trades": 55,
+          "win_rate": 90.91,
+          "sharpe_ratio": 3.74,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 0,
+            "rrg_blocks": 0
+          }
+        }
+      },
+      "avg_return": 40.02,
+      "min_return": 8.11,
+      "max_return": 101.8,
+      "worst_dd": -7.23,
+      "total_trades": 353,
+      "years_profitable": 6,
+      "year_2022_return": 8.11,
+      "compass_stats": {
+        "macro_boosts": 19,
+        "macro_reduces": 27,
+        "rrg_blocks": 0
+      },
+      "gates": {
+        "robust_score": 0.952,
+        "robust_components": {
+          "A_consistency": 1.0,
+          "B_return_quality": 1.0,
+          "C_drawdown": 0.759,
+          "D_trade_count": 1.0,
+          "E_worst_year": 1.0
+        },
+        "robust_pass": true,
+        "profitable_6_6": true,
+        "trades_pass": true,
+        "year_2022_pass": true,
+        "all_pass": true
+      },
+      "vs_baseline": {
+        "delta_avg_return": -0.68,
+        "delta_worst_dd": -0.27,
+        "delta_total_trades": 0
+      }
+    },
+    "c002": {
+      "experiment_id": "COMPASS-C002",
+      "config_path": "compass_c002.yaml",
+      "compass": {
+        "macro_sizing": false,
+        "rrg_filter": true,
+        "portfolio_mode": false
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 14.7,
+          "max_drawdown": -6.61,
+          "total_trades": 40,
+          "win_rate": 77.5,
+          "sharpe_ratio": 1.46,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 0,
+            "rrg_blocks": 35
+          }
+        },
+        "2021": {
+          "return_pct": 52.41,
+          "max_drawdown": -3.78,
+          "total_trades": 54,
+          "win_rate": 87.04,
+          "sharpe_ratio": 4.55,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 0,
+            "rrg_blocks": 82
+          }
+        },
+        "2022": {
+          "return_pct": 5.51,
+          "max_drawdown": -7.95,
+          "total_trades": 37,
+          "win_rate": 72.97,
+          "sharpe_ratio": 0.32,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 0,
+            "rrg_blocks": 14
+          }
+        },
+        "2023": {
+          "return_pct": 38.08,
+          "max_drawdown": -2.2,
+          "total_trades": 48,
+          "win_rate": 87.5,
+          "sharpe_ratio": 4.17,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 0,
+            "rrg_blocks": 75
+          }
+        },
+        "2024": {
+          "return_pct": 11.93,
+          "max_drawdown": -3.4,
+          "total_trades": 35,
+          "win_rate": 77.14,
+          "sharpe_ratio": 2.21,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 0,
+            "rrg_blocks": 109
+          }
+        },
+        "2025": {
+          "return_pct": 13.2,
+          "max_drawdown": -3.56,
+          "total_trades": 32,
+          "win_rate": 90.62,
+          "sharpe_ratio": 1.98,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 0,
+            "rrg_blocks": 107
+          }
+        }
+      },
+      "avg_return": 22.64,
+      "min_return": 5.51,
+      "max_return": 52.41,
+      "worst_dd": -7.95,
+      "total_trades": 246,
+      "years_profitable": 6,
+      "year_2022_return": 5.51,
+      "compass_stats": {
+        "macro_boosts": 0,
+        "macro_reduces": 0,
+        "rrg_blocks": 422
+      },
+      "gates": {
+        "robust_score": 0.883,
+        "robust_components": {
+          "A_consistency": 1.0,
+          "B_return_quality": 0.755,
+          "C_drawdown": 0.735,
+          "D_trade_count": 0.984,
+          "E_worst_year": 1.0
+        },
+        "robust_pass": false,
+        "profitable_6_6": true,
+        "trades_pass": false,
+        "year_2022_pass": true,
+        "all_pass": false
+      },
+      "vs_baseline": {
+        "delta_avg_return": -18.06,
+        "delta_worst_dd": -0.99,
+        "delta_total_trades": -107
+      }
+    },
+    "c003": {
+      "experiment_id": "COMPASS-C003",
+      "config_path": "compass_c003.yaml",
+      "compass": {
+        "macro_sizing": true,
+        "rrg_filter": true,
+        "portfolio_mode": false
+      },
+      "yearly": {
+        "2020": {
+          "return_pct": 15.73,
+          "max_drawdown": -7.23,
+          "total_trades": 40,
+          "win_rate": 77.5,
+          "sharpe_ratio": 1.47,
+          "compass_stats": {
+            "macro_boosts": 16,
+            "macro_reduces": 0,
+            "rrg_blocks": 35
+          }
+        },
+        "2021": {
+          "return_pct": 49.93,
+          "max_drawdown": -3.19,
+          "total_trades": 54,
+          "win_rate": 87.04,
+          "sharpe_ratio": 4.62,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 17,
+            "rrg_blocks": 82
+          }
+        },
+        "2022": {
+          "return_pct": 5.51,
+          "max_drawdown": -7.95,
+          "total_trades": 37,
+          "win_rate": 72.97,
+          "sharpe_ratio": 0.32,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 0,
+            "rrg_blocks": 14
+          }
+        },
+        "2023": {
+          "return_pct": 38.08,
+          "max_drawdown": -2.2,
+          "total_trades": 48,
+          "win_rate": 87.5,
+          "sharpe_ratio": 4.17,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 0,
+            "rrg_blocks": 75
+          }
+        },
+        "2024": {
+          "return_pct": 11.93,
+          "max_drawdown": -3.4,
+          "total_trades": 35,
+          "win_rate": 77.14,
+          "sharpe_ratio": 2.21,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 0,
+            "rrg_blocks": 109
+          }
+        },
+        "2025": {
+          "return_pct": 13.2,
+          "max_drawdown": -3.56,
+          "total_trades": 32,
+          "win_rate": 90.62,
+          "sharpe_ratio": 1.98,
+          "compass_stats": {
+            "macro_boosts": 0,
+            "macro_reduces": 0,
+            "rrg_blocks": 107
+          }
+        }
+      },
+      "avg_return": 22.4,
+      "min_return": 5.51,
+      "max_return": 49.93,
+      "worst_dd": -7.95,
+      "total_trades": 246,
+      "years_profitable": 6,
+      "year_2022_return": 5.51,
+      "compass_stats": {
+        "macro_boosts": 16,
+        "macro_reduces": 17,
+        "rrg_blocks": 422
+      },
+      "gates": {
+        "robust_score": 0.881,
+        "robust_components": {
+          "A_consistency": 1.0,
+          "B_return_quality": 0.747,
+          "C_drawdown": 0.735,
+          "D_trade_count": 0.984,
+          "E_worst_year": 1.0
+        },
+        "robust_pass": false,
+        "profitable_6_6": true,
+        "trades_pass": false,
+        "year_2022_pass": true,
+        "all_pass": false
+      },
+      "vs_baseline": {
+        "delta_avg_return": -18.3,
+        "delta_worst_dd": -0.99,
+        "delta_total_trades": -107
+      }
+    }
+  }
+}

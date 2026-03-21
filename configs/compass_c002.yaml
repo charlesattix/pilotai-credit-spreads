@@ -37,7 +37,7 @@ strategy:
   max_dte: 25
   target_dte: 15
   manage_dte: 0
-  direction: both
+  direction: regime_adaptive
   otm_pct: 0.02
   use_delta_selection: false
   target_delta: 0.12
