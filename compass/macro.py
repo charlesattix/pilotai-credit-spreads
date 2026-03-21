@@ -156,6 +156,40 @@ MACRO_INFLATION_WEIGHT = 0.25
 MACRO_FED_POLICY_WEIGHT = 0.25
 MACRO_RISK_APPETITE_WEIGHT = 0.25
 
+# ── Score range bounds ─────────────────────────────────────────────────────
+SCORE_MIN = 0.0
+SCORE_MAX = 100.0
+
+# ── Growth scoring lookbacks ───────────────────────────────────────────────
+GROWTH_FRED_LOOKBACK = 4        # months of CFNAI / payroll history to fetch
+GROWTH_MA_MONTHS = 3            # months for moving-average smoothing
+GROWTH_MIN_PAYROLL_OBS = 2      # minimum payroll observations needed
+
+# ── Inflation scoring lookbacks ────────────────────────────────────────────
+INFLATION_FRED_LOOKBACK = 14    # months of CPI data to fetch
+INFLATION_YOY_MONTHS = 13       # offset for year-over-year calculation
+
+# ── Sector RS helpers ──────────────────────────────────────────────────────
+RS_PRICE_BUFFER_DAYS = 30       # extra calendar days fetched beyond RS lookback
+RS_MIN_DATA_POINTS = 5          # minimum extra data points for valid RS calc
+RS_PCT_MULTIPLIER = 100.0       # multiply ratio to get percentage
+
+# ── Snapshot defaults ──────────────────────────────────────────────────────
+SNAPSHOT_SPY_LOOKBACK = 5       # trading days of SPY to fetch for snapshot
+
+# ── FRED defaults ──────────────────────────────────────────────────────────
+FRED_DEFAULT_N_OBS = 13         # default observation window for FRED queries
+
+# ── HTTP retry config ─────────────────────────────────────────────────────
+HTTP_RETRY_TOTAL = 4            # max retries on transient errors
+HTTP_RETRY_BACKOFF = 1.0        # exponential backoff factor (seconds)
+HTTP_RETRY_JITTER = 0.3         # random jitter added to backoff
+
+# ── Price / Polygon defaults ──────────────────────────────────────────────
+REFRESH_PRICE_DAYS_BACK = 20    # default calendar days for price cache refresh
+PRICE_SERIES_DEFAULT_LOOKBACK = 300  # default trading-day lookback for price series
+POLYGON_AGGS_LIMIT = 50_000    # max bars per Polygon aggs request
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Scoring helpers
@@ -165,7 +199,7 @@ def _score(value: float, xp: List[float], fp: List[float]) -> float:
     """Map a raw value to a 0-100 score via piecewise-linear interpolation."""
     if value is None or np.isnan(value):
         return NEUTRAL_SCORE_DEFAULT
-    return float(np.clip(np.interp(value, xp, fp), 0.0, 100.0))
+    return float(np.clip(np.interp(value, xp, fp), SCORE_MIN, SCORE_MAX))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -201,10 +235,10 @@ class MacroSnapshotEngine:
         # hanging indefinitely on slow or unresponsive endpoints
         self._session = requests.Session()
         _retry = Retry(
-            total=4,
-            backoff_factor=1.0,
+            total=HTTP_RETRY_TOTAL,
+            backoff_factor=HTTP_RETRY_BACKOFF,
             status_forcelist=[429, 500, 502, 503, 504],
-            backoff_jitter=0.3,
+            backoff_jitter=HTTP_RETRY_JITTER,
         )
         self._session.mount("https://", HTTPAdapter(max_retries=_retry))
         self._last_polygon_call = 0.0
@@ -296,7 +330,7 @@ class MacroSnapshotEngine:
         params = {
             "adjusted": "true",
             "sort": "asc",
-            "limit": 50000,
+            "limit": POLYGON_AGGS_LIMIT,
             "apiKey": self.polygon_key,
         }
         try:
@@ -372,7 +406,7 @@ class MacroSnapshotEngine:
                 logger.warning("  No bars returned for %s — will retry next run", ticker)
 
     def _get_price_series(
-        self, ticker: str, as_of_date: date, lookback_days: int = 300
+        self, ticker: str, as_of_date: date, lookback_days: int = PRICE_SERIES_DEFAULT_LOOKBACK
     ) -> pd.Series:
         """
         Return a date-indexed close price Series ending on or before as_of_date,
@@ -496,7 +530,7 @@ class MacroSnapshotEngine:
         return float(row["value"]) if row else None
 
     def _get_fred_series_window(
-        self, series_id: str, as_of_date: date, n_obs: int = 13
+        self, series_id: str, as_of_date: date, n_obs: int = FRED_DEFAULT_N_OBS
     ) -> pd.Series:
         """Return the last n_obs FRED observations available as of as_of_date."""
         lag_days = FRED_SERIES[series_id]["lag_days"]
@@ -532,8 +566,8 @@ class MacroSnapshotEngine:
 
         Returns a list of dicts sorted by rs_3m descending.
         """
-        spy = self._get_price_series(BENCHMARK, as_of_date, RS_12M_DAYS + 30)
-        if spy.empty or len(spy) < RS_3M_DAYS + 5:
+        spy = self._get_price_series(BENCHMARK, as_of_date, RS_12M_DAYS + RS_PRICE_BUFFER_DAYS)
+        if spy.empty or len(spy) < RS_3M_DAYS + RS_MIN_DATA_POINTS:
             logger.warning("Insufficient SPY data for %s", as_of_date)
             return []
 
@@ -545,8 +579,8 @@ class MacroSnapshotEngine:
         rrg_raw = {}  # ticker → (rs_ratio_raw, rs_mom_raw) for cross-sectional norm
 
         for ticker, name in ALL_ETF_TICKERS.items():
-            s = self._get_price_series(ticker, as_of_date, RS_12M_DAYS + 30)
-            if s.empty or len(s) < RS_3M_DAYS + 5:
+            s = self._get_price_series(ticker, as_of_date, RS_12M_DAYS + RS_PRICE_BUFFER_DAYS)
+            if s.empty or len(s) < RS_3M_DAYS + RS_MIN_DATA_POINTS:
                 continue
 
             close_now = s.iloc[-1]
@@ -559,14 +593,14 @@ class MacroSnapshotEngine:
                 if tick_3m > 0 and spy_3m > 0:
                     tick_ret_3m = close_now / tick_3m
                     spy_ret_3m = spy_now / spy_3m
-                    rs_3m = (tick_ret_3m / spy_ret_3m - 1.0) * 100.0  # % outperformance
+                    rs_3m = (tick_ret_3m / spy_ret_3m - 1.0) * RS_PCT_MULTIPLIER  # % outperformance
 
             if spy_12m is not None and len(s) >= RS_12M_DAYS:
                 tick_12m = s.iloc[-RS_12M_DAYS]
                 if tick_12m > 0 and spy_12m > 0:
                     tick_ret_12m = close_now / tick_12m
                     spy_ret_12m = spy_now / spy_12m
-                    rs_12m = (tick_ret_12m / spy_ret_12m - 1.0) * 100.0
+                    rs_12m = (tick_ret_12m / spy_ret_12m - 1.0) * RS_PCT_MULTIPLIER
 
             # RRG RS-Ratio: ratio of ticker/SPY, smoothed
             # Build a daily rel-strength series for the past ~100 trading days
@@ -578,7 +612,7 @@ class MacroSnapshotEngine:
                 rs_ratio_series = rel_series.ewm(span=RRG_EMA_SPAN, adjust=False).mean()
                 if len(rs_ratio_series) >= RS_MOM_DAYS:
                     rs_mom_val = float(
-                        (rs_ratio_series.iloc[-1] / rs_ratio_series.iloc[-RS_MOM_DAYS] - 1.0) * 100
+                        (rs_ratio_series.iloc[-1] / rs_ratio_series.iloc[-RS_MOM_DAYS] - 1.0) * RS_PCT_MULTIPLIER
                     )
                 else:
                     rs_mom_val = 0.0
@@ -652,23 +686,23 @@ class MacroSnapshotEngine:
           A 3-month MA above +0.70 historically signals expansion with inflation pressure.
           A 3-month MA below -0.70 historically signals recession risk.
         """
-        cfnai_series = self._get_fred_series_window("CFNAI", as_of_date, 4)
-        payems_series = self._get_fred_series_window("PAYEMS", as_of_date, 4)
+        cfnai_series = self._get_fred_series_window("CFNAI", as_of_date, GROWTH_FRED_LOOKBACK)
+        payems_series = self._get_fred_series_window("PAYEMS", as_of_date, GROWTH_FRED_LOOKBACK)
 
         # Use 3-month moving average of CFNAI for stability
         cfnai_3m: Optional[float] = None
         cfnai_score = NEUTRAL_SCORE_DEFAULT
         if len(cfnai_series) >= 1:
-            cfnai_3m = float(cfnai_series.iloc[-min(3, len(cfnai_series)):].mean())
+            cfnai_3m = float(cfnai_series.iloc[-min(GROWTH_MA_MONTHS, len(cfnai_series)):].mean())
             cfnai_score = _score(cfnai_3m, CFNAI_SCORE_XP, CFNAI_SCORE_FP)
 
         # 3-month avg of monthly job additions (in thousands)
         payroll_3m_avg: Optional[float] = None
         payroll_score = NEUTRAL_SCORE_DEFAULT
-        if len(payems_series) >= 2:
+        if len(payems_series) >= GROWTH_MIN_PAYROLL_OBS:
             diffs = payems_series.diff().dropna()
             if len(diffs) >= 1:
-                payroll_3m_avg = float(diffs.iloc[-min(3, len(diffs)):].mean())
+                payroll_3m_avg = float(diffs.iloc[-min(GROWTH_MA_MONTHS, len(diffs)):].mean())
                 payroll_score = _score(payroll_3m_avg, PAYROLL_SCORE_XP, PAYROLL_SCORE_FP)
 
         score = cfnai_score * GROWTH_CFNAI_WEIGHT + payroll_score * GROWTH_PAYROLL_WEIGHT
@@ -683,14 +717,14 @@ class MacroSnapshotEngine:
         Inflation score: Goldilocks (1.5-3%) is best.
         Deflation (<0%) and high inflation (>6%) both score low.
         """
-        cpi_series = self._get_fred_series_window("CPIAUCSL", as_of_date, 14)
-        core_series = self._get_fred_series_window("CPILFESL", as_of_date, 14)
+        cpi_series = self._get_fred_series_window("CPIAUCSL", as_of_date, INFLATION_FRED_LOOKBACK)
+        core_series = self._get_fred_series_window("CPILFESL", as_of_date, INFLATION_FRED_LOOKBACK)
         breakeven = self._get_fred_value("T5YIE", as_of_date)
 
         def yoy_pct(s: pd.Series) -> Optional[float]:
-            if len(s) < 13:
+            if len(s) < INFLATION_YOY_MONTHS:
                 return None
-            return float((s.iloc[-1] / s.iloc[-13] - 1.0) * 100)
+            return float((s.iloc[-1] / s.iloc[-INFLATION_YOY_MONTHS] - 1.0) * RS_PCT_MULTIPLIER)
 
         cpi_yoy = yoy_pct(cpi_series)
         core_yoy = yoy_pct(core_series)
@@ -765,7 +799,7 @@ class MacroSnapshotEngine:
                     name, as_of_date, NEUTRAL_SCORE_DEFAULT,
                 )
                 return NEUTRAL_SCORE_DEFAULT
-            return float(np.clip(s, 0.0, 100.0))
+            return float(np.clip(s, SCORE_MIN, SCORE_MAX))
 
         growth_score    = _safe_score(growth_score,    "growth")
         inflation_score = _safe_score(inflation_score, "inflation")
@@ -778,7 +812,7 @@ class MacroSnapshotEngine:
                 + inflation_score * MACRO_INFLATION_WEIGHT
                 + fed_score * MACRO_FED_POLICY_WEIGHT
                 + risk_score * MACRO_RISK_APPETITE_WEIGHT,
-                0.0, 100.0,
+                SCORE_MIN, SCORE_MAX,
             )),
             1,
         )
@@ -813,7 +847,7 @@ class MacroSnapshotEngine:
           - top_sector_3m, top_sector_12m
           - leading_sectors, lagging_sectors
         """
-        spy_series = self._get_price_series(BENCHMARK, as_of_date, 5)
+        spy_series = self._get_price_series(BENCHMARK, as_of_date, SNAPSHOT_SPY_LOOKBACK)
         spy_close = float(spy_series.iloc[-1]) if not spy_series.empty else None
 
         sector_rankings = self._compute_sector_rs(as_of_date)
@@ -897,7 +931,7 @@ class MacroSnapshotEngine:
         set_state("last_weekly_snapshot", snap["date"], db_path=db_path)
         logger.info("Snapshot %s saved to macro_state.db", snap["date"])
 
-    def refresh_price_cache(self, days_back: int = 20) -> None:
+    def refresh_price_cache(self, days_back: int = REFRESH_PRICE_DAYS_BACK) -> None:
         """
         Fetch and cache the most recent N calendar days of price data.
         Used by the weekly job to keep the price cache current without a full re-fetch.
