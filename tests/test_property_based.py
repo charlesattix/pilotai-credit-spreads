@@ -20,11 +20,7 @@ from hypothesis import strategies as st
 
 _project = Path(__file__).resolve().parent.parent
 
-_ps_spec = importlib.util.spec_from_file_location(
-    "ml.position_sizer", str(_project / "ml" / "position_sizer.py"))
-_ps_mod = importlib.util.module_from_spec(_ps_spec)
-_ps_spec.loader.exec_module(_ps_mod)
-PositionSizer = _ps_mod.PositionSizer
+from compass.sizing import PositionSizer
 
 from shared.indicators import calculate_iv_rank, sanitize_features
 

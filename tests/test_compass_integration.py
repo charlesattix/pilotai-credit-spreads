@@ -66,7 +66,7 @@ class TestCompassExports:
         # sizing
         "calculate_dynamic_risk", "get_contract_size", "PositionSizer",
         # ML
-        "SignalModel", "FeatureEngine", "IVAnalyzer",
+        "SignalModel", "FeatureEngine", "IVAnalyzer", "MLEnhancedStrategy",
     ]
 
     def test_all_expected_symbols_in_all(self):
@@ -93,14 +93,7 @@ class TestCompassExports:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestBackwardCompatShims:
-    """Old import paths should still work via compatibility shims."""
-
-    def test_engine_regime_shim(self):
-        """engine.regime exports Regime and RegimeClassifier."""
-        mod = importlib.import_module("engine.regime")
-        assert hasattr(mod, "Regime")
-        assert hasattr(mod, "RegimeClassifier")
-        assert mod.Regime is Regime  # Same object, not a copy
+    """Remaining shims that have real consumers (deploy/ scripts)."""
 
     def test_shared_macro_event_gate_shim(self):
         """shared.macro_event_gate exports ALL_FOMC_DATES and get_upcoming_events."""
@@ -109,35 +102,19 @@ class TestBackwardCompatShims:
         assert hasattr(mod, "get_upcoming_events")
         assert mod.ALL_FOMC_DATES is ALL_FOMC_DATES
 
-    def test_alerts_risk_gate_shim(self):
-        """alerts.risk_gate exports RiskGate."""
-        mod = importlib.import_module("alerts.risk_gate")
-        assert hasattr(mod, "RiskGate")
-        assert mod.RiskGate is RiskGate
+    def test_shared_macro_state_db_shim(self):
+        """shared.macro_state_db exports core DB functions."""
+        mod = importlib.import_module("shared.macro_state_db")
+        assert hasattr(mod, "init_db")
+        assert hasattr(mod, "get_current_macro_score")
 
-    def test_ml_position_sizer_deprecation_warning(self):
-        """ml.position_sizer emits DeprecationWarning."""
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            importlib.reload(importlib.import_module("ml.position_sizer"))
-            deprecation_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
-            assert len(deprecation_warnings) >= 1
-
-    def test_ml_combo_regime_detector_deprecation_warning(self):
-        """ml.combo_regime_detector emits DeprecationWarning."""
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            importlib.reload(importlib.import_module("ml.combo_regime_detector"))
-            deprecation_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
-            assert len(deprecation_warnings) >= 1
-
-    def test_ml_position_sizer_functions_accessible(self):
-        """ml.position_sizer.calculate_dynamic_risk is accessible via shim."""
-        mod = importlib.import_module("ml.position_sizer")
-        assert hasattr(mod, "calculate_dynamic_risk")
-        assert hasattr(mod, "get_contract_size")
-        # Verify it's the same function
-        assert mod.calculate_dynamic_risk is calculate_dynamic_risk
+    def test_ml_package_reexports(self):
+        """ml package re-exports compass symbols without deprecation warnings."""
+        import ml
+        assert hasattr(ml, "SignalModel")
+        assert hasattr(ml, "FeatureEngine")
+        assert hasattr(ml, "IVAnalyzer")
+        assert hasattr(ml, "PositionSizer")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
