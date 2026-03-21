@@ -297,6 +297,7 @@ def mock_macro_db(tmp_path) -> str:
             description    TEXT,
             days_out       INTEGER,
             scaling_factor REAL,
+            is_emergency   INTEGER DEFAULT 0,
             PRIMARY KEY (event_date, event_type)
         );
 
