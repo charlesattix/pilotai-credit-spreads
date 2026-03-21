@@ -612,6 +612,74 @@ def generate_feature_analysis(df: pd.DataFrame, config_name: str = "exp401") -> 
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Dataset merge + dedup
+# ═══════════════════════════════════════════════════════════════════════════
+
+DEDUP_KEYS = ["entry_date", "exit_date", "strategy_type", "spread_type"]
+
+EXP400_PATH = ROOT / "ml" / "training_data.csv"
+EXP401_PATH = COMPASS_DIR / "training_data_exp401.csv"
+COMBINED_PATH = COMPASS_DIR / "training_data_combined.csv"
+
+
+def merge_datasets() -> pd.DataFrame:
+    """Merge EXP-400 + EXP-401 datasets into a combined, deduplicated dataset.
+
+    Deduplicates on (entry_date, exit_date, strategy_type, spread_type).
+    When duplicates exist, EXP-401 rows are preferred (newer config).
+
+    Returns the merged DataFrame.
+    """
+    dfs = []
+
+    for path, label in [(EXP400_PATH, "exp400"), (EXP401_PATH, "exp401")]:
+        if not path.exists():
+            logger.warning("Dataset not found: %s — skipping", path)
+            continue
+        df = pd.read_csv(path)
+        df["_source"] = label
+        logger.info("Loaded %s: %d trades", label, len(df))
+        dfs.append(df)
+
+    if not dfs:
+        raise FileNotFoundError("No source datasets found for merge")
+
+    combined = pd.concat(dfs, ignore_index=True)
+    before = len(combined)
+
+    # Dedup: keep last (exp401 is appended second, so it wins)
+    combined = combined.drop_duplicates(subset=DEDUP_KEYS, keep="last")
+    combined = combined.sort_values("entry_date").reset_index(drop=True)
+
+    dupes_removed = before - len(combined)
+    logger.info("Merged: %d total, %d duplicates removed, %d final",
+                before, dupes_removed, len(combined))
+
+    # Drop internal column
+    source_counts = combined["_source"].value_counts().to_dict()
+    combined = combined.drop(columns=["_source"])
+
+    # Save
+    combined.to_csv(COMBINED_PATH, index=False)
+    logger.info("Saved combined dataset to %s", COMBINED_PATH)
+
+    # Generate analysis for combined
+    analysis = generate_feature_analysis(combined, "combined")
+    analysis_path = COMPASS_DIR / "feature_analysis_combined.md"
+    with open(analysis_path, "w") as f:
+        f.write(analysis)
+    logger.info("Saved combined feature analysis to %s", analysis_path)
+
+    # Summary
+    logger.info("Source breakdown: %s", source_counts)
+    logger.info("Strategy split: %s", combined["strategy_type"].value_counts().to_dict())
+    logger.info("Year range: %s to %s", combined["entry_date"].min(), combined["entry_date"].max())
+    logger.info("Overall win rate: %.1f%%", combined["win"].mean() * 100)
+
+    return combined
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Main
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -619,7 +687,13 @@ def main():
     parser = argparse.ArgumentParser(description="Collect ML training data")
     parser.add_argument("--config", choices=["exp400", "exp401"], default="exp401",
                         help="Backtest config: exp400 (CS+IC) or exp401 (CS+SS regime)")
+    parser.add_argument("--merge", action="store_true",
+                        help="Merge EXP-400 + EXP-401 into combined dataset (no backtest)")
     args = parser.parse_args()
+
+    if args.merge:
+        merge_datasets()
+        return
 
     config_name = args.config
     t0 = time.time()
