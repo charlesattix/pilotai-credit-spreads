@@ -8,12 +8,13 @@ Uses VIX levels + SPY price trends per MASTERPLAN spec:
   - LOW_VOL:      VIX < 15, no strong trend
   - CRASH:        VIX > 40, sharp decline
 
-Enhanced with ComboRegimeDetector features:
+Enhanced features (all off by default for backward compatibility):
   - Configurable thresholds via config dict
-  - 10-day hysteresis cooldown (prevent rapid regime flipping)
-  - RSI momentum signal
-  - VIX/VIX3M term structure signal
+  - hysteresis_days: prevent regime flip-flop within N days (default 0 = off)
+  - vix3m_crash_threshold: VIX/VIX3M ratio above this triggers CRASH (default None = off)
   - Shift-by-1 lookahead protection in classify_series()
+
+Also contains ComboRegimeDetector (absorbed from ml/combo_regime_detector.py).
 """
 
 from enum import Enum
@@ -70,12 +71,9 @@ class RegimeClassifier:
         trend_window: Number of days for the trend moving average.
         trend_threshold: Minimum slope (annualized %) to consider trending.
         config: Optional dict with configurable thresholds:
-            - cooldown_days (int): Hysteresis cooldown before regime change (default 10)
-            - rsi_period (int): RSI lookback period (default 14)
-            - rsi_bull_threshold (float): RSI above this → bull signal (default 55.0)
-            - rsi_bear_threshold (float): RSI below this → bear signal (default 45.0)
-            - vix_structure_bull (float): VIX/VIX3M below this → bull signal (default 0.95)
-            - vix_structure_bear (float): VIX/VIX3M above this → bear signal (default 1.05)
+            - hysteresis_days (int): Min days between regime changes (default 0 = off)
+            - vix3m_crash_threshold (float): VIX/VIX3M ratio above this → CRASH
+              signal when VIX > 25. (default None = off)
     """
 
     def __init__(
@@ -87,20 +85,26 @@ class RegimeClassifier:
         self.trend_window = trend_window
         self.trend_threshold = trend_threshold  # annualized % slope
 
-        # Enhanced: configurable thresholds from config dict
         cfg = config or {}
-        self.cooldown_days = int(cfg.get('cooldown_days', 10))
-        self.rsi_period = int(cfg.get('rsi_period', 14))
-        self.rsi_bull_threshold = float(cfg.get('rsi_bull_threshold', 55.0))
-        self.rsi_bear_threshold = float(cfg.get('rsi_bear_threshold', 45.0))
-        self.vix_struct_bull = float(cfg.get('vix_structure_bull', 0.95))
-        self.vix_struct_bear = float(cfg.get('vix_structure_bear', 1.05))
+
+        # Hysteresis: prevent regime flip-flop within N trading days.
+        # Default 0 = off (backward compatible with original RegimeClassifier).
+        self.hysteresis_days = int(cfg.get('hysteresis_days', 0))
+
+        # VIX term structure crash signal: VIX/VIX3M ratio above this
+        # threshold (with VIX > 25) triggers CRASH classification.
+        # Default None = off (backward compatible).
+        _vix3m = cfg.get('vix3m_crash_threshold', None)
+        self.vix3m_crash_threshold: Optional[float] = (
+            float(_vix3m) if _vix3m is not None else None
+        )
 
     def classify(
         self,
         vix: float,
         spy_prices: pd.Series,
         date: pd.Timestamp,
+        vix3m: Optional[float] = None,
     ) -> Regime:
         """Classify the regime for a single trading day.
 
@@ -108,10 +112,24 @@ class RegimeClassifier:
             vix: Current VIX close value.
             spy_prices: SPY close series up to (and including) this date.
             date: Current date (for debugging; not used in logic).
+            vix3m: Optional VIX3M close value. When provided along with
+                vix3m_crash_threshold config, enables term structure crash
+                detection (VIX/VIX3M > threshold + VIX > 25 → CRASH).
 
         Returns:
             Regime enum value.
         """
+        # VIX/VIX3M term structure crash signal (only when enabled via config)
+        if (
+            self.vix3m_crash_threshold is not None
+            and vix3m is not None
+            and vix3m > 0
+            and vix > 25
+        ):
+            ratio = vix / vix3m
+            if ratio > self.vix3m_crash_threshold:
+                return Regime.CRASH
+
         # Crash takes highest priority — VIX > 40 + sharp decline
         if vix > 40:
             if self._is_declining(spy_prices):
@@ -202,7 +220,7 @@ class RegimeClassifier:
             # Hysteresis cooldown
             if current_regime is not None and raw_regime != current_regime:
                 days_since_change = idx - last_change_idx
-                if last_change_idx >= 0 and days_since_change < self.cooldown_days:
+                if last_change_idx >= 0 and days_since_change < self.hysteresis_days:
                     regimes[date] = current_regime
                     continue
                 current_regime = raw_regime
@@ -326,7 +344,7 @@ class ComboRegimeDetector:
         self.vix_struct_bull    = float(config.get('vix_structure_bull', 0.95))
         self.vix_struct_bear    = float(config.get('vix_structure_bear', 1.05))
         self.bear_unanimous     = bool(config.get('bear_requires_unanimous', True))
-        self.cooldown_days      = int(config.get('cooldown_days', 10))
+        self.hysteresis_days      = int(config.get('cooldown_days', 10))
         self.vix_extreme        = float(config.get('vix_extreme', 40.0))
 
         # ma_crossover needs fast MA period
@@ -436,7 +454,7 @@ class ComboRegimeDetector:
             # --- Apply hysteresis ---
             if raw_regime != current_regime:
                 days_since_change = idx - last_change_idx
-                if last_change_idx >= 0 and days_since_change < self.cooldown_days:
+                if last_change_idx >= 0 and days_since_change < self.hysteresis_days:
                     # Hysteresis active: keep current regime
                     result[ts] = current_regime
                     continue
