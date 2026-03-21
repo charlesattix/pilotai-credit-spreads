@@ -1,0 +1,165 @@
+{
+  "generated_at": "2026-03-21T06:19:09.944530",
+  "ml_model": "ml/models/signal_model_20260321.joblib",
+  "ml_threshold": 0.4,
+  "c001_baseline": {
+    "yearly": {
+      "2020": {
+        "return_pct": 26.35,
+        "max_drawdown": -7.78,
+        "total_trades": 49,
+        "win_rate": 81.63,
+        "sharpe_ratio": 1.92,
+        "compass_stats": {
+          "macro_boosts": 19,
+          "macro_reduces": 0,
+          "rrg_blocks": 0
+        }
+      },
+      "2021": {
+        "return_pct": 97.72,
+        "max_drawdown": -3.19,
+        "total_trades": 86,
+        "win_rate": 88.37,
+        "sharpe_ratio": 6.68,
+        "compass_stats": {
+          "macro_boosts": 0,
+          "macro_reduces": 27,
+          "rrg_blocks": 0
+        }
+      },
+      "2022": {
+        "return_pct": 8.15,
+        "max_drawdown": -6.79,
+        "total_trades": 39,
+        "win_rate": 74.36,
+        "sharpe_ratio": 0.6,
+        "compass_stats": {
+          "macro_boosts": 0,
+          "macro_reduces": 0,
+          "rrg_blocks": 0
+        }
+      },
+      "2023": {
+        "return_pct": 35.54,
+        "max_drawdown": -3.62,
+        "total_trades": 56,
+        "win_rate": 87.5,
+        "sharpe_ratio": 3.77,
+        "compass_stats": {
+          "macro_boosts": 0,
+          "macro_reduces": 0,
+          "rrg_blocks": 0
+        }
+      },
+      "2024": {
+        "return_pct": 24.27,
+        "max_drawdown": -6.65,
+        "total_trades": 61,
+        "win_rate": 78.69,
+        "sharpe_ratio": 2.48,
+        "compass_stats": {
+          "macro_boosts": 0,
+          "macro_reduces": 0,
+          "rrg_blocks": 0
+        }
+      },
+      "2025": {
+        "return_pct": 35.25,
+        "max_drawdown": -3.57,
+        "total_trades": 57,
+        "win_rate": 89.47,
+        "sharpe_ratio": 3.59,
+        "compass_stats": {
+          "macro_boosts": 0,
+          "macro_reduces": 0,
+          "rrg_blocks": 0
+        }
+      }
+    },
+    "avg_return": 37.88,
+    "worst_dd": -7.78,
+    "total_trades": 348
+  },
+  "combined": {
+    "experiment_id": "X-003",
+    "description": "COMPASS C-001 (macro_sizing) + ML threshold 0.4",
+    "ml_threshold": 0.4,
+    "yearly": {
+      "2020": {
+        "return_pct": 16.77,
+        "max_drawdown": -8.2,
+        "total_trades": 28,
+        "win_rate": 78.57,
+        "trades_kept": 28,
+        "trades_rejected": 21
+      },
+      "2021": {
+        "return_pct": 95.91,
+        "max_drawdown": -2.94,
+        "total_trades": 70,
+        "win_rate": 90.0,
+        "trades_kept": 70,
+        "trades_rejected": 16
+      },
+      "2022": {
+        "return_pct": -4.64,
+        "max_drawdown": -10.23,
+        "total_trades": 20,
+        "win_rate": 60.0,
+        "trades_kept": 20,
+        "trades_rejected": 19
+      },
+      "2023": {
+        "return_pct": 32.16,
+        "max_drawdown": -3.66,
+        "total_trades": 38,
+        "win_rate": 89.47,
+        "trades_kept": 38,
+        "trades_rejected": 18
+      },
+      "2024": {
+        "return_pct": 23.07,
+        "max_drawdown": -6.03,
+        "total_trades": 39,
+        "win_rate": 82.05,
+        "trades_kept": 39,
+        "trades_rejected": 22
+      },
+      "2025": {
+        "return_pct": 30.33,
+        "max_drawdown": -3.67,
+        "total_trades": 39,
+        "win_rate": 87.18,
+        "trades_kept": 39,
+        "trades_rejected": 18
+      }
+    },
+    "avg_return": 32.27,
+    "min_return": -4.64,
+    "max_return": 95.91,
+    "worst_dd": -10.23,
+    "total_trades": 234,
+    "years_profitable": 5,
+    "year_2022_return": -4.64,
+    "gates": {
+      "robust_score": 0.772,
+      "robust_components": {
+        "A_consistency": 0.833,
+        "B_return_quality": 1.0,
+        "C_drawdown": 0.659,
+        "D_trade_count": 0.936,
+        "E_worst_year": 0.0
+      },
+      "robust_pass": false,
+      "profitable_6_6": false,
+      "trades_pass": false,
+      "year_2022_pass": false,
+      "all_pass": false
+    }
+  },
+  "acceptance": {
+    "combined_return_vs_c001": -5.609999999999999,
+    "combined_dd_vs_c001": -2.45
+  }
+}
