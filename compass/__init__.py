@@ -24,6 +24,7 @@ from compass.sizing import calculate_dynamic_risk, get_contract_size, PositionSi
 from compass.signal_model import SignalModel
 from compass.features import FeatureEngine
 from compass.iv_surface import IVAnalyzer
+from compass.ml_strategy import MLEnhancedStrategy
 
 __all__ = [
     # regime
@@ -58,4 +59,5 @@ __all__ = [
     "SignalModel",
     "FeatureEngine",
     "IVAnalyzer",
+    "MLEnhancedStrategy",
 ]
