@@ -15,7 +15,6 @@ from typing import Dict, Optional
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
 
 from shared.indicators import calculate_iv_rank as _shared_iv_rank
 
@@ -294,25 +293,23 @@ class IVAnalyzer:
         """
         Get historical implied volatility (using HV as proxy).
 
+        Requires data_cache. Returns None on cache miss.
         Caches results for 1 day.
         """
-        # Check cache
+        # Check in-memory cache
         if ticker in self.iv_history_cache:
             cache_age = (datetime.now(timezone.utc) - self.cache_timestamp.get(ticker, datetime.min.replace(tzinfo=timezone.utc))).total_seconds()
             if cache_age < 86400:  # 24 hours
                 return self.iv_history_cache[ticker]
 
         try:
-            # Fetch historical data
-            end_date = datetime.now(timezone.utc)
-            start_date = end_date - timedelta(days=self.lookback_days + 30)
+            if not self.data_cache:
+                logger.warning("No data_cache — cannot compute IV history for %s", ticker)
+                return None
 
-            if self.data_cache:
-                stock = self.data_cache.get_history(ticker, period='1y')
-            else:
-                stock = yf.download(ticker, start=start_date, end=end_date, progress=False)
+            stock = self.data_cache.get_history(ticker, period='1y')
 
-            if stock.empty:
+            if stock is None or stock.empty:
                 return None
 
             # Calculate 20-day historical volatility as IV proxy

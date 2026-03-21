@@ -16,7 +16,6 @@ from typing import Dict, Optional
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
 
 from shared.constants import CPI_RELEASE_DAYS, FOMC_DATES
 from shared.indicators import calculate_rsi
@@ -51,9 +50,13 @@ class FeatureEngine:
         logger.info("FeatureEngine initialized")
 
     def _download(self, ticker, period='6mo'):
+        """Fetch equity OHLCV via data_cache. Returns None on cache miss."""
         if self.data_cache:
-            return self.data_cache.get_history(ticker, period)
-        return yf.download(ticker, period=period, progress=False)
+            result = self.data_cache.get_history(ticker, period)
+            if result is not None and not (isinstance(result, pd.DataFrame) and result.empty):
+                return result
+        logger.warning("No data source for %s (data_cache=%s)", ticker, bool(self.data_cache))
+        return None
 
     def build_features(
         self,
@@ -64,9 +67,11 @@ class FeatureEngine:
         iv_analysis: Optional[Dict] = None,
         technical_signals: Optional[Dict] = None,
         market_features: Optional[Dict] = None,
-    ) -> Dict:
+    ) -> Optional[Dict]:
         """
         Build complete feature set for a potential trade.
+
+        Returns None on cache miss (caller should skip trade).
 
         Args:
             ticker: Stock ticker
@@ -77,7 +82,7 @@ class FeatureEngine:
             technical_signals: Technical analysis signals
 
         Returns:
-            Dictionary of features
+            Dictionary of features, or None if data unavailable
         """
         try:
             # Initialize feature dict
@@ -87,14 +92,20 @@ class FeatureEngine:
                 'current_price': current_price,
             }
 
-            # 1. Technical features
+            # 1. Technical features (None = cache miss → skip trade)
             tech_features = self._compute_technical_features(ticker, current_price)
+            if tech_features is None:
+                logger.warning("Cache miss: no technical data for %s — skipping", ticker)
+                return None
             features.update(tech_features)
 
-            # 2. Volatility features
+            # 2. Volatility features (None = cache miss → skip trade)
             vol_features = self._compute_volatility_features(
                 ticker, options_chain, iv_analysis
             )
+            if vol_features is None:
+                logger.warning("Cache miss: no volatility data for %s — skipping", ticker)
+                return None
             features.update(vol_features)
 
             # 3. Market features (use pre-computed if provided)
@@ -102,15 +113,20 @@ class FeatureEngine:
                 features.update(market_features)
             else:
                 computed_market = self.compute_market_features()
+                if computed_market is None:
+                    logger.warning("Cache miss: no market data — skipping %s", ticker)
+                    return None
                 features.update(computed_market)
 
             # 4. Event risk features
             event_features = self._compute_event_risk_features(ticker)
-            features.update(event_features)
+            if event_features is not None:
+                features.update(event_features)
 
             # 5. Seasonal features
             seasonal_features = self._compute_seasonal_features()
-            features.update(seasonal_features)
+            if seasonal_features is not None:
+                features.update(seasonal_features)
 
             # 6. Regime features (if available)
             if regime_data:
@@ -126,18 +142,18 @@ class FeatureEngine:
 
         except Exception as e:
             logger.error(f"Error building features for {ticker}: {e}", exc_info=True)
-            return {'ticker': ticker, 'error': str(e)}
+            return None
 
-    def _compute_technical_features(self, ticker: str, current_price: float) -> Dict:
+    def _compute_technical_features(self, ticker: str, current_price: float) -> Optional[Dict]:
         """
-        Compute technical indicators.
+        Compute technical indicators. Returns None on cache miss.
         """
         try:
             # Fetch price data
             stock = self._download(ticker, period='6mo')
 
-            if stock.empty:
-                return self._get_default_technical_features()
+            if stock is None or stock.empty:
+                return None
 
             close = stock['Close']
             high = stock['High']
@@ -187,16 +203,16 @@ class FeatureEngine:
 
         except Exception as e:
             logger.error(f"Error computing technical features: {e}", exc_info=True)
-            return self._get_default_technical_features()
+            return None
 
     def _compute_volatility_features(
         self,
         ticker: str,
         options_chain: pd.DataFrame,
         iv_analysis: Optional[Dict]
-    ) -> Dict:
+    ) -> Optional[Dict]:
         """
-        Compute volatility-based features.
+        Compute volatility-based features. Returns None on cache miss.
         """
         try:
             features = {}
@@ -204,15 +220,13 @@ class FeatureEngine:
             # Realized volatility (historical)
             stock = self._download(ticker, period='3mo')
 
-            if not stock.empty:
+            if stock is not None and not stock.empty:
                 returns = stock['Close'].pct_change()
                 features['realized_vol_10d'] = float(returns.tail(10).std() * np.sqrt(252) * 100)
                 features['realized_vol_20d'] = float(returns.tail(20).std() * np.sqrt(252) * 100)
                 features['realized_vol_60d'] = float(returns.tail(60).std() * np.sqrt(252) * 100)
             else:
-                features['realized_vol_10d'] = 20.0
-                features['realized_vol_20d'] = 20.0
-                features['realized_vol_60d'] = 20.0
+                return None  # No equity data — can't compute vol features
 
             # IV features from analysis
             if iv_analysis and iv_analysis.get('iv_rank_percentile', {}).get('available'):
@@ -221,17 +235,20 @@ class FeatureEngine:
                 features['iv_percentile'] = float(iv_data.get('iv_percentile', 50))
                 features['current_iv'] = float(iv_data.get('current_iv', 20))
             else:
-                # Fallback: compute from options chain
+                # Use options chain if available
                 if not options_chain.empty and 'iv' in options_chain.columns:
                     features['current_iv'] = float(options_chain['iv'].median() * 100)
                 else:
-                    features['current_iv'] = 20.0
+                    return None  # No IV data — can't compute vol features
 
-                features['iv_rank'] = 50.0
-                features['iv_percentile'] = 50.0
+                features['iv_rank'] = None
+                features['iv_percentile'] = None
 
             # Realized vs Implied spread
-            features['rv_iv_spread'] = features['realized_vol_20d'] - features['current_iv']
+            if features.get('current_iv') is not None:
+                features['rv_iv_spread'] = features['realized_vol_20d'] - features['current_iv']
+            else:
+                features['rv_iv_spread'] = None
 
             # Skew features
             if iv_analysis and iv_analysis.get('skew', {}).get('available'):
@@ -239,40 +256,29 @@ class FeatureEngine:
                 features['put_call_skew_ratio'] = float(skew_data.get('put_call_skew_ratio', 1.0))
                 features['put_skew_steepness'] = float(skew_data.get('put_skew_steepness', 0))
             else:
-                features['put_call_skew_ratio'] = 1.0
-                features['put_skew_steepness'] = 0.0
+                features['put_call_skew_ratio'] = None
+                features['put_skew_steepness'] = None
 
             return features
 
         except Exception as e:
             logger.error(f"Error computing volatility features: {e}", exc_info=True)
-            return {
-                'realized_vol_10d': 20.0,
-                'realized_vol_20d': 20.0,
-                'realized_vol_60d': 20.0,
-                'iv_rank': 50.0,
-                'iv_percentile': 50.0,
-                'current_iv': 20.0,
-                'rv_iv_spread': 0.0,
-                'put_call_skew_ratio': 1.0,
-                'put_skew_steepness': 0.0,
-            }
+            return None
 
-    def compute_market_features(self) -> Dict:
+    def compute_market_features(self) -> Optional[Dict]:
         """
-        Compute market-wide features.
+        Compute market-wide features. Returns None on cache miss.
         """
         try:
             features = {}
 
             # VIX
             vix = self._download('^VIX', period='5d')
-            if not vix.empty:
+            if vix is not None and not vix.empty:
                 features['vix_level'] = float(vix['Close'].iloc[-1])
                 features['vix_change_1d'] = float(vix['Close'].pct_change().iloc[-1] * 100)
             else:
-                features['vix_level'] = 15.0
-                features['vix_change_1d'] = 0.0
+                return None  # VIX data required for market features
 
             # Put/Call ratio (approximation using VIX)
             # In production, use actual CBOE put/call data
@@ -280,7 +286,7 @@ class FeatureEngine:
 
             # Market trend (SPY)
             spy = self._download('SPY', period='3mo')
-            if not spy.empty:
+            if spy is not None and not spy.empty:
                 spy_returns = spy['Close'].pct_change()
                 features['spy_return_5d'] = float((spy['Close'].iloc[-1] / spy['Close'].iloc[-6] - 1) * 100 if len(spy) > 5 else 0)
                 features['spy_return_20d'] = float((spy['Close'].iloc[-1] / spy['Close'].iloc[-21] - 1) * 100 if len(spy) > 20 else 0)
@@ -288,22 +294,13 @@ class FeatureEngine:
                 # SPY volatility
                 features['spy_realized_vol'] = float(spy_returns.tail(20).std() * np.sqrt(252) * 100)
             else:
-                features['spy_return_5d'] = 0.0
-                features['spy_return_20d'] = 0.0
-                features['spy_realized_vol'] = 15.0
+                return None  # SPY data required for market features
 
             return features
 
         except Exception as e:
             logger.error(f"Error computing market features: {e}", exc_info=True)
-            return {
-                'vix_level': 15.0,
-                'vix_change_1d': 0.0,
-                'put_call_ratio': 1.0,
-                'spy_return_5d': 0.0,
-                'spy_return_20d': 0.0,
-                'spy_realized_vol': 15.0,
-            }
+            return None
 
     def _compute_event_risk_features(self, ticker: str) -> Dict:
         """
@@ -313,23 +310,23 @@ class FeatureEngine:
             features = {}
             now = datetime.now(timezone.utc)
 
-            # Days to next earnings
+            # Days to next earnings (via data_cache only)
             try:
-                if self.data_cache:
+                if self.data_cache and hasattr(self.data_cache, 'get_ticker_obj'):
                     stock = self.data_cache.get_ticker_obj(ticker)
-                else:
-                    stock = yf.Ticker(ticker)
-                calendar = stock.calendar
+                    calendar = stock.calendar
 
-                if calendar is not None and 'Earnings Date' in calendar:
-                    earnings_date = pd.to_datetime(calendar['Earnings Date'])
-                    if isinstance(earnings_date, pd.Series):
-                        earnings_date = earnings_date.iloc[0]
+                    if calendar is not None and 'Earnings Date' in calendar:
+                        earnings_date = pd.to_datetime(calendar['Earnings Date'])
+                        if isinstance(earnings_date, pd.Series):
+                            earnings_date = earnings_date.iloc[0]
 
-                    days_to_earnings = (earnings_date - now).days
-                    features['days_to_earnings'] = max(0, days_to_earnings)
+                        days_to_earnings = (earnings_date - now).days
+                        features['days_to_earnings'] = max(0, days_to_earnings)
+                    else:
+                        features['days_to_earnings'] = 999  # Unknown
                 else:
-                    features['days_to_earnings'] = 999  # Unknown
+                    features['days_to_earnings'] = 999  # No data source
             except Exception as e:
                 logger.warning(f"Failed to get earnings for {ticker}: {e}")
                 features['days_to_earnings'] = 999
@@ -381,14 +378,7 @@ class FeatureEngine:
 
         except Exception as e:
             logger.error(f"Error computing event risk features: {e}", exc_info=True)
-            return {
-                'days_to_earnings': 999,
-                'days_to_fomc': 999,
-                'days_to_cpi': 30,
-                'fomc_risk': 0.0,
-                'cpi_risk': 0.0,
-                'event_risk_score': 0.2,
-            }
+            return None
 
     def _compute_seasonal_features(self) -> Dict:
         """
@@ -418,15 +408,7 @@ class FeatureEngine:
 
         except Exception as e:
             logger.error(f"Error computing seasonal features: {e}", exc_info=True)
-            return {
-                'day_of_week': 2,
-                'day_of_month': 15,
-                'month': 1,
-                'quarter': 1,
-                'is_opex_week': 0.0,
-                'is_monday': 0.0,
-                'is_month_end': 0.0,
-            }
+            return None
 
     def _extract_regime_features(self, regime_data: Dict) -> Dict:
         """
@@ -449,30 +431,46 @@ class FeatureEngine:
     def _compute_derived_features(self, features: Dict) -> Dict:
         """
         Compute derived/interaction features.
+        Handles None values gracefully.
         """
         derived = {}
 
         # RSI extremes
-        rsi = features.get('rsi_14', 50)
-        derived['rsi_oversold'] = 1.0 if rsi < 30 else 0.0
-        derived['rsi_overbought'] = 1.0 if rsi > 70 else 0.0
+        rsi = features.get('rsi_14')
+        if rsi is not None:
+            derived['rsi_oversold'] = 1.0 if rsi < 30 else 0.0
+            derived['rsi_overbought'] = 1.0 if rsi > 70 else 0.0
+        else:
+            derived['rsi_oversold'] = None
+            derived['rsi_overbought'] = None
 
         # IV rank extremes
-        iv_rank = features.get('iv_rank', 50)
-        derived['iv_rank_high'] = 1.0 if iv_rank > 70 else 0.0
-        derived['iv_rank_low'] = 1.0 if iv_rank < 30 else 0.0
+        iv_rank = features.get('iv_rank')
+        if iv_rank is not None:
+            derived['iv_rank_high'] = 1.0 if iv_rank > 70 else 0.0
+            derived['iv_rank_low'] = 1.0 if iv_rank < 30 else 0.0
+        else:
+            derived['iv_rank_high'] = None
+            derived['iv_rank_low'] = None
 
         # Volatility regime interaction
         # High IV + low realized vol = good for selling premium
-        rv = features.get('realized_vol_20d', 20)
-        iv = features.get('current_iv', 20)
-        derived['vol_premium'] = iv - rv
-        derived['vol_premium_pct'] = (iv - rv) / rv * 100 if rv > 0 else 0
+        rv = features.get('realized_vol_20d')
+        iv = features.get('current_iv')
+        if rv is not None and iv is not None:
+            derived['vol_premium'] = iv - rv
+            derived['vol_premium_pct'] = (iv - rv) / rv * 100 if rv > 0 else 0
+        else:
+            derived['vol_premium'] = None
+            derived['vol_premium_pct'] = None
 
         # Risk-adjusted momentum
-        atr_pct = features.get('atr_pct', 2)
-        return_20d = features.get('return_20d', 0)
-        derived['risk_adjusted_momentum'] = return_20d / atr_pct if atr_pct > 0 else 0
+        atr_pct = features.get('atr_pct')
+        return_20d = features.get('return_20d')
+        if atr_pct is not None and return_20d is not None and atr_pct > 0:
+            derived['risk_adjusted_momentum'] = return_20d / atr_pct
+        else:
+            derived['risk_adjusted_momentum'] = None
 
         return derived
 

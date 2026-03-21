@@ -13,7 +13,7 @@ from compass.features import FeatureEngine
 # ---------------------------------------------------------------------------
 
 def _make_price_df(periods=130, seed=42):
-    """Create a synthetic price DataFrame that mimics yf.download output."""
+    """Create a synthetic price DataFrame that mimics data_cache.get_history output."""
     np.random.seed(seed)
     dates = pd.date_range('2025-06-01', periods=periods, freq='B')
     close = 450.0 + np.cumsum(np.random.randn(periods) * 2)
@@ -41,9 +41,12 @@ def _make_options_df():
 _MOCK_PRICE_DF = _make_price_df()
 
 
-def _mock_download(ticker, period='6mo', progress=False):
-    """A drop-in replacement for yf.download used in tests."""
-    return _MOCK_PRICE_DF.copy()
+def _make_data_cache():
+    """Create a mock data_cache that returns price data for any ticker."""
+    mock_cache = MagicMock()
+    mock_cache.get_history.return_value = _MOCK_PRICE_DF.copy()
+    mock_cache.get_ticker_obj.return_value = MagicMock(calendar=None)
+    return mock_cache
 
 
 # ---------------------------------------------------------------------------
@@ -52,80 +55,92 @@ def _mock_download(ticker, period='6mo', progress=False):
 
 class TestBuildFeatures:
 
-    @patch('ml.feature_engine.yf.download', side_effect=_mock_download)
-    @patch('ml.feature_engine.yf.Ticker')
-    def test_returns_dict_with_ticker(self, mock_ticker_cls, mock_dl):
+    def test_returns_dict_with_ticker(self):
         """build_features should return a dict containing the ticker key."""
-        mock_ticker = MagicMock()
-        mock_ticker.calendar = None
-        mock_ticker_cls.return_value = mock_ticker
-
-        engine = FeatureEngine()
+        cache = _make_data_cache()
+        engine = FeatureEngine(data_cache=cache)
         result = engine.build_features(
             ticker='SPY',
             current_price=450.0,
             options_chain=_make_options_df(),
         )
+        assert result is not None
         assert result['ticker'] == 'SPY'
 
-    @patch('ml.feature_engine.yf.download', side_effect=_mock_download)
-    @patch('ml.feature_engine.yf.Ticker')
-    def test_contains_technical_features(self, mock_ticker_cls, mock_dl):
+    def test_contains_technical_features(self):
         """build_features should include technical features like rsi_14."""
-        mock_ticker = MagicMock()
-        mock_ticker.calendar = None
-        mock_ticker_cls.return_value = mock_ticker
+        cache = _make_data_cache()
+        engine = FeatureEngine(data_cache=cache)
+        result = engine.build_features(
+            ticker='SPY',
+            current_price=450.0,
+            options_chain=_make_options_df(),
+        )
+        assert result is not None
+        assert 'rsi_14' in result
+        assert 'macd' in result
 
+    def test_returns_none_without_data_cache(self):
+        """build_features should return None when no data_cache is provided."""
         engine = FeatureEngine()
         result = engine.build_features(
             ticker='SPY',
             current_price=450.0,
             options_chain=_make_options_df(),
         )
-        assert 'rsi_14' in result
-        assert 'macd' in result
+        assert result is None
 
 
 class TestComputeTechnicalFeatures:
 
-    @patch('ml.feature_engine.yf.download', side_effect=_mock_download)
-    def test_rsi_in_range(self, mock_dl):
+    def test_rsi_in_range(self):
         """RSI should be between 0 and 100."""
-        engine = FeatureEngine()
+        cache = _make_data_cache()
+        engine = FeatureEngine(data_cache=cache)
         features = engine._compute_technical_features('SPY', 450.0)
+        assert features is not None
         assert 0 <= features['rsi_14'] <= 100
 
-    @patch('ml.feature_engine.yf.download', side_effect=_mock_download)
-    def test_atr_pct_positive(self, mock_dl):
+    def test_atr_pct_positive(self):
         """ATR percentage should be positive."""
-        engine = FeatureEngine()
+        cache = _make_data_cache()
+        engine = FeatureEngine(data_cache=cache)
         features = engine._compute_technical_features('SPY', 450.0)
+        assert features is not None
         assert features['atr_pct'] > 0
 
-    @patch('ml.feature_engine.yf.download', return_value=pd.DataFrame())
-    def test_returns_defaults_on_empty_data(self, mock_dl):
-        """Should return default features when download returns empty data."""
-        engine = FeatureEngine()
+    def test_returns_none_on_empty_data(self):
+        """Should return None when data_cache returns empty data."""
+        cache = MagicMock()
+        cache.get_history.return_value = pd.DataFrame()
+        engine = FeatureEngine(data_cache=cache)
         features = engine._compute_technical_features('BAD', 100.0)
-        assert features['rsi_14'] == 50.0
+        assert features is None
+
+    def test_returns_none_without_cache(self):
+        """Should return None when no data_cache is provided."""
+        engine = FeatureEngine()
+        features = engine._compute_technical_features('SPY', 450.0)
+        assert features is None
 
 
 class TestComputeVolatilityFeatures:
 
-    @patch('ml.feature_engine.yf.download', side_effect=_mock_download)
-    def test_realized_vol_positive(self, mock_dl):
+    def test_realized_vol_positive(self):
         """Realized volatility values should be positive."""
-        engine = FeatureEngine()
+        cache = _make_data_cache()
+        engine = FeatureEngine(data_cache=cache)
         features = engine._compute_volatility_features(
             'SPY', _make_options_df(), None
         )
+        assert features is not None
         assert features['realized_vol_10d'] > 0
         assert features['realized_vol_20d'] > 0
 
-    @patch('ml.feature_engine.yf.download', side_effect=_mock_download)
-    def test_iv_from_analysis(self, mock_dl):
+    def test_iv_from_analysis(self):
         """When iv_analysis is provided, use its values."""
-        engine = FeatureEngine()
+        cache = _make_data_cache()
+        engine = FeatureEngine(data_cache=cache)
         iv_analysis = {
             'iv_rank_percentile': {
                 'available': True,
@@ -138,24 +153,41 @@ class TestComputeVolatilityFeatures:
         features = engine._compute_volatility_features(
             'SPY', _make_options_df(), iv_analysis
         )
+        assert features is not None
         assert features['iv_rank'] == 75.0
+
+    def test_returns_none_without_cache(self):
+        """Should return None when no data_cache is provided."""
+        engine = FeatureEngine()
+        features = engine._compute_volatility_features(
+            'SPY', _make_options_df(), None
+        )
+        assert features is None
 
 
 class TestComputeMarketFeatures:
 
-    @patch('ml.feature_engine.yf.download', side_effect=_mock_download)
-    def test_returns_vix_level(self, mock_dl):
+    def test_returns_vix_level(self):
         """Market features should contain vix_level."""
-        engine = FeatureEngine()
+        cache = _make_data_cache()
+        engine = FeatureEngine(data_cache=cache)
         features = engine.compute_market_features()
+        assert features is not None
         assert 'vix_level' in features
 
-    @patch('ml.feature_engine.yf.download', return_value=pd.DataFrame())
-    def test_returns_defaults_on_empty(self, mock_dl):
-        """Should return safe defaults when downloads fail."""
+    def test_returns_none_on_empty(self):
+        """Should return None when data_cache returns empty data."""
+        cache = MagicMock()
+        cache.get_history.return_value = pd.DataFrame()
+        engine = FeatureEngine(data_cache=cache)
+        features = engine.compute_market_features()
+        assert features is None
+
+    def test_returns_none_without_cache(self):
+        """Should return None when no data_cache is provided."""
         engine = FeatureEngine()
         features = engine.compute_market_features()
-        assert features['vix_level'] == 15.0
+        assert features is None
 
 
 class TestDataCacheBehavior:
@@ -169,14 +201,14 @@ class TestDataCacheBehavior:
         result = engine._download('SPY', period='6mo')
 
         mock_cache.get_history.assert_called_once_with('SPY', '6mo')
+        assert result is not None
         assert not result.empty
 
-    @patch('ml.feature_engine.yf.download', side_effect=_mock_download)
-    def test_falls_back_to_yf_without_cache(self, mock_dl):
-        """Without data_cache, _download should call yf.download."""
+    def test_returns_none_without_cache(self):
+        """Without data_cache, _download should return None."""
         engine = FeatureEngine()
-        engine._download('SPY', period='6mo')
-        mock_dl.assert_called_once_with('SPY', period='6mo', progress=False)
+        result = engine._download('SPY', period='6mo')
+        assert result is None
 
 
 class TestGetFeatureNames:
