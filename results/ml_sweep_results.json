@@ -1,0 +1,280 @@
+{
+  "baseline": {
+    "total_trades": 430,
+    "win_rate": 0.5837,
+    "avg_return_pct": -11.83
+  },
+  "gates": {
+    "g1_auc": true,
+    "g2_feature_importance": true,
+    "g3_calibration": false,
+    "g3_note": "G3 failed marginally in low-probability bins due to small sample size (~30 trades/bin, std error \u00b19%). High-probability bins pass. Model has strong discrimination (AUC 0.76-0.85).",
+    "g4_no_lookahead": true,
+    "all_pass": false
+  },
+  "fold_results": [
+    {
+      "test_year": 2023,
+      "n_train": 219,
+      "n_test": 73,
+      "train_win_rate": 0.5662100456621004,
+      "test_win_rate": 0.589041095890411,
+      "auc": 0.854263565891473,
+      "accuracy": 0.8493150684931506,
+      "precision": 0.8809523809523809,
+      "recall": 0.8604651162790697,
+      "feature_importance": {
+        "day_of_week": 0.0,
+        "days_since_last_trade": 0.0,
+        "dte_at_entry": 0.13819155097007751,
+        "rsi_14": 0.03981553763151169,
+        "momentum_5d_pct": 0.026132075116038322,
+        "momentum_10d_pct": 0.027378344908356667,
+        "vix": 0.047375988215208054,
+        "vix_percentile_20d": 0.033926237374544144,
+        "vix_percentile_50d": 0.04211026057600975,
+        "vix_percentile_100d": 0.0,
+        "iv_rank": 0.038054704666137695,
+        "dist_from_ma20_pct": 0.02835107408463955,
+        "dist_from_ma50_pct": 0.029382510110735893,
+        "dist_from_ma80_pct": 0.0,
+        "dist_from_ma200_pct": 0.026062045246362686,
+        "ma20_slope_ann_pct": 0.04099101945757866,
+        "ma50_slope_ann_pct": 0.06849675625562668,
+        "realized_vol_atr20": 0.037997305393218994,
+        "realized_vol_5d": 0.03754391893744469,
+        "realized_vol_10d": 0.0,
+        "realized_vol_20d": 0.07989591360092163,
+        "regime_bear": 0.0,
+        "regime_bull": 0.0,
+        "regime_crash": 0.0,
+        "regime_high_vol": 0.0,
+        "regime_low_vol": 0.0,
+        "strategy_type_CS": 0.17173855006694794,
+        "strategy_type_IC": 0.0,
+        "strategy_type_SS": 0.08655621111392975
+      },
+      "max_feature": "strategy_type_CS",
+      "max_feature_importance": 0.17173855006694794
+    },
+    {
+      "test_year": 2024,
+      "n_train": 292,
+      "n_test": 69,
+      "train_win_rate": 0.571917808219178,
+      "test_win_rate": 0.6521739130434783,
+      "auc": 0.7648148148148148,
+      "accuracy": 0.7246376811594203,
+      "precision": 0.825,
+      "recall": 0.7333333333333333,
+      "feature_importance": {
+        "day_of_week": 0.04262996464967728,
+        "days_since_last_trade": 0.0217780489474535,
+        "dte_at_entry": 0.09751063585281372,
+        "rsi_14": 0.030393848195672035,
+        "momentum_5d_pct": 0.02830064482986927,
+        "momentum_10d_pct": 0.03576739504933357,
+        "vix": 0.025488361716270447,
+        "vix_percentile_20d": 0.02913619391620159,
+        "vix_percentile_50d": 0.03443998470902443,
+        "vix_percentile_100d": 0.02467535249888897,
+        "iv_rank": 0.04444136470556259,
+        "dist_from_ma20_pct": 0.028051499277353287,
+        "dist_from_ma50_pct": 0.022698042914271355,
+        "dist_from_ma80_pct": 0.023601127788424492,
+        "dist_from_ma200_pct": 0.02653903141617775,
+        "ma20_slope_ann_pct": 0.030757972970604897,
+        "ma50_slope_ann_pct": 0.03245774656534195,
+        "realized_vol_atr20": 0.03730333223938942,
+        "realized_vol_5d": 0.023055018857121468,
+        "realized_vol_10d": 0.02959846891462803,
+        "realized_vol_20d": 0.042963650077581406,
+        "regime_bear": 0.0,
+        "regime_bull": 0.0,
+        "regime_crash": 0.0,
+        "regime_high_vol": 0.0,
+        "regime_low_vol": 0.0,
+        "strategy_type_CS": 0.1960083395242691,
+        "strategy_type_IC": 0.0,
+        "strategy_type_SS": 0.09240391105413437
+      },
+      "max_feature": "strategy_type_CS",
+      "max_feature_importance": 0.1960083395242691
+    },
+    {
+      "test_year": 2025,
+      "n_train": 361,
+      "n_test": 69,
+      "train_win_rate": 0.5872576177285319,
+      "test_win_rate": 0.5652173913043478,
+      "auc": 0.808974358974359,
+      "accuracy": 0.8115942028985508,
+      "precision": 0.8421052631578947,
+      "recall": 0.8205128205128205,
+      "feature_importance": {
+        "day_of_week": 0.04112854599952698,
+        "days_since_last_trade": 0.025844154879450798,
+        "dte_at_entry": 0.13429473340511322,
+        "rsi_14": 0.026560187339782715,
+        "momentum_5d_pct": 0.03392905369400978,
+        "momentum_10d_pct": 0.02559620514512062,
+        "vix": 0.035520587116479874,
+        "vix_percentile_20d": 0.021411636844277382,
+        "vix_percentile_50d": 0.04463931918144226,
+        "vix_percentile_100d": 0.026425974443554878,
+        "iv_rank": 0.03850452974438667,
+        "dist_from_ma20_pct": 0.02511279471218586,
+        "dist_from_ma50_pct": 0.021130964159965515,
+        "dist_from_ma80_pct": 0.02535865642130375,
+        "dist_from_ma200_pct": 0.04256086051464081,
+        "ma20_slope_ann_pct": 0.03242533281445503,
+        "ma50_slope_ann_pct": 0.036354511976242065,
+        "realized_vol_atr20": 0.031162705272436142,
+        "realized_vol_5d": 0.02664129249751568,
+        "realized_vol_10d": 0.02298641949892044,
+        "realized_vol_20d": 0.02592492662370205,
+        "regime_bear": 0.0,
+        "regime_bull": 0.0,
+        "regime_crash": 0.0,
+        "regime_high_vol": 0.0,
+        "regime_low_vol": 0.0,
+        "strategy_type_CS": 0.13147826492786407,
+        "strategy_type_IC": 0.0,
+        "strategy_type_SS": 0.12500841915607452
+      },
+      "max_feature": "dte_at_entry",
+      "max_feature_importance": 0.13429473340511322
+    }
+  ],
+  "calibration": [
+    {
+      "test_year": 2023,
+      "bins": [
+        {
+          "bin": "0.00-0.50",
+          "n": 31,
+          "predicted": 0.30856386562067845,
+          "actual": 0.1935483870967742,
+          "gap": 0.11501547852390426,
+          "evaluable": true
+        },
+        {
+          "bin": "0.50-1.00",
+          "n": 42,
+          "predicted": 0.8348338926858249,
+          "actual": 0.8809523809523809,
+          "gap": 0.04611848826655607,
+          "evaluable": true
+        }
+      ],
+      "max_evaluable_gap": 0.11501547852390426
+    },
+    {
+      "test_year": 2024,
+      "bins": [
+        {
+          "bin": "0.00-0.50",
+          "n": 29,
+          "predicted": 0.2855371272640826,
+          "actual": 0.41379310344827586,
+          "gap": 0.12825597618419327,
+          "evaluable": true
+        },
+        {
+          "bin": "0.50-1.00",
+          "n": 40,
+          "predicted": 0.8540166372574653,
+          "actual": 0.825,
+          "gap": 0.029016637257465394,
+          "evaluable": true
+        }
+      ],
+      "max_evaluable_gap": 0.12825597618419327
+    },
+    {
+      "test_year": 2025,
+      "bins": [
+        {
+          "bin": "0.00-0.50",
+          "n": 31,
+          "predicted": 0.28262834406123244,
+          "actual": 0.22580645161290322,
+          "gap": 0.05682189244832922,
+          "evaluable": true
+        },
+        {
+          "bin": "0.50-1.00",
+          "n": 38,
+          "predicted": 0.8204262963126361,
+          "actual": 0.8421052631578947,
+          "gap": 0.021678966845258607,
+          "evaluable": true
+        }
+      ],
+      "max_evaluable_gap": 0.05682189244832922
+    }
+  ],
+  "sweep": [
+    {
+      "experiment_id": "M-001",
+      "confidence_threshold": 0.4,
+      "trades_total": 430,
+      "trades_kept": 342,
+      "pct_kept": 79.5,
+      "win_rate": 0.6053,
+      "avg_return_pct": -4.48,
+      "total_return_pct": -1532.68,
+      "win_rate_lift_vs_baseline": 0.0215,
+      "avg_return_lift_vs_baseline": 7.34
+    },
+    {
+      "experiment_id": "M-002",
+      "confidence_threshold": 0.45,
+      "trades_total": 430,
+      "trades_kept": 323,
+      "pct_kept": 75.1,
+      "win_rate": 0.6316,
+      "avg_return_pct": -2.78,
+      "total_return_pct": -896.83,
+      "win_rate_lift_vs_baseline": 0.0479,
+      "avg_return_lift_vs_baseline": 9.05
+    },
+    {
+      "experiment_id": "M-003",
+      "confidence_threshold": 0.5,
+      "trades_total": 430,
+      "trades_kept": 289,
+      "pct_kept": 67.2,
+      "win_rate": 0.6574,
+      "avg_return_pct": -1.92,
+      "total_return_pct": -554.14,
+      "win_rate_lift_vs_baseline": 0.0737,
+      "avg_return_lift_vs_baseline": 9.91
+    },
+    {
+      "experiment_id": "M-004",
+      "confidence_threshold": 0.55,
+      "trades_total": 430,
+      "trades_kept": 255,
+      "pct_kept": 59.3,
+      "win_rate": 0.702,
+      "avg_return_pct": 1.56,
+      "total_return_pct": 397.33,
+      "win_rate_lift_vs_baseline": 0.1182,
+      "avg_return_lift_vs_baseline": 13.38
+    },
+    {
+      "experiment_id": "M-005",
+      "confidence_threshold": 0.6,
+      "trades_total": 430,
+      "trades_kept": 227,
+      "pct_kept": 52.8,
+      "win_rate": 0.7489,
+      "avg_return_pct": 3.67,
+      "total_return_pct": 831.96,
+      "win_rate_lift_vs_baseline": 0.1652,
+      "avg_return_lift_vs_baseline": 15.49
+    }
+  ],
+  "model_path": "ml/models/signal_model_20260321.joblib"
+}
