@@ -319,41 +319,181 @@ class TestCustomParameters:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# G. Post-enhancement stubs (Phase 3 — pending CC-1 delivery)
+# G. Enhanced features (hysteresis, VIX3M, configurable thresholds)
 # ══════════════════════════════════════════════════════════════════════════════
 
-class TestEnhancedRegimeClassifier:
-    """Tests for compass/regime.py enhancements (hysteresis, RSI, VIX3M).
+class TestHysteresis:
+    """Tests for hysteresis_days config — prevents rapid regime flip-flop."""
 
-    These test the ENHANCED public API specified in the blueprint:
-      classify(vix, spy_prices, date, rsi=None, vix3m=None)
-      classify_series(spy_data, vix_series, rsi_series=None, vix3m_series=None)
-      __init__(config: dict = None)
-
-    Skipped until CC-1 delivers the enhanced module.
-    """
-
-    @pytest.mark.skip(reason="Pending CC-1: compass/regime.py hysteresis enhancement")
     def test_hysteresis_prevents_rapid_flip(self):
-        """Regime just changed; raw signal wants to flip again -> keeps current regime."""
-        pass
+        """Regime changes within hysteresis_days are suppressed."""
+        # Build two classifiers: one with hysteresis, one without
+        clf_hyst = RegimeClassifier(config={"hysteresis_days": 10})
+        clf_none = RegimeClassifier(config={"hysteresis_days": 0})
 
-    @pytest.mark.skip(reason="Pending CC-1: compass/regime.py RSI signal")
-    def test_rsi_momentum_signal(self):
-        """High RSI + other bull signals -> stronger BULL conviction."""
-        pass
+        # 100 days of uptrend data
+        prices = mock_spy_prices(days=100, trend=25.0, base=450.0)
+        spy_df = mock_spy_dataframe(prices)
 
-    @pytest.mark.skip(reason="Pending CC-1: compass/regime.py VIX3M term structure")
-    def test_vix3m_term_structure_signal(self):
-        """VIX/VIX3M > 1.05 (backwardation) -> bearish signal boost."""
-        pass
+        # VIX oscillates: 16 for 30 days, 32 for 5 days (HIGH_VOL), back to 16,
+        # then 32 again 5 days later. Without hysteresis, each VIX spike
+        # triggers HIGH_VOL. With hysteresis=10, the second spike is suppressed.
+        vix_levels = (
+            [16.0] * 30 + [32.0] * 5 + [16.0] * 5 + [32.0] * 5 + [16.0] * 55
+        )
+        vix = mock_vix_series(days=100, levels=vix_levels)
 
-    @pytest.mark.skip(reason="Pending CC-1: compass/regime.py configurable thresholds")
-    def test_configurable_thresholds_via_dict(self):
-        """RegimeClassifier(config={'vix_crash': 35}) lowers crash threshold."""
-        pass
+        result_hyst = clf_hyst.classify_series(spy_df, vix)
+        result_none = clf_none.classify_series(spy_df, vix)
 
-    @pytest.mark.skip(reason="Pending CC-1: compass/regime.py lookahead protection")
+        def count_transitions(series):
+            t = 0
+            prev = None
+            for r in series:
+                if prev is not None and r != prev:
+                    t += 1
+                prev = r
+            return t
+
+        t_hyst = count_transitions(result_hyst)
+        t_none = count_transitions(result_none)
+        assert t_hyst < t_none, (
+            f"Hysteresis should reduce transitions: hyst={t_hyst} vs none={t_none}"
+        )
+
+    def test_no_hysteresis_by_default(self):
+        """Default config (hysteresis_days=0) allows every regime change."""
+        clf = RegimeClassifier()
+        assert clf.hysteresis_days == 0
+
+        # Build data with regime change every ~10 days
+        bull = mock_spy_prices(days=50, trend=25.0, base=450.0)
+        spy_df = mock_spy_dataframe(bull)
+        # Alternate VIX between 12 (LOW_VOL-range) and 16 (BULL-range)
+        vix_levels = ([12.0] * 10 + [19.0] * 10) * 2 + [12.0] * 10
+        vix = mock_vix_series(days=50, levels=vix_levels)
+
+        result = clf.classify_series(spy_df, vix)
+        # Should allow all transitions (no suppression)
+        assert len(result) == 50
+
+
+class TestVIX3MCrashSignal:
+    """Tests for vix3m_crash_threshold config — VIX/VIX3M term structure."""
+
+    def test_vix3m_crash_when_backwardation_steep(self):
+        """VIX/VIX3M > threshold + VIX > 25 → CRASH."""
+        clf = RegimeClassifier(config={"vix3m_crash_threshold": 1.2})
+        prices = mock_spy_prices(days=100, trend=0.0, base=450.0)
+
+        # VIX=30, VIX3M=20 → ratio=1.5 > 1.2 → CRASH
+        result = clf.classify(
+            vix=30.0, spy_prices=prices, date=prices.index[-1], vix3m=20.0,
+        )
+        assert result == Regime.CRASH
+
+    def test_vix3m_no_crash_when_contango(self):
+        """VIX/VIX3M < threshold → normal classification (no CRASH override)."""
+        clf = RegimeClassifier(config={"vix3m_crash_threshold": 1.2})
+        prices = mock_spy_prices(days=100, trend=25.0, base=450.0)
+
+        # VIX=18, VIX3M=22 → ratio=0.82 < 1.2 → normal (BULL)
+        result = clf.classify(
+            vix=18.0, spy_prices=prices, date=prices.index[-1], vix3m=22.0,
+        )
+        assert result == Regime.BULL
+
+    def test_vix3m_requires_elevated_vix(self):
+        """VIX/VIX3M > threshold but VIX <= 25 → no CRASH (VIX too low)."""
+        clf = RegimeClassifier(config={"vix3m_crash_threshold": 1.2})
+        prices = mock_spy_prices(days=100, trend=25.0, base=450.0)
+
+        # VIX=20, VIX3M=15 → ratio=1.33 > 1.2, but VIX=20 <= 25 → not CRASH
+        result = clf.classify(
+            vix=20.0, spy_prices=prices, date=prices.index[-1], vix3m=15.0,
+        )
+        assert result != Regime.CRASH
+
+    def test_vix3m_off_by_default(self):
+        """Default config (vix3m_crash_threshold=None) ignores vix3m."""
+        clf = RegimeClassifier()
+        assert clf.vix3m_crash_threshold is None
+
+        prices = mock_spy_prices(days=100, trend=0.0, base=450.0)
+        # Even with steep backwardation, CRASH should NOT be triggered
+        result = clf.classify(
+            vix=31.0, spy_prices=prices, date=prices.index[-1], vix3m=20.0,
+        )
+        # VIX=31 → HIGH_VOL (standard rule, vix > 30), not CRASH
+        assert result == Regime.HIGH_VOL
+
+    def test_vix3m_in_classify_series(self):
+        """classify_series passes VIX3M through to classify correctly."""
+        clf = RegimeClassifier(config={"vix3m_crash_threshold": 1.2})
+        prices = mock_spy_prices(days=50, trend=0.0, base=450.0)
+        spy_df = mock_spy_dataframe(prices)
+
+        # VIX=28, VIX3M=20 → ratio=1.4 throughout → should trigger CRASH
+        vix = mock_vix_series(days=50, base_level=28.0)
+        vix3m = mock_vix_series(days=50, base_level=20.0)
+
+        result = clf.classify_series(spy_df, vix, vix3m_series=vix3m)
+        # After warmup (shift-by-1), most days should be CRASH
+        crash_count = (result == Regime.CRASH).sum()
+        assert crash_count > len(result) * 0.5, (
+            f"Expected majority CRASH with steep backwardation, got {crash_count}/{len(result)}"
+        )
+
+
+class TestConfigurableThresholds:
+    """Config dict controls RegimeClassifier behavior."""
+
+    def test_hysteresis_days_from_config(self):
+        """hysteresis_days=3 is stored correctly."""
+        clf = RegimeClassifier(config={"hysteresis_days": 3})
+        assert clf.hysteresis_days == 3
+
+    def test_vix3m_threshold_from_config(self):
+        """vix3m_crash_threshold=1.2 is stored correctly."""
+        clf = RegimeClassifier(config={"vix3m_crash_threshold": 1.2})
+        assert clf.vix3m_crash_threshold == 1.2
+
+    def test_empty_config_uses_defaults(self):
+        """Empty config dict → all defaults (features off)."""
+        clf = RegimeClassifier(config={})
+        assert clf.hysteresis_days == 0
+        assert clf.vix3m_crash_threshold is None
+
+    def test_no_config_uses_defaults(self):
+        """No config arg → all defaults (backward compatible)."""
+        clf = RegimeClassifier()
+        assert clf.hysteresis_days == 0
+        assert clf.vix3m_crash_threshold is None
+
+
+class TestLookaheadProtection:
+    """classify_series uses shift-by-1 to prevent lookahead bias."""
+
     def test_lookahead_protection_shift_by_1(self):
-        """classify_series uses shifted data to prevent lookahead bias."""
-        pass
+        """Regime on day T uses VIX from day T-1, not day T."""
+        clf = RegimeClassifier()
+
+        # 50 days of calm market (VIX=16, uptrend)
+        prices = mock_spy_prices(days=50, trend=25.0, base=450.0)
+        spy_df = mock_spy_dataframe(prices)
+
+        # VIX: 16 for all days except the LAST day which spikes to 45
+        vix_levels = [16.0] * 49 + [45.0]
+        vix = mock_vix_series(days=50, levels=vix_levels)
+
+        result = clf.classify_series(spy_df, vix)
+
+        # The VIX spike on the last day should NOT affect the last day's regime
+        # (shift-by-1: last day sees yesterday's VIX=16, not today's VIX=45)
+        last_regime = result.iloc[-1]
+        assert last_regime != Regime.CRASH, (
+            "Last day should not see today's VIX spike (lookahead protection)"
+        )
+        assert last_regime != Regime.HIGH_VOL, (
+            "Last day should not see today's VIX=45 (lookahead protection)"
+        )

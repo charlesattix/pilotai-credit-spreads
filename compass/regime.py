@@ -173,18 +173,22 @@ class RegimeClassifier:
         self,
         spy_data: pd.DataFrame,
         vix_series: pd.Series,
+        vix3m_series: Optional[pd.Series] = None,
     ) -> pd.Series:
         """Tag every trading day with a regime.
 
-        Enhanced with shift-by-1 lookahead protection: regime on date T
-        uses VIX and prices through T-1 only.
+        Uses shift-by-1 lookahead protection: regime on date T uses VIX
+        and prices through T-1 only.
 
-        Hysteresis cooldown: regime changes are suppressed for cooldown_days
-        after the last change to prevent rapid flipping.
+        When hysteresis_days > 0, regime changes are suppressed for that
+        many trading days after the last change to prevent rapid flipping.
 
         Args:
             spy_data: SPY OHLCV DataFrame with DatetimeIndex.
             vix_series: VIX close Series with DatetimeIndex.
+            vix3m_series: Optional VIX3M close Series. When provided along
+                with vix3m_crash_threshold config, enables term structure
+                crash detection.
 
         Returns:
             pd.Series of Regime values indexed by date.
@@ -194,6 +198,11 @@ class RegimeClassifier:
         # Shift-by-1 lookahead protection: use yesterday's VIX and prices
         vix_prev = vix_series.shift(1)
         close_prev = close.shift(1)
+
+        # VIX3M: reindex + shift-by-1 if provided and feature enabled
+        vix3m_prev = None
+        if vix3m_series is not None and self.vix3m_crash_threshold is not None:
+            vix3m_prev = vix3m_series.reindex(close.index).shift(1)
 
         regimes: Dict[pd.Timestamp, Regime] = {}
         current_regime: Optional[Regime] = None
@@ -209,25 +218,40 @@ class RegimeClassifier:
             if pd.isna(vix_val):
                 vix_val = 20.0
 
+            # VIX3M value for this date (None if not configured)
+            vix3m_val = None
+            if vix3m_prev is not None:
+                v = vix3m_prev.get(date)
+                if v is not None and not pd.isna(v):
+                    vix3m_val = float(v)
+
             # Use close_prev for price history (lookahead-safe)
             prices_to_date = close_prev.loc[:date].dropna()
             if len(prices_to_date) < 2:
-                # Not enough data yet — default to BULL
                 raw_regime = Regime.BULL
             else:
-                raw_regime = self.classify(vix_val, prices_to_date, date)
+                raw_regime = self.classify(
+                    vix_val, prices_to_date, date, vix3m=vix3m_val,
+                )
 
-            # Hysteresis cooldown
-            if current_regime is not None and raw_regime != current_regime:
-                days_since_change = idx - last_change_idx
-                if last_change_idx >= 0 and days_since_change < self.hysteresis_days:
-                    regimes[date] = current_regime
-                    continue
+            # Hysteresis: suppress regime changes within hysteresis_days
+            if self.hysteresis_days > 0:
+                if current_regime is not None and raw_regime != current_regime:
+                    days_since_change = idx - last_change_idx
+                    if (
+                        last_change_idx >= 0
+                        and days_since_change < self.hysteresis_days
+                    ):
+                        regimes[date] = current_regime
+                        continue
+                    current_regime = raw_regime
+                    last_change_idx = idx
+                elif current_regime is None:
+                    current_regime = raw_regime
+                    last_change_idx = idx
+            else:
+                # No hysteresis — raw regime is final
                 current_regime = raw_regime
-                last_change_idx = idx
-            elif current_regime is None:
-                current_regime = raw_regime
-                last_change_idx = idx
 
             regimes[date] = current_regime
 
@@ -344,7 +368,7 @@ class ComboRegimeDetector:
         self.vix_struct_bull    = float(config.get('vix_structure_bull', 0.95))
         self.vix_struct_bear    = float(config.get('vix_structure_bear', 1.05))
         self.bear_unanimous     = bool(config.get('bear_requires_unanimous', True))
-        self.hysteresis_days      = int(config.get('cooldown_days', 10))
+        self.cooldown_days      = int(config.get('cooldown_days', 10))
         self.vix_extreme        = float(config.get('vix_extreme', 40.0))
 
         # ma_crossover needs fast MA period
@@ -454,7 +478,7 @@ class ComboRegimeDetector:
             # --- Apply hysteresis ---
             if raw_regime != current_regime:
                 days_since_change = idx - last_change_idx
-                if last_change_idx >= 0 and days_since_change < self.hysteresis_days:
+                if last_change_idx >= 0 and days_since_change < self.cooldown_days:
                     # Hysteresis active: keep current regime
                     result[ts] = current_regime
                     continue
