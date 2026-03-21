@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
 """
-EXP-500 Phase 1 — ML Training Data Collection
+COMPASS ML Training Data Collection
 
-Runs the EXP-400 backtest (credit_spread + iron_condor on SPY, 2020-2025)
-and captures EVERY trade with full market context as ML training data.
+Runs backtests (EXP-400 or EXP-401 config) and captures EVERY trade with
+full market context as ML training data.
+
+Configs:
+  exp400 — CS + IC from champion.json  (original 249-trade dataset)
+  exp401 — CS + SS with regime scales  (353-trade EXP-401 blend)
 
 Output:
-  ml/training_data.csv   — Chronological trade-level dataset
-  ml/feature_analysis.md — Feature distributions and signal quality patterns
+  compass/training_data_{config}.csv   — Chronological trade-level dataset
+  compass/feature_analysis_{config}.md — Feature distributions and patterns
 
 Usage:
     cd /home/node/openclaw/workspace/pilotai-credit-spreads
-    PYTHONPATH=. python3 ml/collect_training_data.py
+    PYTHONPATH=. python3 compass/collect_training_data.py               # exp401 (default)
+    PYTHONPATH=. python3 compass/collect_training_data.py --config exp400
 """
 
+import argparse
 import json
 import logging
 import math
@@ -41,13 +47,37 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ml_data")
 
-# ── Config ──────────────────────────────────────────────────────────────────
+# ── Constants ──────────────────────────────────────────────────────────────
 CHAMPION_PATH = ROOT / "configs" / "champion.json"
-OUTPUT_DIR = ROOT / "ml"
+COMPASS_DIR = ROOT / "compass"
 TICKERS = ["SPY"]
 STARTING_CAPITAL = 100_000
 YEARS = list(range(2020, 2026))
 
+# EXP-401 regime scales (from output/regime_switching_results.json)
+CS_REGIME_SCALES = {
+    "regime_scale_bull": 1.0,
+    "regime_scale_bear": 0.3,
+    "regime_scale_high_vol": 0.3,
+    "regime_scale_low_vol": 0.8,
+    "regime_scale_crash": 0.0,
+}
+
+SS_REGIME_SCALES = {
+    "regime_scale_bull": 1.5,
+    "regime_scale_bear": 1.5,
+    "regime_scale_high_vol": 2.5,
+    "regime_scale_low_vol": 1.0,
+    "regime_scale_crash": 0.5,
+}
+
+CS_BASE_RISK = 0.12
+SS_BASE_RISK = 0.03
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Config loading
+# ═══════════════════════════════════════════════════════════════════════════
 
 def load_champion_params() -> Dict:
     """Load strategy_params from champion.json."""
@@ -55,8 +85,60 @@ def load_champion_params() -> Dict:
         return json.load(f)["strategy_params"]
 
 
-def run_year_backtest(year: int) -> Tuple[PortfolioBacktester, Dict]:
-    """Run CS + IC backtest for one year, return (backtester, results)."""
+def _get_strategy_params(name: str, risk_override: float = None) -> Dict:
+    """Get best-known params for a strategy, optionally overriding max_risk_pct."""
+    champ = load_champion_params()
+    if name in champ:
+        params = dict(champ[name])
+    else:
+        cls = STRATEGY_REGISTRY[name]
+        params = cls.get_default_params()
+    if risk_override is not None:
+        params["max_risk_pct"] = risk_override
+    return params
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Market data loading (no yfinance — uses backtester's data loader)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _load_full_market_data() -> Tuple[pd.DataFrame, pd.Series]:
+    """Load full SPY + VIX history via PortfolioBacktester data loader.
+
+    Creates a minimal backtester spanning 2018-2025 to get enough warmup
+    for MA200 calculations on 2020 trades. No yfinance import needed —
+    the backtester handles its own data sourcing.
+
+    Returns (spy_ohlcv, vix_series).
+    """
+    logger.info("Loading full market data via backtester (2018-2025)...")
+    bt = PortfolioBacktester(
+        strategies=[],
+        tickers=TICKERS,
+        start_date=datetime(2018, 1, 1),
+        end_date=datetime(2025, 12, 31),
+        starting_capital=STARTING_CAPITAL,
+    )
+    bt._load_data()
+
+    spy_data = bt._price_data.get("SPY")
+    vix_series = bt._vix_series
+
+    if spy_data is None or spy_data.empty:
+        raise RuntimeError("Failed to load SPY price data via backtester")
+    if vix_series is None or vix_series.empty:
+        raise RuntimeError("Failed to load VIX data via backtester")
+
+    logger.info("Market data: SPY=%d rows, VIX=%d rows", len(spy_data), len(vix_series))
+    return spy_data, vix_series
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Year backtests
+# ═══════════════════════════════════════════════════════════════════════════
+
+def run_year_backtest_exp400(year: int) -> Tuple[PortfolioBacktester, Dict]:
+    """Run CS + IC backtest for one year (EXP-400 config)."""
     params = load_champion_params()
 
     cs_params = dict(params["credit_spread"])
@@ -65,13 +147,10 @@ def run_year_backtest(year: int) -> Tuple[PortfolioBacktester, Dict]:
     cs_cls = STRATEGY_REGISTRY["credit_spread"]
     ic_cls = STRATEGY_REGISTRY["iron_condor"]
 
-    cs_strategy = cs_cls(cs_params)
-    ic_strategy = ic_cls(ic_params)
-
     bt = PortfolioBacktester(
         strategies=[
-            ("credit_spread", cs_strategy),
-            ("iron_condor", ic_strategy),
+            ("credit_spread", cs_cls(cs_params)),
+            ("iron_condor", ic_cls(ic_params)),
         ],
         tickers=TICKERS,
         start_date=datetime(year, 1, 1),
@@ -85,6 +164,38 @@ def run_year_backtest(year: int) -> Tuple[PortfolioBacktester, Dict]:
     return bt, combined
 
 
+def run_year_backtest_exp401(year: int) -> Tuple[PortfolioBacktester, Dict]:
+    """Run CS + SS backtest for one year (EXP-401 config with regime scales)."""
+    cs_params = _get_strategy_params("credit_spread", risk_override=CS_BASE_RISK)
+    cs_params.update(CS_REGIME_SCALES)
+
+    ss_params = _get_strategy_params("straddle_strangle", risk_override=SS_BASE_RISK)
+    ss_params.update(SS_REGIME_SCALES)
+
+    cs_cls = STRATEGY_REGISTRY["credit_spread"]
+    ss_cls = STRATEGY_REGISTRY["straddle_strangle"]
+
+    bt = PortfolioBacktester(
+        strategies=[
+            ("credit_spread", cs_cls(dict(cs_params))),
+            ("straddle_strangle", ss_cls(dict(ss_params))),
+        ],
+        tickers=TICKERS,
+        start_date=datetime(year, 1, 1),
+        end_date=datetime(year, 12, 31),
+        starting_capital=STARTING_CAPITAL,
+        max_positions=10,
+        max_positions_per_strategy=5,
+    )
+    raw = bt.run()
+    combined = raw.get("combined", raw)
+    return bt, combined
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Trade enrichment
+# ═══════════════════════════════════════════════════════════════════════════
+
 def _prev_val(d: dict, before_ts: pd.Timestamp, default):
     """Get the most recent value in dict d with key strictly < before_ts."""
     keys = [k for k in d if k < before_ts]
@@ -95,7 +206,6 @@ def _compute_vix_percentile(vix_series: pd.Series, date_ts: pd.Timestamp, window
     """Compute VIX percentile rank over trailing window days."""
     if vix_series is None or date_ts not in vix_series.index:
         return 50.0
-    # Get all dates up to and including this date
     hist = vix_series.loc[vix_series.index <= date_ts].tail(window)
     if len(hist) < 10:
         return 50.0
@@ -140,16 +250,43 @@ def _compute_returns_vol(closes: pd.Series, date_ts: pd.Timestamp, window: int) 
     return round(float(returns.std() * math.sqrt(252) * 100), 4)
 
 
-def enrich_trades(bt: PortfolioBacktester, year: int) -> List[Dict]:
-    """Enrich closed trades with full market context."""
-    enriched = []
-    spy_data = bt._price_data.get("SPY")
-    if spy_data is None or spy_data.empty:
-        logger.warning("No SPY price data for year %d", year)
-        return enriched
+def _classify_strategy_type(strat_name: str) -> str:
+    """Map strategy name to short code for training data."""
+    lower = strat_name.lower()
+    if "iron" in lower or "condor" in lower:
+        return "IC"
+    elif "straddle" in lower or "strangle" in lower:
+        return "SS"
+    else:
+        return "CS"
 
-    spy_closes = spy_data["Close"]
-    vix_series = bt._vix_series
+
+def enrich_trades(
+    bt: PortfolioBacktester,
+    year: int,
+    spy_closes: pd.Series = None,
+    vix_series: pd.Series = None,
+) -> List[Dict]:
+    """Enrich closed trades with full market context.
+
+    Args:
+        bt: Completed backtester with closed_trades
+        year: Year label for the trades
+        spy_closes: Optional full SPY close series (for MA200 warmup).
+                    If not provided, uses bt._price_data["SPY"]["Close"].
+        vix_series: Optional full VIX series. If not provided, uses bt._vix_series.
+    """
+    enriched = []
+
+    if spy_closes is None:
+        spy_data = bt._price_data.get("SPY")
+        if spy_data is None or spy_data.empty:
+            logger.warning("No SPY price data for year %d", year)
+            return enriched
+        spy_closes = spy_data["Close"]
+
+    if vix_series is None:
+        vix_series = bt._vix_series
 
     # Sort trades by entry date (chronological)
     sorted_trades = sorted(bt.closed_trades, key=lambda t: t.entry_date or datetime.min)
@@ -165,9 +302,7 @@ def enrich_trades(bt: PortfolioBacktester, year: int) -> List[Dict]:
         entry_ts = pd.Timestamp(entry_dt)
 
         # Strategy type
-        strat_name = trade.strategy_name
-        is_ic = "iron" in strat_name.lower() or "condor" in strat_name.lower()
-        strategy_type = "IC" if is_ic else "CS"
+        strategy_type = _classify_strategy_type(trade.strategy_name)
 
         # Spread type from metadata
         spread_type = (trade.metadata or {}).get("spread_type", "unknown")
@@ -222,7 +357,6 @@ def enrich_trades(bt: PortfolioBacktester, year: int) -> List[Dict]:
         # IV rank
         iv_rank = bt._iv_rank_by_date.get(entry_ts, None)
         if iv_rank is None:
-            # Try nearest prior date
             prior_keys = [k for k in bt._iv_rank_by_date if k <= entry_ts]
             if prior_keys:
                 iv_rank = bt._iv_rank_by_date[max(prior_keys)]
@@ -271,7 +405,6 @@ def enrich_trades(bt: PortfolioBacktester, year: int) -> List[Dict]:
             spread_width = strikes[-1] - strikes[0]
             # For IC with 4 legs, take max width between pairs
             if len(trade.legs) == 4:
-                # IC: 2 spread widths
                 spread_width = max(
                     abs(trade.legs[0].strike - trade.legs[1].strike),
                     abs(trade.legs[2].strike - trade.legs[3].strike),
@@ -370,10 +503,14 @@ def enrich_trades(bt: PortfolioBacktester, year: int) -> List[Dict]:
     return enriched
 
 
-def generate_feature_analysis(df: pd.DataFrame) -> str:
+# ═══════════════════════════════════════════════════════════════════════════
+# Feature analysis report
+# ═══════════════════════════════════════════════════════════════════════════
+
+def generate_feature_analysis(df: pd.DataFrame, config_name: str = "exp401") -> str:
     """Generate markdown feature analysis report."""
     lines = [
-        "# EXP-500 Phase 1 — Feature Analysis",
+        f"# {config_name.upper()} — Feature Analysis",
         "",
         f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}",
         f"**Total trades:** {len(df)}",
@@ -387,7 +524,6 @@ def generate_feature_analysis(df: pd.DataFrame) -> str:
         "",
     ]
 
-    # Numeric columns for summary stats
     numeric_cols = [
         "dte_at_entry", "hold_days", "vix", "iv_rank",
         "spy_price", "dist_from_ma20_pct", "dist_from_ma80_pct",
@@ -410,11 +546,7 @@ def generate_feature_analysis(df: pd.DataFrame) -> str:
                 )
 
     # Strategy breakdown
-    lines.extend([
-        "",
-        "## 2. Strategy Breakdown",
-        "",
-    ])
+    lines.extend(["", "## 2. Strategy Breakdown", ""])
     for strat in df["strategy_type"].unique():
         subset = df[df["strategy_type"] == strat]
         lines.append(f"### {strat}")
@@ -426,8 +558,7 @@ def generate_feature_analysis(df: pd.DataFrame) -> str:
 
     # Win rate by regime
     lines.extend([
-        "## 3. Win Rate by Regime",
-        "",
+        "## 3. Win Rate by Regime", "",
         "| Regime | Trades | Win Rate | Avg Return |",
         "|--------|--------|----------|------------|",
     ])
@@ -438,53 +569,9 @@ def generate_feature_analysis(df: pd.DataFrame) -> str:
             f"{subset['return_pct'].mean():.2f}% |"
         )
 
-    # Win rate by DTE bucket
-    lines.extend([
-        "",
-        "## 4. Win Rate by DTE Bucket",
-        "",
-        "| DTE Range | Trades | Win Rate | Avg Return |",
-        "|-----------|--------|----------|------------|",
-    ])
-    dte_col = df["dte_at_entry"].dropna()
-    if len(dte_col) > 0:
-        bins = [0, 10, 15, 20, 30, 45, 100]
-        labels = ["0-10", "11-15", "16-20", "21-30", "31-45", "46+"]
-        df["dte_bucket"] = pd.cut(df["dte_at_entry"], bins=bins, labels=labels, right=True)
-        for bucket in labels:
-            subset = df[df["dte_bucket"] == bucket]
-            if len(subset) > 0:
-                lines.append(
-                    f"| {bucket} | {len(subset)} | {subset['win'].mean() * 100:.1f}% | "
-                    f"{subset['return_pct'].mean():.2f}% |"
-                )
-
-    # Win rate by VIX bucket
-    lines.extend([
-        "",
-        "## 5. Win Rate by VIX Bucket",
-        "",
-        "| VIX Range | Trades | Win Rate | Avg Return |",
-        "|-----------|--------|----------|------------|",
-    ])
-    vix_col = df["vix"].dropna()
-    if len(vix_col) > 0:
-        bins = [0, 15, 20, 25, 30, 40, 100]
-        labels = ["<15", "15-20", "20-25", "25-30", "30-40", "40+"]
-        df["vix_bucket"] = pd.cut(df["vix"], bins=bins, labels=labels, right=True)
-        for bucket in labels:
-            subset = df[df["vix_bucket"] == bucket]
-            if len(subset) > 0:
-                lines.append(
-                    f"| {bucket} | {len(subset)} | {subset['win'].mean() * 100:.1f}% | "
-                    f"{subset['return_pct'].mean():.2f}% |"
-                )
-
     # Win rate by year
     lines.extend([
-        "",
-        "## 6. Win Rate by Year",
-        "",
+        "", "## 4. Win Rate by Year", "",
         "| Year | Trades | Win Rate | Avg Return | Total PnL |",
         "|------|--------|----------|------------|-----------|",
     ])
@@ -495,28 +582,9 @@ def generate_feature_analysis(df: pd.DataFrame) -> str:
             f"{subset['return_pct'].mean():.2f}% | ${subset['pnl'].sum():,.0f} |"
         )
 
-    # Exit reason breakdown
-    lines.extend([
-        "",
-        "## 7. Exit Reason Breakdown",
-        "",
-        "| Exit Reason | Trades | Win Rate | Avg Return |",
-        "|-------------|--------|----------|------------|",
-    ])
-    for reason in sorted(df["exit_reason"].dropna().unique()):
-        subset = df[df["exit_reason"] == reason]
-        lines.append(
-            f"| {reason} | {len(subset)} | {subset['win'].mean() * 100:.1f}% | "
-            f"{subset['return_pct'].mean():.2f}% |"
-        )
-
     # Feature correlations with outcome
     lines.extend([
-        "",
-        "## 8. Feature Correlations with Win/Loss",
-        "",
-        "Pearson correlation between each feature and the binary win outcome:",
-        "",
+        "", "## 5. Feature Correlations with Win/Loss", "",
         "| Feature | Correlation | p-value (approx) |",
         "|---------|-------------|------------------|",
     ])
@@ -532,101 +600,45 @@ def generate_feature_analysis(df: pd.DataFrame) -> str:
             if len(valid) > 5:
                 corr = valid[col].corr(valid["win"])
                 n = len(valid)
-                # Approximate t-statistic for significance
                 if abs(corr) < 1:
                     t_stat = corr * math.sqrt(n - 2) / math.sqrt(1 - corr**2)
-                    # Two-tailed p-value approximation
                     p_approx = "< 0.05" if abs(t_stat) > 2.0 else ">= 0.05"
                 else:
                     p_approx = "< 0.01"
                 lines.append(f"| {col} | {corr:+.4f} | {p_approx} |")
 
-    # Key signal quality patterns
-    lines.extend([
-        "",
-        "## 9. Signal Quality Patterns",
-        "",
-    ])
-
-    # High VIX vs low VIX
-    if len(vix_col) > 0:
-        median_vix = vix_col.median()
-        low_vix = df[df["vix"] <= median_vix]
-        high_vix = df[df["vix"] > median_vix]
-        lines.append(f"### VIX Split (median = {median_vix:.1f})")
-        lines.append(f"- Low VIX (n={len(low_vix)}): WR={low_vix['win'].mean()*100:.1f}%, "
-                      f"Avg ret={low_vix['return_pct'].mean():.2f}%")
-        lines.append(f"- High VIX (n={len(high_vix)}): WR={high_vix['win'].mean()*100:.1f}%, "
-                      f"Avg ret={high_vix['return_pct'].mean():.2f}%")
-        lines.append("")
-
-    # Trend filter effectiveness
-    if "dist_from_ma80_pct" in df.columns:
-        above_ma = df[df["dist_from_ma80_pct"] > 0]
-        below_ma = df[df["dist_from_ma80_pct"] <= 0]
-        if len(above_ma) > 0 and len(below_ma) > 0:
-            lines.append("### Price vs 80-day MA (trend filter)")
-            lines.append(f"- Above MA80 (n={len(above_ma)}): WR={above_ma['win'].mean()*100:.1f}%, "
-                          f"Avg ret={above_ma['return_pct'].mean():.2f}%")
-            lines.append(f"- Below MA80 (n={len(below_ma)}): WR={below_ma['win'].mean()*100:.1f}%, "
-                          f"Avg ret={below_ma['return_pct'].mean():.2f}%")
-            lines.append("")
-
-    # Day of week effect
-    lines.append("### Day of Week Effect")
-    lines.append("| Day | Trades | Win Rate | Avg Return |")
-    lines.append("|-----|--------|----------|------------|")
-    day_names = ["Mon", "Tue", "Wed", "Thu", "Fri"]
-    for dow in range(5):
-        subset = df[df["day_of_week"] == dow]
-        if len(subset) > 0:
-            lines.append(
-                f"| {day_names[dow]} | {len(subset)} | {subset['win'].mean()*100:.1f}% | "
-                f"{subset['return_pct'].mean():.2f}% |"
-            )
-
-    lines.extend([
-        "",
-        "---",
-        "",
-        "*Generated by ml/collect_training_data.py — EXP-500 Phase 1*",
-    ])
-
+    lines.extend(["", "---", "", f"*Generated by compass/collect_training_data.py — {config_name}*"])
     return "\n".join(lines)
 
 
-def _download_full_spy_history() -> Tuple[pd.DataFrame, pd.Series]:
-    """Download full SPY + VIX history (2018-2026) for feature computation.
-
-    Returns (spy_ohlcv, vix_series) with enough history for MA200 warmup.
-    """
-    import yfinance as yf
-
-    logger.info("Downloading full SPY history (2018-2026) for feature computation...")
-    spy = yf.download("SPY", start="2018-01-01", end="2026-01-01", progress=False, auto_adjust=True)
-    if isinstance(spy.columns, pd.MultiIndex):
-        spy.columns = spy.columns.get_level_values(0)
-    if spy.index.tz is not None:
-        spy.index = spy.index.tz_localize(None)
-
-    vix_raw = yf.download("^VIX", start="2018-01-01", end="2026-01-01", progress=False, auto_adjust=True)
-    if isinstance(vix_raw.columns, pd.MultiIndex):
-        vix_raw.columns = vix_raw.columns.get_level_values(0)
-    vix = vix_raw["Close"].dropna()
-    if vix.index.tz is not None:
-        vix.index = vix.index.tz_localize(None)
-
-    logger.info("SPY: %d rows, VIX: %d rows", len(spy), len(vix))
-    return spy, vix
-
+# ═══════════════════════════════════════════════════════════════════════════
+# Main
+# ═══════════════════════════════════════════════════════════════════════════
 
 def main():
-    t0 = time.time()
-    logger.info("EXP-500 Phase 1 — ML Training Data Collection")
-    logger.info("Running EXP-400 backtest (CS + IC on SPY, %d-%d)", YEARS[0], YEARS[-1])
+    parser = argparse.ArgumentParser(description="Collect ML training data")
+    parser.add_argument("--config", choices=["exp400", "exp401"], default="exp401",
+                        help="Backtest config: exp400 (CS+IC) or exp401 (CS+SS regime)")
+    args = parser.parse_args()
 
-    # Download full history once for accurate MA200 + VIX percentiles
-    full_spy, full_vix = _download_full_spy_history()
+    config_name = args.config
+    t0 = time.time()
+
+    logger.info("COMPASS ML Training Data Collection")
+    logger.info("Config: %s", config_name)
+
+    if config_name == "exp400":
+        run_fn = run_year_backtest_exp400
+        label = "EXP-400 (CS + IC)"
+    else:
+        run_fn = run_year_backtest_exp401
+        label = "EXP-401 (CS + SS regime-adaptive)"
+
+    logger.info("Running %s on SPY, %d-%d", label, YEARS[0], YEARS[-1])
+
+    # Load full market data once for accurate MA200 + VIX percentiles
+    full_spy, full_vix = _load_full_market_data()
+    full_spy_closes = full_spy["Close"]
 
     all_trades = []
 
@@ -635,13 +647,10 @@ def main():
         logger.info("Year %d", year)
         logger.info("=" * 60)
 
-        bt, results = run_year_backtest(year)
+        bt, results = run_fn(year)
 
-        # Override the backtester's short-window data with full history
-        bt._price_data["SPY"] = full_spy
-        bt._vix_series = full_vix
-
-        trades = enrich_trades(bt, year)
+        # Enrich with full history (for MA200 warmup)
+        trades = enrich_trades(bt, year, spy_closes=full_spy_closes, vix_series=full_vix)
         logger.info(
             "Year %d: %d trades, return=%.2f%%, WR=%.1f%%",
             year,
@@ -653,18 +662,16 @@ def main():
 
     # Build DataFrame (chronological — NO shuffling)
     df = pd.DataFrame(all_trades)
-
-    # Sort by entry date to ensure strict chronological order
     df = df.sort_values("entry_date").reset_index(drop=True)
 
     # Save CSV
-    csv_path = OUTPUT_DIR / "training_data.csv"
+    csv_path = COMPASS_DIR / f"training_data_{config_name}.csv"
     df.to_csv(csv_path, index=False)
     logger.info("Saved %d trades to %s", len(df), csv_path)
 
     # Generate feature analysis
-    analysis = generate_feature_analysis(df)
-    analysis_path = OUTPUT_DIR / "feature_analysis.md"
+    analysis = generate_feature_analysis(df, config_name)
+    analysis_path = COMPASS_DIR / f"feature_analysis_{config_name}.md"
     with open(analysis_path, "w") as f:
         f.write(analysis)
     logger.info("Saved feature analysis to %s", analysis_path)
