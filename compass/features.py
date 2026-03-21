@@ -273,10 +273,18 @@ class FeatureEngine:
             features = {}
 
             # VIX
-            vix = self._download('^VIX', period='5d')
+            vix = self._download('^VIX', period='1mo')
             if vix is not None and not vix.empty:
                 features['vix_level'] = float(vix['Close'].iloc[-1])
                 features['vix_change_1d'] = float(vix['Close'].pct_change().iloc[-1] * 100)
+
+                # VIX change over last 5 trading days (absolute points)
+                if len(vix) >= 6:
+                    features['vix_change_5d'] = float(
+                        vix['Close'].iloc[-1] - vix['Close'].iloc[-6]
+                    )
+                else:
+                    features['vix_change_5d'] = 0.0
             else:
                 return None  # VIX data required for market features
 
@@ -417,6 +425,7 @@ class FeatureEngine:
         features = {
             'regime_id': regime_data.get('regime_id', 2),
             'regime_confidence': regime_data.get('confidence', 0.5),
+            'regime_duration_days': regime_data.get('regime_duration_days', 0),
         }
 
         # One-hot encode regime
@@ -522,9 +531,31 @@ class FeatureEngine:
             'dist_from_sma200_pct': 0.0,
         }
 
+    @staticmethod
+    def compute_credit_to_width_ratio(
+        credit: float, spread_width: float,
+    ) -> Optional[float]:
+        """Compute credit-to-width ratio for a spread trade.
+
+        Args:
+            credit: Net credit received (e.g. 0.65 for $0.65).
+            spread_width: Width of the spread in dollars (e.g. 5.0).
+
+        Returns:
+            Ratio (0-1 range for credit spreads), or None if inputs invalid.
+        """
+        if spread_width is None or spread_width <= 0 or credit is None:
+            return None
+        return credit / spread_width
+
     def get_feature_names(self) -> list:
         """
         Get list of all feature names for model training.
+
+        Dropped features (Phase 3 cleanup):
+          - spread_width: constant for a given config, zero predictive value
+          - vix_percentile_*: redundant with iv_rank
+          - ma*_slope_*: noisy, low signal-to-noise ratio
         """
         return [
             # Technical
@@ -535,12 +566,16 @@ class FeatureEngine:
 
             # Volatility
             'realized_vol_10d', 'realized_vol_20d', 'realized_vol_60d',
-            'iv_rank', 'iv_percentile', 'current_iv', 'rv_iv_spread',
+            'iv_rank', 'current_iv', 'rv_iv_spread',
             'put_call_skew_ratio', 'put_skew_steepness',
 
             # Market
-            'vix_level', 'vix_change_1d', 'put_call_ratio',
+            'vix_level', 'vix_change_1d', 'vix_change_5d',
+            'put_call_ratio',
             'spy_return_5d', 'spy_return_20d', 'spy_realized_vol',
+
+            # Trade structure (new Phase 3)
+            'credit_to_width_ratio',
 
             # Event risk
             'days_to_earnings', 'days_to_fomc', 'days_to_cpi',
@@ -550,7 +585,7 @@ class FeatureEngine:
             'day_of_week', 'is_opex_week', 'is_monday', 'is_month_end',
 
             # Regime
-            'regime_id', 'regime_confidence',
+            'regime_id', 'regime_confidence', 'regime_duration_days',
             'regime_low_vol_trending', 'regime_high_vol_trending',
             'regime_mean_reverting', 'regime_crisis',
 
