@@ -1,40 +1,4 @@
-# Core dependencies
-numpy==2.0.2
-pandas==2.3.3
-scipy==1.13.1
-
-# Machine Learning
-xgboost==2.1.4
-scikit-learn==1.6.1
-hmmlearn==0.3.3
-joblib==1.5.3
-
-# Options and market data
-yfinance==1.1.0
-py_vollib==1.0.1
-
-# Technical analysis
-# ta-lib>=0.4.28  # Requires C library; fallback in technical_analysis.py handles its absence
-
-# Configuration
-PyYAML==6.0.3
-
-# Environment variable loading
-python-dotenv==1.2.1
-
-# Alpaca broker integration
-alpaca-py==0.21.1
-
-# Alerts and notifications
-python-telegram-bot==21.10
-requests==2.32.5
-
-# Utilities
-python-dateutil==2.9.0.post0
-pytz==2025.2
-
-# Logging
-colorlog==6.10.1
-
-# Error tracking
-sentry-sdk==2.19.2
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pyyaml==6.0.2
+python-dotenv==1.0.1
