@@ -93,3 +93,4 @@ wheels/
 .env.exp*
 !experiments/registry.json
 !experiments/approvals.log
+!railway.json
