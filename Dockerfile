@@ -10,6 +10,7 @@
 # Railway deployment: set PILOTAI_ROOT to wherever data is synced
 
 FROM python:3.11-slim
+# Cache bust: v3
 
 WORKDIR /app
 
@@ -37,4 +38,6 @@ ENV PORT=8000
 
 EXPOSE 8000
 
-CMD sh -c "uvicorn web_dashboard.app:app --host 0.0.0.0 --port ${PORT:-8000}"
+HEALTHCHECK NONE
+
+CMD sh -c "exec uvicorn web_dashboard.app:app --host 0.0.0.0 --port ${PORT:-8000}"
