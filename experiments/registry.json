@@ -1,0 +1,106 @@
+{
+  "schema_version": "1.0",
+  "last_updated": "2026-03-22",
+  "experiments": {
+    "EXP-400": {
+      "id": "EXP-400",
+      "name": "The Champion",
+      "created_by": "maximus",
+      "created_date": "2026-03-05",
+      "status": "paper_trading",
+      "paper_config": "configs/paper_champion.yaml",
+      "backtest_config": "configs/champion.json",
+      "notes": "Regime-adaptive CS + IC (SPY). ROBUST 0.870."
+    },
+    "EXP-401": {
+      "id": "EXP-401",
+      "name": "The Blend",
+      "created_by": "maximus",
+      "created_date": "2026-03-12",
+      "status": "paper_trading",
+      "paper_config": "configs/paper_exp401.yaml",
+      "backtest_config": null,
+      "notes": "CS + Straddle/Strangle. WF 3/3 passed."
+    },
+    "EXP-500": {
+      "id": "EXP-500",
+      "name": "ML Champion",
+      "created_by": "maximus",
+      "created_date": "2026-03-12",
+      "status": "data_collection",
+      "paper_config": null,
+      "backtest_config": null,
+      "notes": "XGBoost confidence overlay on EXP-400."
+    },
+    "EXP-501": {
+      "id": "EXP-501",
+      "name": "ML Blend",
+      "created_by": "maximus",
+      "created_date": "2026-03-12",
+      "status": "pending",
+      "paper_config": null,
+      "backtest_config": null,
+      "notes": "XGBoost overlay on EXP-401. Starts after EXP-500."
+    },
+    "EXP-503": {
+      "id": "EXP-503",
+      "name": "ML V2 Aggressive",
+      "created_by": "maximus",
+      "created_date": "2026-03-22",
+      "status": "paper_trading",
+      "paper_config": "configs/paper_exp503.yaml",
+      "backtest_config": "configs/exp_503_lowvol_narrow_spread.json",
+      "notes": "CreditSpread + RegimeModelRouter ML sizing. Deployed 2026-03-22."
+    },
+    "EXP-600": {
+      "id": "EXP-600",
+      "name": "IBIT Adaptive",
+      "created_by": "charles",
+      "created_date": "2026-03-22",
+      "status": "paper_trading",
+      "paper_config": "configs/paper_exp600.yaml",
+      "backtest_config": null,
+      "notes": "IBIT direction-adaptive credit spreads. Mega sweep config #14. DTE=14, OTM=10%, Width=$5, PT=30%, SL=2.5x, MA50 adaptive, MaxPos=5, Risk=15%, Kelly=1.0. 139.2% avg annual, -19.4% max DD, 0.95 overfit."
+    },
+    "EXP-036": {
+      "id": "EXP-036",
+      "name": "Compound 10% Both MA200",
+      "created_by": "maximus",
+      "created_date": "2026-02-01",
+      "status": "retired",
+      "paper_config": "configs/paper_exp036.yaml",
+      "backtest_config": null,
+      "notes": "Baseline experiment, superseded by EXP-400"
+    },
+    "EXP-059": {
+      "id": "EXP-059",
+      "name": "Various",
+      "created_by": "maximus",
+      "created_date": "2026-02-01",
+      "status": "retired",
+      "paper_config": "configs/paper_exp059.yaml",
+      "backtest_config": null,
+      "notes": "Superseded"
+    },
+    "EXP-154": {
+      "id": "EXP-154",
+      "name": "Various",
+      "created_by": "maximus",
+      "created_date": "2026-02-01",
+      "status": "retired",
+      "paper_config": "configs/paper_exp154.yaml",
+      "backtest_config": null,
+      "notes": "Superseded"
+    },
+    "EXP-305": {
+      "id": "EXP-305",
+      "name": "COMPASS Portfolio",
+      "created_by": "maximus",
+      "created_date": "2026-03-01",
+      "status": "retired",
+      "paper_config": "configs/paper_exp305.yaml",
+      "backtest_config": null,
+      "notes": "Multi-ticker experiment, superseded by EXP-400/401"
+    }
+  }
+}
