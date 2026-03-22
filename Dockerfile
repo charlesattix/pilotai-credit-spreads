@@ -1,81 +1,43 @@
-# Stage 1: Node.js dependencies
-FROM node:20-slim AS node-deps
-WORKDIR /app/web
-# Install build tools for native modules like better-sqlite3
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 make g++ && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-COPY web/package.json web/package-lock.json* ./
-# Remove --ignore-scripts so better-sqlite3 postinstall builds the native module
-RUN npm ci
+# Build from repo root:
+#   docker build -f web_dashboard/Dockerfile -t pilotai-dashboard .
+#
+# Run locally (reads local DB files):
+#   docker run -p 8000:8000 \
+#     -v ~/projects/pilotai-credit-spreads:/app \
+#     -e PILOTAI_ROOT=/app \
+#     pilotai-dashboard
+#
+# Railway deployment: set PILOTAI_ROOT to wherever data is synced
 
-# Stage 2: Build Next.js
-FROM node:20-slim AS web-build
-WORKDIR /app/web
-COPY --from=node-deps /app/web/node_modules ./node_modules
-COPY web/ .
-ENV NODE_ENV=production
-RUN npm run build
-
-# Stage 3: Runtime
 FROM python:3.11-slim
-
-# Install Node.js 20 from official binary (no piped shell scripts)
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates tini xz-utils && \
-    DPKG_ARCH=$(dpkg --print-architecture) && \
-    NODE_ARCH=$(case "${DPKG_ARCH}" in amd64) echo "x64" ;; arm64) echo "arm64" ;; *) echo "${DPKG_ARCH}" ;; esac) && \
-    curl -fsSL "https://nodejs.org/dist/v20.20.0/node-v20.20.0-linux-${NODE_ARCH}.tar.xz" \
-      | tar -xJ --strip-components=1 -C /usr/local && \
-    apt-get purge -y xz-utils && apt-get autoremove -y && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Set production environment
-ENV NODE_ENV=production
-ENV PORT=8080
-ENV HOSTNAME=0.0.0.0
-ENV PILOTAI_DATA_DIR=/app/data
+# Install system deps (sqlite3 built-in to python:slim)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY requirements.txt requirements-dev.txt ./
-RUN pip install --no-cache-dir -r requirements.txt && \
-    if [ "$BUILD_ENV" = "dev" ]; then pip install --no-cache-dir -r requirements-dev.txt; fi
+# Install Python deps first (layer cache)
+COPY web_dashboard/requirements.txt /app/web_dashboard/requirements.txt
+RUN pip install --no-cache-dir -r web_dashboard/requirements.txt
 
-# Copy Python backend
-COPY *.py ./
-COPY strategy/ ./strategy/
-COPY ml/ ./ml/
-COPY backtest/ ./backtest/
-COPY tracker/ ./tracker/
-COPY alerts/ ./alerts/
-COPY shared/ ./shared/
-COPY config.yaml.example ./config.yaml
+# Copy the whole repo (web_dashboard + experiments/ + configs/ + data/)
+# For Railway: mount or sync data/ separately
+COPY . /app
 
-# Copy built Next.js app
-COPY --from=web-build /app/web/.next/standalone ./web/
-COPY --from=web-build /app/web/.next/static ./web/.next/static
-COPY --from=web-build /app/web/public ./web/public
-
-# Copy entrypoint BEFORE switching to non-root user
-COPY docker-entrypoint.sh .
-RUN chmod +x docker-entrypoint.sh
-
-# Create non-root user and data directories
-RUN groupadd --gid 1001 pilotai && \
-    useradd --uid 1001 --gid 1001 --create-home pilotai && \
-    mkdir -p /app/data /app/output /app/logs && \
-    chown -R pilotai:pilotai /app/data /app/output /app/logs
-
+# Non-root user
+RUN useradd -m -u 1000 pilotai
+RUN chown -R pilotai:pilotai /app
 USER pilotai
 
-# Volume is configured via railway.toml (not VOLUME directive, which conflicts
-# with Railway's volume management). For local Docker: use -v flag to mount.
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+ENV PORT=8000
 
-EXPOSE 8080
+EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD curl -f http://localhost:8080/api/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:${PORT}/api/v1/health || exit 1
 
-ENTRYPOINT ["/usr/bin/tini", "--", "./docker-entrypoint.sh"]
-CMD ["all"]
+CMD uvicorn web_dashboard.app:app --host 0.0.0.0 --port ${PORT}

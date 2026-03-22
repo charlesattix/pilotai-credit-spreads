@@ -1,0 +1,81 @@
+# Stage 1: Node.js dependencies
+FROM node:20-slim AS node-deps
+WORKDIR /app/web
+# Install build tools for native modules like better-sqlite3
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+COPY web/package.json web/package-lock.json* ./
+# Remove --ignore-scripts so better-sqlite3 postinstall builds the native module
+RUN npm ci
+
+# Stage 2: Build Next.js
+FROM node:20-slim AS web-build
+WORKDIR /app/web
+COPY --from=node-deps /app/web/node_modules ./node_modules
+COPY web/ .
+ENV NODE_ENV=production
+RUN npm run build
+
+# Stage 3: Runtime
+FROM python:3.11-slim
+
+# Install Node.js 20 from official binary (no piped shell scripts)
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates tini xz-utils && \
+    DPKG_ARCH=$(dpkg --print-architecture) && \
+    NODE_ARCH=$(case "${DPKG_ARCH}" in amd64) echo "x64" ;; arm64) echo "arm64" ;; *) echo "${DPKG_ARCH}" ;; esac) && \
+    curl -fsSL "https://nodejs.org/dist/v20.20.0/node-v20.20.0-linux-${NODE_ARCH}.tar.xz" \
+      | tar -xJ --strip-components=1 -C /usr/local && \
+    apt-get purge -y xz-utils && apt-get autoremove -y && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Set production environment
+ENV NODE_ENV=production
+ENV PORT=8080
+ENV HOSTNAME=0.0.0.0
+ENV PILOTAI_DATA_DIR=/app/data
+
+# Install Python dependencies
+COPY requirements.txt requirements-dev.txt ./
+RUN pip install --no-cache-dir -r requirements.txt && \
+    if [ "$BUILD_ENV" = "dev" ]; then pip install --no-cache-dir -r requirements-dev.txt; fi
+
+# Copy Python backend
+COPY *.py ./
+COPY strategy/ ./strategy/
+COPY ml/ ./ml/
+COPY backtest/ ./backtest/
+COPY tracker/ ./tracker/
+COPY alerts/ ./alerts/
+COPY shared/ ./shared/
+COPY config.yaml.example ./config.yaml
+
+# Copy built Next.js app
+COPY --from=web-build /app/web/.next/standalone ./web/
+COPY --from=web-build /app/web/.next/static ./web/.next/static
+COPY --from=web-build /app/web/public ./web/public
+
+# Copy entrypoint BEFORE switching to non-root user
+COPY docker-entrypoint.sh .
+RUN chmod +x docker-entrypoint.sh
+
+# Create non-root user and data directories
+RUN groupadd --gid 1001 pilotai && \
+    useradd --uid 1001 --gid 1001 --create-home pilotai && \
+    mkdir -p /app/data /app/output /app/logs && \
+    chown -R pilotai:pilotai /app/data /app/output /app/logs
+
+USER pilotai
+
+# Volume is configured via railway.toml (not VOLUME directive, which conflicts
+# with Railway's volume management). For local Docker: use -v flag to mount.
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+  CMD curl -f http://localhost:8080/api/health || exit 1
+
+ENTRYPOINT ["/usr/bin/tini", "--", "./docker-entrypoint.sh"]
+CMD ["all"]
