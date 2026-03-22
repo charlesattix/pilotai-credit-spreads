@@ -37,7 +37,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 load_dotenv(PROJECT_ROOT / ".env")
 
-from shared.macro_snapshot_engine import MacroSnapshotEngine
+from compass.macro import MacroSnapshotEngine
 
 logging.basicConfig(
     level=logging.INFO,

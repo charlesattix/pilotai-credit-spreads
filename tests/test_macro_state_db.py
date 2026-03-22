@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from shared.macro_state_db import (
+from compass.macro_db import (
     backfill_macro_score_velocities,
     get_current_macro_score,
     get_db,
@@ -216,7 +216,7 @@ def test_get_event_scaling_factor_default(tmp_db):
 
 
 def test_get_eligible_underlyings_base_always_included(tmp_db):
-    tickers = get_eligible_underlyings("NEUTRAL", db_path=tmp_db)
+    tickers = get_eligible_underlyings("neutral", db_path=tmp_db)
     assert "SPY" in tickers
     assert "QQQ" in tickers
     assert "IWM" in tickers
@@ -224,13 +224,13 @@ def test_get_eligible_underlyings_base_always_included(tmp_db):
 
 def test_get_eligible_underlyings_bull_adds_top_sectors(tmp_db):
     save_snapshot(_make_snap("2024-01-05", overall=70.0), db_path=tmp_db)
-    tickers = get_eligible_underlyings("BULL", db_path=tmp_db)
+    tickers = get_eligible_underlyings("bull", db_path=tmp_db)
     assert "XLK" in tickers  # rank_3m=1 → top 4
 
 
 def test_get_eligible_underlyings_bear_macro_contracts(tmp_db):
     save_snapshot(_make_snap("2024-01-05", overall=40.0), db_path=tmp_db)
-    tickers = get_eligible_underlyings("BULL", db_path=tmp_db)
+    tickers = get_eligible_underlyings("bull", db_path=tmp_db)
     # macro score < 45 → base universe only
     assert set(tickers) == {"SPY", "QQQ", "IWM"}
 

@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 import api.macro_api as _api_module
 import shared.macro_state_db as _db_module
 from api.macro_api import MACRO_CACHE_DB, app
-from shared.macro_state_db import init_db, save_snapshot
+from compass.macro_db import init_db, save_snapshot
 
 # Whether the real price cache is available (required for /regime endpoint)
 _CACHE_AVAILABLE = MACRO_CACHE_DB.exists()
@@ -538,7 +538,7 @@ def test_regime_response_structure():
 
     # Top-level required fields
     assert body["underlying"] == "SPY"
-    assert body["regime"] in ("BULL", "BEAR", "NEUTRAL")
+    assert body["regime"] in ("bull", "bear", "neutral")
     assert isinstance(body["bull_votes"], int)
     assert isinstance(body["bear_votes"], int)
     assert isinstance(body["vix_circuit_breaker"], bool)
@@ -625,7 +625,7 @@ def test_regime_sector_etf_works():
     assert r.status_code == 200
     body = r.json()
     assert body["underlying"] == "XLE"
-    assert body["regime"] in ("BULL", "BEAR", "NEUTRAL")
+    assert body["regime"] in ("bull", "bear", "neutral")
 
 
 @requires_cache

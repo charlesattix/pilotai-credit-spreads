@@ -136,6 +136,10 @@ class TestExecutionEngine:
         mock_alpaca.submit_credit_spread.return_value = {
             "status": "submitted", "order_id": "ord-123"
         }
+        mock_alpaca.get_account.return_value = {
+            "options_buying_power": 100_000.0, "equity": 100_000.0,
+        }
+        mock_alpaca.get_market_clock.return_value = {"is_open": True}
         db_path = str(tmp_path / "test.db")
         engine = ExecutionEngine(alpaca_provider=mock_alpaca, db_path=db_path)
 
@@ -261,7 +265,6 @@ class TestBuildAccountState:
              patch('main.TechnicalAnalyzer'), \
              patch('main.OptionsAnalyzer'), \
              patch('main.PnLDashboard'), \
-             patch('ml.ml_pipeline.MLPipeline', side_effect=ImportError, create=True), \
              patch('execution.execution_engine.ExecutionEngine'):
             system = CreditSpreadSystem(config=config)
         # Ensure no real alpaca in test
@@ -328,7 +331,7 @@ class TestICNeutralGating:
             current_price=560.0,
             technical_signals={},
             iv_data={"iv_rank": 20, "iv_percentile": 20},
-            current_regime="BULL",
+            current_regime="bull",
         )
         assert result == []
 
@@ -340,13 +343,13 @@ class TestICNeutralGating:
             current_price=560.0,
             technical_signals={},
             iv_data={"iv_rank": 20, "iv_percentile": 20},
-            current_regime="BEAR",
+            current_regime="bear",
         )
         assert result == []
 
     def test_ic_proceeds_in_neutral_regime(self):
         strategy = self._make_strategy(ic_neutral_only=True)
-        # NEUTRAL + empty chain → returns [] because no strikes, but NOT blocked by regime gate
+        # neutral + empty chain → returns [] because no strikes, but NOT blocked by regime gate
         # (iv_check would pass with iv_rank=20 >= min_iv_rank=12)
         result = strategy.find_iron_condors(
             ticker="SPY",
@@ -355,7 +358,7 @@ class TestICNeutralGating:
             current_price=560.0,
             technical_signals={},
             iv_data={"iv_rank": 20, "iv_percentile": 20},
-            current_regime="NEUTRAL",
+            current_regime="neutral",
         )
         # No regime block; empty chain → empty result (not blocked by gating)
         assert isinstance(result, list)
@@ -370,7 +373,7 @@ class TestICNeutralGating:
             current_price=560.0,
             technical_signals={},
             iv_data={"iv_rank": 20, "iv_percentile": 20},
-            current_regime="BULL",
+            current_regime="bull",
         )
         assert isinstance(result, list)
 
@@ -494,7 +497,7 @@ class TestRiskGateDrawdownCB:
         return alert
 
     def test_drawdown_cb_blocks_when_breached(self):
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
         config = _make_config(drawdown_cb=35)
         gate = RiskGate(config=config)
         alert = self._make_alert()
@@ -511,7 +514,7 @@ class TestRiskGateDrawdownCB:
         assert "Drawdown CB" in reason
 
     def test_drawdown_cb_allows_when_not_breached(self):
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
         config = _make_config(drawdown_cb=35)
         gate = RiskGate(config=config)
         alert = self._make_alert()
@@ -527,7 +530,7 @@ class TestRiskGateDrawdownCB:
         assert passed
 
     def test_drawdown_cb_disabled_when_zero(self):
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
         config = _make_config(drawdown_cb=0)
         gate = RiskGate(config=config)
         alert = self._make_alert()
@@ -544,7 +547,7 @@ class TestRiskGateDrawdownCB:
 
     def test_riskgate_no_config_still_works(self):
         """Backward compat: RiskGate() with no config should not crash."""
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
         gate = RiskGate()
         alert = self._make_alert()
         account_state = {
@@ -591,7 +594,7 @@ class TestAlertRouterExecution:
     def test_execution_engine_called_after_dispatch(self):
         from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
 
         mock_telegram = MagicMock()
         mock_telegram.send_alert = MagicMock()
@@ -634,7 +637,7 @@ class TestAlertRouterExecution:
         """When execution_engine=None, no orders submitted (alert-only mode)."""
         from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
 
         router = AlertRouter(
             risk_gate=RiskGate(),
@@ -656,7 +659,7 @@ class TestAlertRouterDteGate:
     def _router(self, min_dte=25, max_dte=45):
         from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
         return AlertRouter(
             risk_gate=RiskGate(),
             position_sizer=AlertPositionSizer(),
@@ -714,7 +717,7 @@ class TestAlertRouterDteGate:
         """When no DTE config, gate is disabled — all expirations allowed."""
         from alerts.alert_position_sizer import AlertPositionSizer
         from alerts.alert_router import AlertRouter
-        from alerts.risk_gate import RiskGate
+        from compass.risk_gate import RiskGate
         router = AlertRouter(
             risk_gate=RiskGate(),
             position_sizer=AlertPositionSizer(),
@@ -766,7 +769,7 @@ class TestAlertRouterDteGate:
 # ---------------------------------------------------------------------------
 
 class TestVixFallbackNeutral:
-    """When ComboRegimeDetector raises, combo_regime must be 'NEUTRAL' in technical_signals."""
+    """When ComboRegimeDetector raises, combo_regime must be 'neutral' in technical_signals."""
 
     def _make_system(self):
         from main import CreditSpreadSystem
@@ -779,7 +782,6 @@ class TestVixFallbackNeutral:
              patch('main.TechnicalAnalyzer'), \
              patch('main.OptionsAnalyzer'), \
              patch('main.PnLDashboard'), \
-             patch('ml.ml_pipeline.MLPipeline', side_effect=ImportError, create=True), \
              patch('execution.execution_engine.ExecutionEngine'):
             system = CreditSpreadSystem(config=cfg)
         return system
@@ -823,13 +825,13 @@ class TestVixFallbackNeutral:
         return technical_signals
 
     def test_neutral_set_when_detector_raises(self):
-        """VIX fetch / detector exception → combo_regime = 'BULL' (matches backtester starting state)."""
+        """VIX fetch / detector exception → combo_regime = 'neutral' (safe default)."""
         system = self._make_system()
         signals = self._wire_analyze_deps(
             system, regime_side_effect=Exception("VIX fetch failed")
         )
         system._analyze_ticker("SPY")
-        assert signals.get("combo_regime") == "BULL"
+        assert signals.get("combo_regime") == "neutral"
 
     def test_actual_regime_set_when_detector_succeeds(self):
         """When detector works, combo_regime reflects the detected value."""
@@ -837,10 +839,10 @@ class TestVixFallbackNeutral:
         ts = pd.Timestamp("2025-01-02")
         system = self._make_system()
         signals = self._wire_analyze_deps(
-            system, regime_result={ts: "BULL"}
+            system, regime_result={ts: "bull"}
         )
         system._analyze_ticker("SPY")
-        assert signals.get("combo_regime") == "BULL"
+        assert signals.get("combo_regime") == "bull"
 
     def test_combo_regime_absent_in_non_combo_mode(self):
         """In non-combo (simple/hmm) mode, combo_regime is never injected."""
@@ -976,3 +978,239 @@ class TestStrikePricePreservation:
         assert exec_dict["put_long_strike"] == 638.0
         assert exec_dict["call_short_strike"] == 683.0
         assert exec_dict["call_long_strike"] == 695.0
+
+
+# ---------------------------------------------------------------------------
+# Lesson 005: Buying power pre-check
+# ---------------------------------------------------------------------------
+
+class TestBuyingPowerPreCheck:
+    """Verify options_buying_power is checked before order submission."""
+
+    def _make_engine(self, alpaca=None, tmp_path=None, config=None):
+        from execution.execution_engine import ExecutionEngine
+        db_path = str(tmp_path / "bp_test.db") if tmp_path else None
+        return ExecutionEngine(alpaca_provider=alpaca, db_path=db_path, config=config)
+
+    def _make_opp(self, credit=1.50, contracts=2, short=540.0, long=535.0, spread_type="bull_put"):
+        return {
+            "ticker": "SPY", "type": spread_type, "expiration": "2026-04-18",
+            "short_strike": short, "long_strike": long,
+            "credit": credit, "contracts": contracts,
+        }
+
+    def test_blocks_when_buying_power_insufficient(self, tmp_path):
+        """Order rejected when options_buying_power < margin required."""
+        mock_alpaca = MagicMock()
+        mock_alpaca.get_account.return_value = {
+            "options_buying_power": 500.0,  # Only $500 BP
+            "equity": 100_000,
+        }
+        engine = self._make_engine(alpaca=mock_alpaca, tmp_path=tmp_path)
+
+        # 2 contracts * $5 width * 100 = $1,000 margin required
+        opp = self._make_opp(contracts=2, short=540.0, long=535.0)
+        result = engine.submit_opportunity(opp)
+
+        assert result["status"] == "insufficient_buying_power"
+        assert "options_bp" in result["message"]
+        # Alpaca should NOT have been called to submit
+        mock_alpaca.submit_credit_spread.assert_not_called()
+
+    def test_allows_when_buying_power_sufficient(self, tmp_path):
+        """Order proceeds when options_buying_power >= margin required."""
+        mock_alpaca = MagicMock()
+        mock_alpaca.get_account.return_value = {
+            "options_buying_power": 50_000.0,
+            "equity": 100_000,
+        }
+        mock_alpaca.submit_credit_spread.return_value = {"status": "submitted", "order_id": "ord-1"}
+        mock_alpaca.get_market_clock.return_value = {"is_open": True}
+        engine = self._make_engine(alpaca=mock_alpaca, tmp_path=tmp_path)
+
+        opp = self._make_opp(contracts=2, short=540.0, long=535.0)
+        result = engine.submit_opportunity(opp)
+
+        assert result["status"] == "submitted"
+
+    def test_fails_open_when_api_errors(self, tmp_path):
+        """If get_account() fails, don't block the order (fail-open)."""
+        mock_alpaca = MagicMock()
+        mock_alpaca.get_account.side_effect = Exception("API timeout")
+        mock_alpaca.submit_credit_spread.return_value = {"status": "submitted", "order_id": "ord-2"}
+        mock_alpaca.get_market_clock.return_value = {"is_open": True}
+        engine = self._make_engine(alpaca=mock_alpaca, tmp_path=tmp_path)
+
+        opp = self._make_opp(contracts=1)
+        result = engine.submit_opportunity(opp)
+
+        # Should proceed despite API error
+        assert result["status"] == "submitted"
+
+    def test_skipped_in_dry_run(self, tmp_path):
+        """No BP check when alpaca is None (dry-run mode)."""
+        engine = self._make_engine(alpaca=None, tmp_path=tmp_path)
+        opp = self._make_opp(contracts=5)  # No BP check in dry-run
+        result = engine.submit_opportunity(opp)
+        assert result["status"] == "dry_run"
+
+    def test_iron_condor_uses_wider_wing(self, tmp_path):
+        """IC margin based on max(put_width, call_width), not both summed."""
+        mock_alpaca = MagicMock()
+        # $10 wide call wing, $5 wide put wing → margin = $10 * 1 * 100 = $1,000
+        mock_alpaca.get_account.return_value = {
+            "options_buying_power": 800.0,  # Not enough for $1,000
+            "equity": 100_000,
+        }
+        engine = self._make_engine(alpaca=mock_alpaca, tmp_path=tmp_path)
+
+        opp = {
+            "ticker": "SPY", "type": "iron_condor", "expiration": "2026-04-18",
+            "short_strike": 550.0, "long_strike": 545.0,
+            "put_short_strike": 550.0, "put_long_strike": 545.0,
+            "call_short_strike": 570.0, "call_long_strike": 580.0,
+            "credit": 2.00, "contracts": 1,
+        }
+        result = engine.submit_opportunity(opp)
+        assert result["status"] == "insufficient_buying_power"
+
+    def test_buying_power_check_called_in_submit(self, tmp_path):
+        """Verify _check_buying_power is called within submit_opportunity."""
+        from execution.execution_engine import ExecutionEngine
+        import inspect
+        src = inspect.getsource(ExecutionEngine.submit_opportunity)
+        assert "_check_buying_power" in src
+        assert "buying_power" in src or "options_buying_power" in src
+
+
+# ---------------------------------------------------------------------------
+# Position limits enforcement in ExecutionEngine
+# ---------------------------------------------------------------------------
+
+class TestPositionLimitsEnforcement:
+    """Verify position limits are enforced in submit_opportunity()."""
+
+    def _make_engine(self, alpaca=None, tmp_path=None, config=None):
+        from execution.execution_engine import ExecutionEngine
+        db_path = str(tmp_path / "pos_test.db")
+        return ExecutionEngine(alpaca_provider=alpaca, db_path=db_path, config=config), db_path
+
+    def _make_opp(self, ticker="SPY", spread_type="bull_put", contracts=2):
+        return {
+            "ticker": ticker, "type": spread_type, "expiration": "2026-04-18",
+            "short_strike": 540.0, "long_strike": 535.0, "credit": 1.50,
+            "contracts": contracts,
+        }
+
+    def _insert_open_trade(self, db_path, trade_id, strategy_type="bull_put", status="open"):
+        from shared.database import upsert_trade
+        upsert_trade({
+            "id": trade_id, "ticker": "SPY", "strategy_type": strategy_type,
+            "status": status, "short_strike": 540.0, "long_strike": 535.0,
+            "expiration": "2026-04-18", "credit": 1.50, "contracts": 1,
+            "entry_date": "2026-03-10",
+        }, source="test", path=db_path)
+
+    def test_blocks_when_contracts_exceed_max(self, tmp_path):
+        """Reject when contracts > MAX_CONTRACTS_PER_TRADE."""
+        from shared.constants import MAX_CONTRACTS_PER_TRADE
+        engine, db_path = self._make_engine(tmp_path=tmp_path)
+
+        opp = self._make_opp(contracts=MAX_CONTRACTS_PER_TRADE + 1)
+        result = engine.submit_opportunity(opp)
+
+        assert result["status"] == "position_limit_reached"
+        assert "contracts_exceeded" in result["message"]
+
+    def test_allows_contracts_at_max(self, tmp_path):
+        """Allow when contracts == MAX_CONTRACTS_PER_TRADE (not exceeded)."""
+        from shared.constants import MAX_CONTRACTS_PER_TRADE
+        engine, db_path = self._make_engine(tmp_path=tmp_path)
+
+        opp = self._make_opp(contracts=MAX_CONTRACTS_PER_TRADE)
+        result = engine.submit_opportunity(opp)
+
+        # Should proceed (dry_run since no alpaca)
+        assert result["status"] == "dry_run"
+
+    def test_blocks_when_max_positions_reached(self, tmp_path):
+        """Reject when total open positions >= max_positions."""
+        config = {"risk": {"max_positions": 3, "account_size": 100_000}}
+        engine, db_path = self._make_engine(tmp_path=tmp_path, config=config)
+
+        # Insert 3 open trades to fill the limit
+        for i in range(3):
+            self._insert_open_trade(db_path, f"pos-{i}", strategy_type="bull_put")
+
+        opp = self._make_opp(contracts=1)
+        result = engine.submit_opportunity(opp)
+
+        assert result["status"] == "position_limit_reached"
+        assert "max_positions_reached" in result["message"]
+
+    def test_allows_when_below_max_positions(self, tmp_path):
+        """Allow when total open positions < max_positions."""
+        config = {"risk": {"max_positions": 5, "account_size": 100_000}}
+        engine, db_path = self._make_engine(tmp_path=tmp_path, config=config)
+
+        self._insert_open_trade(db_path, "pos-0")
+        self._insert_open_trade(db_path, "pos-1")
+
+        opp = self._make_opp(contracts=1)
+        result = engine.submit_opportunity(opp)
+
+        assert result["status"] == "dry_run"  # proceeds (no alpaca)
+
+    def test_blocks_when_per_strategy_limit_reached(self, tmp_path):
+        """Reject when positions for a strategy >= MAX_POSITIONS_PER_STRATEGY."""
+        from shared.constants import MAX_POSITIONS_PER_STRATEGY
+        config = {"risk": {"max_positions": 50, "account_size": 100_000}}
+        engine, db_path = self._make_engine(tmp_path=tmp_path, config=config)
+
+        # Fill up bull_put strategy slots
+        for i in range(MAX_POSITIONS_PER_STRATEGY):
+            self._insert_open_trade(db_path, f"bp-{i}", strategy_type="bull_put")
+
+        opp = self._make_opp(spread_type="bull_put", contracts=1)
+        result = engine.submit_opportunity(opp)
+
+        assert result["status"] == "position_limit_reached"
+        assert "max_per_strategy_reached" in result["message"]
+
+    def test_allows_different_strategy_when_one_is_full(self, tmp_path):
+        """Allow a different strategy even when one strategy is full."""
+        from shared.constants import MAX_POSITIONS_PER_STRATEGY
+        config = {"risk": {"max_positions": 50, "account_size": 100_000}}
+        engine, db_path = self._make_engine(tmp_path=tmp_path, config=config)
+
+        # Fill up bull_put slots
+        for i in range(MAX_POSITIONS_PER_STRATEGY):
+            self._insert_open_trade(db_path, f"bp-{i}", strategy_type="bull_put")
+
+        # A bear_call should still be allowed
+        opp = self._make_opp(spread_type="bear_call", contracts=1)
+        result = engine.submit_opportunity(opp)
+
+        assert result["status"] == "dry_run"  # proceeds
+
+    def test_counts_pending_open_positions(self, tmp_path):
+        """pending_open trades count toward position limits."""
+        config = {"risk": {"max_positions": 2, "account_size": 100_000}}
+        engine, db_path = self._make_engine(tmp_path=tmp_path, config=config)
+
+        self._insert_open_trade(db_path, "open-1", status="open")
+        self._insert_open_trade(db_path, "pending-1", status="pending_open")
+
+        opp = self._make_opp(contracts=1)
+        result = engine.submit_opportunity(opp)
+
+        assert result["status"] == "position_limit_reached"
+        assert "max_positions_reached" in result["message"]
+
+    def test_position_limits_in_submit_source(self, tmp_path):
+        """Verify _check_position_limits is called within submit_opportunity."""
+        from execution.execution_engine import ExecutionEngine
+        import inspect
+        src = inspect.getsource(ExecutionEngine.submit_opportunity)
+        assert "_check_position_limits" in src
+        assert "position_limit" in src.lower()

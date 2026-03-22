@@ -1,6 +1,33 @@
 # TODO — Operation Crack The Code
-# Last Updated: 2026-03-12
-# Status: COMPLETE — All phases finished. ROBUST score 0.951.
+# Last Updated: 2026-03-16
+# Status: EXP-500 Phase 1 COMPLETE. Paper trading live (Mar 16 → May 11).
+
+---
+
+## EXP-500: ML Champion — Phase 1: Data Collection ✅
+
+- [x] Create `ml/` directory
+- [x] Build `ml/collect_training_data.py` — runs EXP-400 backtest (CS+IC on SPY, 2020-2025)
+- [x] Capture 249 trades with 39 features each (full market context)
+- [x] Save `ml/training_data.csv` — chronological order, no shuffling
+- [x] Generate `ml/feature_analysis.md` — distributions, correlations, signal quality patterns
+- [x] Verify data quality: 0 nulls in critical columns, chronological order confirmed
+
+### Key Findings from Feature Analysis
+- **249 trades** (236 CS, 13 IC) across 2020-2025
+- **82.7% overall win rate**, avg return -1.86% (skewed by IC stop-loss outliers)
+- **Strongest predictors of win/loss** (by correlation):
+  - iv_rank: -0.30, VIX: -0.29, realized_vol_20d: -0.27
+  - dte_at_entry: -0.24, otm_pct: -0.22, dist_from_ma200_pct: +0.22
+- **Regime matters**: bull=85.2% WR, bear=63.6%, high_vol=40.0%, low_vol=100%
+- **VIX is king**: Low VIX trades 88.9% WR vs High VIX 76.4%
+- **Trend filter works**: Above MA80 = 85.1% WR vs Below = 63.0%
+
+### Next: Phase 2 — Model Training
+- [ ] Train XGBoost confidence model on training_data.csv
+- [ ] Time-series CV (no random splits)
+- [ ] Feature importance analysis
+- [ ] Calibrate confidence threshold
 
 ---
 

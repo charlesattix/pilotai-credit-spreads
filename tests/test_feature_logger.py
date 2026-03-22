@@ -31,7 +31,7 @@ class TestFeatureLogger:
             "ticker": "SPY",
             "strategy_type": "bull_put",
             "direction": "bullish",
-            "regime": "BULL",
+            "regime": "bull",
             "vix": 18.5,
             "vix_rank": 35.0,
             "vix_percentile": 40.0,
@@ -133,7 +133,7 @@ class TestExtractFeatures:
             "score": 72.5,
             "_ml_features": {
                 "current_price": 500,
-                "regime": "BULL",
+                "regime": "bull",
                 "vix": 18.5,
                 "iv_rank": 45.0,
                 "rsi": 55.0,
@@ -142,7 +142,7 @@ class TestExtractFeatures:
         features = _extract_features_from_opportunity(opp)
         assert features["ticker"] == "SPY"
         assert features["direction"] == "bullish"
-        assert features["regime"] == "BULL"
+        assert features["regime"] == "bull"
         assert features["vix"] == 18.5
         assert features["otm_pct"] == pytest.approx(4.0, abs=0.01)
         assert features["score"] == 72.5

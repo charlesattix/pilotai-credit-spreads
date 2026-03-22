@@ -4,28 +4,36 @@
 Build a validated, multi-strategy options trading system on SPY. Data-driven approach: kill losing strategies, optimize winners, follow what the data says. Paper trade the winners, then go live.
 
 ## North Star
-- **55% avg annual return** (aspirational)
+- **55% avg annual return**
+- **Sharpe ratio of 6**
 - **≤30% max drawdown** in any year
 - **Multi-strategy, research-backed, validated**
 - **All 6 years (2020-2025) profitable**
-- **🚨 NO SYNTHETIC DATA — EVER.** All backtests, validation, and optimization MUST use real Polygon market data. Heuristic/synthetic pricing is permanently banned. Any results based on synthetic data are INVALID and must be re-run with real data before being trusted. This is a Carlos directive — no exceptions.
-  - **Enforced by:** `shared/iron_vault.py` (singleton data provider — hard fails on missing data)
-  - **Architecture docs:** `docs/DATA_ARCHITECTURE.md`
-  - **Setup/validation:** `scripts/iron_vault_setup.py`
-  - **READ THIS FIRST** if you're new to the repo or touching any data code.
+- **🚫 NO SYNTHETIC DATA — EVER.** All pricing must come from `IronVault.instance()` → `data/options_cache.db`. Black-Scholes/heuristic pricing is permanently BANNED. Cache miss → skip trade (return `None`), NEVER fabricate. See `docs/DATA_ARCHITECTURE.md`, `shared/iron_vault.py`, `scripts/iron_vault_setup.py`.
 
 ---
 
 ## 📋 EXPERIMENT REGISTRY
 
-All experiments are tracked here. Every new experiment gets an ID and entry.
+> **Authoritative data:** `experiments/registry.json`
+> **Rules:** `EXPERIMENT_PROTOCOL.md`
+> **Quick view:** `python scripts/list_experiments.py --all`
 
-### Active Experiments
+### 🟢 Live Paper Trading
 
-| ID | Name | Strategy | Avg Return | After Slippage | Max DD | ROBUST | Status |
-|----|------|----------|-----------|----------------|--------|--------|--------|
-| **EXP-400** | **The Champion** | Regime-adaptive CS + IC (SPY) | +32.7% | ~20-25% est | -12.1% | 0.870 | ✅ PAPER TRADE READY |
-| **EXP-401** | **The Blend** | Regime-optimized CS + S/S (SPY) | +40.7% | +26.9% | -7.0% | TBD | ⚠️ VALIDATED — needs paper trader wiring |
+| ID | Name | Creator | Ticker | Account | Avg Return | Max DD | ROBUST | Live Since |
+|----|------|---------|--------|---------|-----------|--------|--------|------------|
+| **EXP-400** | **The Champion** | maximus | SPY | PA36XFVLG0WE | +32.7% | -12.1% | 0.870 | 2026-03-15 |
+| **EXP-401** | **The Blend** | maximus | SPY | PA3Y2XDYB9I3 | +40.7% | -7.0% | TBD | 2026-03-15 |
+| **EXP-503** | **ML V2 Aggressive** | maximus | SPY | PA3Z9PLVYUL5 | TBD | TBD | TBD | 2026-03-22 |
+| **EXP-600** | **IBIT Adaptive** | charles | IBIT | PA3O14JAJHJ0 | +139.2% | -19.4% | 0.950 | 2026-03-22 |
+
+### 🔬 In Development
+
+| ID | Name | Creator | Phase | Next Step |
+|----|------|---------|-------|-----------|
+| **EXP-500** | **ML Champion** | maximus | 1 — Data Collection | Accumulate 200+ labeled samples from EXP-400, then train XGBoost |
+| **EXP-501** | **ML Blend** | maximus | 0 — Blocked | Blocked on EXP-500. Start after EXP-500 proves concept. |
 
 ### Experiment Details
 
@@ -50,15 +58,33 @@ All experiments are tracked here. Every new experiment gets an ID and entry.
 - **Paper trader support:** ✅ Full — Operation Unified Front completed (straddle/strangle wired, unified entry+exit paths)
 - **Branch:** `maximus/unified-front`
 
-### Retired / Failed Experiments
+#### EXP-503: ML V2 Aggressive (DEPLOYED 2026-03-22)
+- **Config:** `configs/paper_exp503.yaml`
+- **Plist:** `deploy/com.pilotai.exp503.plist` → `~/Library/LaunchAgents/com.pilotai.exp503.plist`
+- **Account:** PA3Z9PLVYUL5 (Alpaca paper, fresh — no prior trades)
+- **Strategy:** CreditSpreadStrategy wrapped with RegimeModelRouter (ML V2 Aggressive)
+- **Sizing profile:**
+  - bull → 1.50× (lean in hard)
+  - neutral → 1.00× (normal)
+  - low_vol → 1.20× (calm markets, slightly more)
+  - high_vol → 0.10× (near-flat, defensive)
+  - bear → 0.10× (near-flat, defensive)
+  - crash → 0.00× (no new trades)
+- **regime_gate:** enabled — suppresses signal generation entirely in defensive regimes
+- **ML model:** `ml/models/signal_model_20260217.joblib` (blend weight 0.25)
+- **Dry-run:** 28/28 checks pass (`scripts/dryrun_exp503.py`)
+- **Branch:** `compass-v2` (pushed to origin)
+- **Baseline for comparison:** EXP-401 (same CS core, no ML sizing)
 
-| ID | Name | Why Retired |
-|----|------|-------------|
-| EXP-031 | Compound Bull Put | REJECTED — overfit score 0.590 (hard gate failed), DTE cliff, compound sizing artifacts |
-| EXP-036 | Compound 10% Both MA200 | Baseline experiment, superseded by EXP-400 |
-| EXP-059 | Various | Superseded |
-| EXP-154 | Various | Superseded |
-| EXP-305 | COMPASS Portfolio | Multi-ticker experiment, superseded by EXP-400/401 |
+### 🪦 Retired
+
+| ID | Name | Creator | Why Retired |
+|----|------|---------|-------------|
+| EXP-031 | Compound Bull Put | maximus | Overfit score 0.590 (hard gate failed). DTE cliff. Compound sizing artifacts. |
+| EXP-036 | Compound 10% Both MA200 | maximus | Baseline experiment, superseded by EXP-400. |
+| EXP-059 | Various | maximus | Superseded by EXP-400/401. |
+| EXP-154 | Various | maximus | Superseded by EXP-400/401. |
+| EXP-305 | COMPASS Portfolio | maximus | Multi-ticker approach superseded by focused EXP-400/401. |
 
 ---
 
@@ -113,11 +139,20 @@ All experiments are tracked here. Every new experiment gets an ID and entry.
 ### Key Files
 ```
 🔒 Iron Vault (Centralized Data Layer):
+<<<<<<< Updated upstream
 ├── shared/iron_vault.py           ← THE single data provider — all data access goes here
 ├── scripts/iron_vault_setup.py    ← Bootstrap: validates keys, checks cache, reports gaps
 ├── docs/DATA_ARCHITECTURE.md      ← Full data architecture documentation
 ├── data/options_cache.db          ← 905MB, 5.67M daily bars, 168K contracts (2020-2026)
 └── data/macro_state.db            ← Regime/sector macro data
+=======
+├── shared/iron_vault.py            ← THE single data provider (singleton)
+├── scripts/iron_vault_setup.py     ← Bootstrap & validation
+├── docs/DATA_ARCHITECTURE.md       ← Full architecture docs
+├── data/options_cache.db           ← ~905 MB source of truth (real Polygon data)
+├── data/macro_state.db             ← Regime/sector data (COMPASS)
+└── backtest/historical_data.py     ← Raw DB queries (wrapped by IronVault)
+>>>>>>> Stashed changes
 
 configs/
 ├── champion.json              ← EXP-400 raw params

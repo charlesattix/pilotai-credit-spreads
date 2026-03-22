@@ -1,24 +1,18 @@
 """
 Machine Learning Pipeline for Credit Spread Trading
 
-This module provides sophisticated ML-based trade selection, regime detection,
-and position sizing for credit spread strategies.
+Canonical implementations live in compass/ — this package re-exports
+for backward compatibility with existing scripts.
 """
 
-from .feature_engine import FeatureEngine
-from .iv_analyzer import IVAnalyzer
-from .ml_pipeline import MLPipeline
-from .position_sizer import PositionSizer
-from .regime_detector import RegimeDetector
-from .sentiment_scanner import SentimentScanner
-from .signal_model import SignalModel
+from compass.features import FeatureEngine
+from compass.iv_surface import IVAnalyzer
+from compass.sizing import PositionSizer
+from compass.signal_model import SignalModel
 
 __all__ = [
-    'RegimeDetector',
     'IVAnalyzer',
     'FeatureEngine',
     'SignalModel',
     'PositionSizer',
-    'SentimentScanner',
-    'MLPipeline',
 ]

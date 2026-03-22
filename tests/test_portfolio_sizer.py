@@ -17,7 +17,7 @@ import pytest
 from alerts.alert_position_sizer import _MACRO_FEAR_SCALE, _MACRO_GREED_SCALE, AlertPositionSizer
 from alerts.alert_schema import Alert, AlertType, Direction, Leg, SizeResult
 from alerts.portfolio_heat_tracker import PortfolioHeatTracker
-from alerts.risk_gate import RiskGate
+from compass.risk_gate import RiskGate
 
 # ============================================================================
 # Fixtures & helpers

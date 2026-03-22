@@ -157,7 +157,7 @@ from alerts.alert_schema import (
     TimeSensitivity,
 )
 from alerts.formatters.telegram import TelegramAlertFormatter
-from alerts.risk_gate import RiskGate
+from compass.risk_gate import RiskGate
 from shared.constants import (
     COOLDOWN_AFTER_STOP,
     DAILY_LOSS_LIMIT,

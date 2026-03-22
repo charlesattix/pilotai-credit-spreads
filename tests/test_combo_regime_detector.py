@@ -2,19 +2,19 @@
 Unit tests for ml/combo_regime_detector.py (Phase 6 v2).
 
 Tests verify:
-  1. BULL regime — all 3 signals agree bullish
-  2. BEAR regime — unanimous (3/3) required
-  3. Bear blocked by supermajority — 2 BEAR + 1 BULL → NEUTRAL (not BEAR)
-  4. 2023 recovery scenario — MA200=BEAR, RSI=BULL, VIX_struct=BULL → 2/3 BULL → BULL
-  5. 2024 brief dip scenario — MA200=BULL, RSI=BEAR, VIX_struct=BEAR → 1B/2B → NEUTRAL
-  6. VIX circuit breaker — VIX > 40 → BEAR regardless of other signals
+  1. bull regime — all 3 signals agree bullish
+  2. bear regime — unanimous (3/3) required
+  3. Bear blocked by supermajority — 2 bear + 1 bull → neutral (not bear)
+  4. 2023 recovery scenario — MA200=bear, RSI=bull, VIX_struct=bull → 2/3 bull → bull
+  5. 2024 brief dip scenario — MA200=bull, RSI=bear, VIX_struct=bear → 1B/2B → neutral
+  6. VIX circuit breaker — VIX > 40 → bear regardless of other signals
   7. Hysteresis — regime just changed; raw signal wants to flip again → keeps current
   8. MA200 confidence zone — price within 0.5% of MA200 → MA200 abstains
 """
 
 import pandas as pd
 
-from ml.combo_regime_detector import ComboRegimeDetector
+from compass.regime import ComboRegimeDetector
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -61,56 +61,56 @@ def _make_vix3m_dict(price_data, vix3m_val):
 
 
 # ---------------------------------------------------------------------------
-# Test 1: BULL — all 3 signals agree bullish
+# Test 1: bull — all 3 signals agree bullish
 # ---------------------------------------------------------------------------
 
 def test_bull_regime_all_agree():
     """
-    price >> MA200, RSI > 55 (rising trend), VIX/VIX3M < 0.95 (contango) → 3 BULL → BULL.
+    price >> MA200, RSI > 55 (rising trend), VIX/VIX3M < 0.95 (contango) → 3 bull → bull.
     """
     # 210 days of steadily rising prices: RSI will be high, price >> MA200
     values = [300 + i for i in range(210)]
     df = _make_price_data(values)
 
     vix     = _make_vix_dict(df, 15.0)   # VIX = 15
-    vix3m   = _make_vix3m_dict(df, 18.0) # VIX3M = 18 → ratio = 0.833 < 0.95 → BULL
+    vix3m   = _make_vix3m_dict(df, 18.0) # VIX3M = 18 → ratio = 0.833 < 0.95 → bull
 
     detector = _make_detector({"cooldown_days": 0})  # disable hysteresis for unit test
     label = _last_regime(detector, df, vix, vix3m)
-    assert label == "BULL", f"Expected BULL, got {label}"
+    assert label == "bull", f"Expected bull, got {label}"
 
 
 # ---------------------------------------------------------------------------
-# Test 2: BEAR — unanimous (3/3) required
+# Test 2: bear — unanimous (3/3) required
 # ---------------------------------------------------------------------------
 
 def test_bear_regime_unanimous():
     """
-    price << MA200, RSI < 45 (falling trend), VIX/VIX3M > 1.05 (backwardation) → 3 BEAR → BEAR.
+    price << MA200, RSI < 45 (falling trend), VIX/VIX3M > 1.05 (backwardation) → 3 bear → bear.
     """
     # 210 days of steadily falling prices
     values = [510 - i for i in range(210)]
     df = _make_price_data(values)
 
     vix     = _make_vix_dict(df, 30.0)   # VIX = 30
-    vix3m   = _make_vix3m_dict(df, 25.0) # VIX3M = 25 → ratio = 1.20 > 1.05 → BEAR
+    vix3m   = _make_vix3m_dict(df, 25.0) # VIX3M = 25 → ratio = 1.20 > 1.05 → bear
 
     detector = _make_detector({"cooldown_days": 0})
     label = _last_regime(detector, df, vix, vix3m)
-    assert label == "BEAR", f"Expected BEAR (3/3 unanimous), got {label}"
+    assert label == "bear", f"Expected bear (3/3 unanimous), got {label}"
 
 
 # ---------------------------------------------------------------------------
-# Test 3: Bear blocked by supermajority — 2 BEAR + 1 BULL → NEUTRAL
+# Test 3: Bear blocked by supermajority — 2 bear + 1 bull → neutral
 # ---------------------------------------------------------------------------
 
 def test_bear_blocked_by_supermajority():
     """
     Aug-2024-like scenario:
-      MA200: BULL  (price well above 200-day MA anchor)
-      RSI:   BEAR  (14 consecutive -1 days push RSI to ~22)
-      VIX_structure: BEAR (backwardation: VIX/VIX3M = 1.25)
-    → 1 BULL + 2 BEAR → bear_votes=2 < 3 required → NEUTRAL (not BEAR).
+      MA200: bull  (price well above 200-day MA anchor)
+      RSI:   bear  (14 consecutive -1 days push RSI to ~22)
+      VIX_structure: bear (backwardation: VIX/VIX3M = 1.25)
+    → 1 bull + 2 bear → bear_votes=2 < 3 required → neutral (not bear).
 
     Key data design: 600-day gentle bull (+0.5/day) anchors MA200 far below
     current price.  14-day -1/day dip is small enough (14 pts) that price
@@ -125,27 +125,27 @@ def test_bear_blocked_by_supermajority():
 
     # VIX below circuit breaker threshold, VIX3M lower → backwardation
     vix   = _make_vix_dict(df, 35.0)   # elevated but not extreme (<40)
-    vix3m = _make_vix3m_dict(df, 28.0) # ratio = 35/28 = 1.25 → BEAR signal
+    vix3m = _make_vix3m_dict(df, 28.0) # ratio = 35/28 = 1.25 → bear signal
 
     detector = _make_detector({"cooldown_days": 0, "bear_requires_unanimous": True})
     label = _last_regime(detector, df, vix, vix3m)
-    assert label == "NEUTRAL", (
-        f"Expected NEUTRAL (2 BEAR < 3 unanimous required), got {label}. "
-        "MA200=BULL + 2 BEAR should NOT reach 3/3 unanimous threshold."
+    assert label == "neutral", (
+        f"Expected neutral (2 bear < 3 unanimous required), got {label}. "
+        "MA200=bull + 2 bear should NOT reach 3/3 unanimous threshold."
     )
 
 
 # ---------------------------------------------------------------------------
-# Test 4: 2023 recovery scenario — MA200 BEAR, RSI+VIX_struct BULL → BULL
+# Test 4: 2023 recovery scenario — MA200 bear, RSI+VIX_struct bull → bull
 # ---------------------------------------------------------------------------
 
 def test_2023_recovery_scenario():
     """
     Early-2023 analog: price recovering above MA50 (RSI rising) but still below MA200.
-      price_vs_ma200: BEAR (price < MA200)
-      rsi_momentum:   BULL (RSI recovering > 55)
-      vix_structure:  BULL (ratio < 0.95, calm contango)
-    → 2 BULL, 1 BEAR → BULL → no bear calls (bear calls correctly blocked in early 2023).
+      price_vs_ma200: bear (price < MA200)
+      rsi_momentum:   bull (RSI recovering > 55)
+      vix_structure:  bull (ratio < 0.95, calm contango)
+    → 2 bull, 1 bear → bull → no bear calls (bear calls correctly blocked in early 2023).
     """
     # 300 days at high plateau (500), then 60 days at depressed (350), then recovering
     plateau = [500.0] * 300
@@ -163,27 +163,27 @@ def test_2023_recovery_scenario():
 
     # Contango: VIX3M > VIX (calm, market expects recovery)
     vix   = _make_vix_dict(df, 16.0)
-    vix3m = _make_vix3m_dict(df, 19.0)  # ratio = 0.842 < 0.95 → BULL
+    vix3m = _make_vix3m_dict(df, 19.0)  # ratio = 0.842 < 0.95 → bull
 
     detector = _make_detector({"cooldown_days": 0})
     label = _last_regime(detector, df, vix, vix3m)
-    assert label == "BULL", (
-        f"2023 recovery: expected BULL (RSI+VIX_struct override MA200 BEAR), got {label}. "
+    assert label == "bull", (
+        f"2023 recovery: expected bull (RSI+VIX_struct override MA200 bear), got {label}. "
         f"price={last_price:.1f} MA200≈{ma200_approx:.1f}"
     )
 
 
 # ---------------------------------------------------------------------------
-# Test 5: 2024 dip scenario — MA200 BULL, RSI+VIX_struct BEAR → NEUTRAL
+# Test 5: 2024 dip scenario — MA200 bull, RSI+VIX_struct bear → neutral
 # ---------------------------------------------------------------------------
 
 def test_2024_dip_scenario():
     """
     Aug-2024 analog: brief dip in a bull market.
-      price_vs_ma200: BULL  (SPY still above MA200 — long-run anchor)
-      rsi_momentum:   BEAR  (12 days of -1 drops RSI to ~36)
-      vix_structure:  BEAR  (VIX/VIX3M = 1.357 — backwardation)
-    → 1 BULL, 2 BEAR → bear_votes=2 < 3 unanimous → NEUTRAL (no bear calls).
+      price_vs_ma200: bull  (SPY still above MA200 — long-run anchor)
+      rsi_momentum:   bear  (12 days of -1 drops RSI to ~36)
+      vix_structure:  bear  (VIX/VIX3M = 1.357 — backwardation)
+    → 1 bull, 2 bear → bear_votes=2 < 3 unanimous → neutral (no bear calls).
 
     Same core design as test_bear_blocked: long slow bull + small daily dip
     keeps price above MA200 while RSI and VIX structure turn bearish.
@@ -196,25 +196,25 @@ def test_2024_dip_scenario():
 
     # VIX spiked into backwardation (below 40 circuit breaker)
     vix   = _make_vix_dict(df, 38.0)   # below 40 threshold
-    vix3m = _make_vix3m_dict(df, 28.0) # ratio = 38/28 = 1.357 → BEAR
+    vix3m = _make_vix3m_dict(df, 28.0) # ratio = 38/28 = 1.357 → bear
 
     detector = _make_detector({"cooldown_days": 0, "bear_requires_unanimous": True})
     label = _last_regime(detector, df, vix, vix3m)
-    assert label == "NEUTRAL", (
-        f"2024 dip: expected NEUTRAL (2 BEAR < 3 unanimous required), got {label}"
+    assert label == "neutral", (
+        f"2024 dip: expected neutral (2 bear < 3 unanimous required), got {label}"
     )
 
 
 # ---------------------------------------------------------------------------
-# Test 6: VIX circuit breaker — VIX > 40 → BEAR regardless
+# Test 6: VIX circuit breaker — VIX > 40 → bear regardless
 # ---------------------------------------------------------------------------
 
 def test_vix_circuit_breaker():
     """
-    VIX > 40 triggers circuit breaker → BEAR regardless of other signals.
-    Even with rising prices (MA200=BULL, RSI=BULL, VIX_struct=BULL), extreme VIX wins.
+    VIX > 40 triggers circuit breaker → bear regardless of other signals.
+    Even with rising prices (MA200=bull, RSI=bull, VIX_struct=bull), extreme VIX wins.
     """
-    values = [300 + i for i in range(210)]  # rising → all signals BULL
+    values = [300 + i for i in range(210)]  # rising → all signals bull
     df = _make_price_data(values)
 
     # VIX circuit breaker uses PRIOR day's VIX (no lookahead).
@@ -227,8 +227,8 @@ def test_vix_circuit_breaker():
 
     detector = _make_detector({"cooldown_days": 0, "vix_extreme": 40.0})
     label = _last_regime(detector, df, vix, vix3m)
-    assert label == "BEAR", (
-        f"VIX circuit breaker: expected BEAR (VIX=45 > 40), got {label}"
+    assert label == "bear", (
+        f"VIX circuit breaker: expected bear (VIX=45 > 40), got {label}"
     )
 
 
@@ -238,28 +238,28 @@ def test_vix_circuit_breaker():
 
 def test_hysteresis_prevents_flip():
     """
-    Regime just changed to BULL. On the very next day, raw signal says NEUTRAL.
-    With cooldown_days=10, hysteresis keeps BULL for 10 days.
+    Regime just changed to bull. On the very next day, raw signal says neutral.
+    With cooldown_days=10, hysteresis keeps bull for 10 days.
     """
-    # Long falling trend (establishes BEAR), then sharp recovery (signals flip to BULL),
-    # then slight dip (RSI dips to neutral — would be NEUTRAL raw signal)
-    [500 - i for i in range(210)]   # 500 → 290: establishes BEAR
+    # Long falling trend (establishes bear), then sharp recovery (signals flip to bull),
+    # then slight dip (RSI dips to neutral — would be neutral raw signal)
+    [500 - i for i in range(210)]   # 500 → 290: establishes bear
     # One strong up day that flips RSI+MA200 (simulate by using detector with cooldown)
     # Instead, test hysteresis directly: build a scenario where regime changes then
     # raw signal immediately wants to change back.
 
-    # Design: 210 rising days (→ BULL established), then 1 day where RSI neutral,
-    # MA200 just barely in band (abstains), VIX neutral → raw=NEUTRAL.
-    # With cooldown=10, should stay BULL.
+    # Design: 210 rising days (→ bull established), then 1 day where RSI neutral,
+    # MA200 just barely in band (abstains), VIX neutral → raw=neutral.
+    # With cooldown=10, should stay bull.
     [300 + i for i in range(210)]
     # Last bar: price dropped back near MA200 (in neutral band), RSI neutral
     # We'll set MA200 ≈ current price, RSI ≈ 50 (neutral), VIX_struct neutral
     # The simplest approach: just check that after a recent change, the regime holds.
-    # Use a two-phase dataset: phase1 all BULL signals, phase2 all ambiguous.
+    # Use a two-phase dataset: phase1 all bull signals, phase2 all ambiguous.
 
-    # Phase 1: 220 days all-BULL (price rising fast, RSI > 55, VIX contango)
+    # Phase 1: 220 days all-bull (price rising fast, RSI > 55, VIX contango)
     phase1 = [300 + i * 2 for i in range(220)]
-    # Phase 2: 5 days where raw signal would be NEUTRAL (RSI dips to 50, VIX neutral band)
+    # Phase 2: 5 days where raw signal would be neutral (RSI dips to 50, VIX neutral band)
     phase2_start = phase1[-1]
     phase2 = [phase2_start - i * 0.1 for i in range(5)]  # tiny dip (stays above MA200)
     values = phase1 + phase2
@@ -275,10 +275,10 @@ def test_hysteresis_prevents_flip():
     detector = _make_detector({"cooldown_days": 10})
     regime_series = detector.compute_regime_series(df, vix, vix3m)
 
-    # The last 5 days should still be BULL due to hysteresis (regime change < 10 days ago)
+    # The last 5 days should still be bull due to hysteresis (regime change < 10 days ago)
     last_labels = [regime_series[ts] for ts in df.index[-5:]]
-    assert all(lbl == "BULL" for lbl in last_labels), (
-        f"Hysteresis: expected BULL to persist, got {last_labels}"
+    assert all(lbl == "bull" for lbl in last_labels), (
+        f"Hysteresis: expected bull to persist, got {last_labels}"
     )
 
 
@@ -291,7 +291,7 @@ def test_ma200_confidence_zone():
     Price is within 0.5% of MA200 → MA200 signal abstains.
     RSI neutral (45–55 band) → abstains.
     VIX_struct neutral (0.95–1.05) → abstains.
-    → 0 BULL, 0 BEAR → NEUTRAL.
+    → 0 bull, 0 bear → neutral.
     """
     # 210 days flat at 400 → MA200 ≈ 400, price ≈ 400 (within band)
     values = [400.0] * 210
@@ -303,6 +303,6 @@ def test_ma200_confidence_zone():
 
     detector = _make_detector({"cooldown_days": 0})
     label = _last_regime(detector, df, vix, vix3m)
-    assert label == "NEUTRAL", (
-        f"MA200 confidence zone: all signals abstaining, expected NEUTRAL, got {label}"
+    assert label == "neutral", (
+        f"MA200 confidence zone: all signals abstaining, expected neutral, got {label}"
     )

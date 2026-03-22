@@ -8,7 +8,7 @@ hard-coded constants.
 from datetime import datetime, timedelta, timezone
 
 from alerts.alert_schema import Alert, AlertType, Direction, Leg
-from alerts.risk_gate import RiskGate
+from compass.risk_gate import RiskGate
 from shared.constants import (
     COOLDOWN_AFTER_STOP,
     DAILY_LOSS_LIMIT,

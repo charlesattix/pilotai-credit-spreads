@@ -1,0 +1,385 @@
+{
+  "timestamp": "2026-03-21T03:43:26.450993",
+  "description": "Phase 4 ML Backtest Sweep \u2014 Confidence Threshold Evaluation",
+  "starting_capital": 100000,
+  "confidence_thresholds": [
+    0.4,
+    0.45,
+    0.5,
+    0.55,
+    0.6
+  ],
+  "oos_years": [
+    2023,
+    2024,
+    2025
+  ],
+  "n_total_trades": 430,
+  "n_oos_trades": 211,
+  "model_config": {
+    "objective": "binary:logistic",
+    "max_depth": 4,
+    "learning_rate": 0.05,
+    "n_estimators": 200,
+    "min_child_weight": 5,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "gamma": 1,
+    "reg_alpha": 0.1,
+    "reg_lambda": 1.0,
+    "random_state": 42,
+    "eval_metric": "logloss"
+  },
+  "features_used": [
+    "dte_at_entry",
+    "hold_days",
+    "day_of_week",
+    "days_since_last_trade",
+    "rsi_14",
+    "momentum_5d_pct",
+    "momentum_10d_pct",
+    "vix",
+    "iv_rank",
+    "dist_from_ma20_pct",
+    "dist_from_ma50_pct",
+    "dist_from_ma80_pct",
+    "dist_from_ma200_pct",
+    "realized_vol_atr20",
+    "realized_vol_5d",
+    "realized_vol_10d",
+    "realized_vol_20d",
+    "net_credit",
+    "otm_pct",
+    "contracts",
+    "credit_to_width_ratio",
+    "regime_duration_days",
+    "vix_change_5d"
+  ],
+  "n_features": 23,
+  "baseline": {
+    "avg_return_pct": 0.45,
+    "total_trades": 211,
+    "total_wins": 127,
+    "win_rate": 60.2,
+    "years_profitable": "2/3",
+    "worst_year_dd": -24.97,
+    "overall_max_dd": -28.56,
+    "yearly": {
+      "2023": {
+        "year": 2023,
+        "return_pct": 7.06,
+        "trades": 73,
+        "wins": 43,
+        "win_rate": 58.9,
+        "max_drawdown": -15.74,
+        "total_pnl": 7058.03
+      },
+      "2024": {
+        "year": 2024,
+        "return_pct": 7.95,
+        "trades": 69,
+        "wins": 45,
+        "win_rate": 65.2,
+        "max_drawdown": -10.26,
+        "total_pnl": 7946.16
+      },
+      "2025": {
+        "year": 2025,
+        "return_pct": -13.67,
+        "trades": 69,
+        "wins": 39,
+        "win_rate": 56.5,
+        "max_drawdown": -24.97,
+        "total_pnl": -13672.52
+      }
+    },
+    "experiment_id": "BASELINE",
+    "description": "No ML filtering \u2014 all trades accepted",
+    "confidence_threshold": null
+  },
+  "experiments": [
+    {
+      "avg_return_pct": 27.63,
+      "total_trades": 125,
+      "total_wins": 106,
+      "win_rate": 84.8,
+      "years_profitable": "3/3",
+      "worst_year_dd": -16.73,
+      "overall_max_dd": -16.96,
+      "yearly": {
+        "2023": {
+          "year": 2023,
+          "return_pct": 39.24,
+          "trades": 42,
+          "wins": 37,
+          "win_rate": 88.1,
+          "max_drawdown": -4.23,
+          "total_pnl": 39238.89
+        },
+        "2024": {
+          "year": 2024,
+          "return_pct": 28.22,
+          "trades": 45,
+          "wins": 37,
+          "win_rate": 82.2,
+          "max_drawdown": -6.32,
+          "total_pnl": 28223.51
+        },
+        "2025": {
+          "year": 2025,
+          "return_pct": 15.43,
+          "trades": 38,
+          "wins": 32,
+          "win_rate": 84.2,
+          "max_drawdown": -16.73,
+          "total_pnl": 15430.09
+        }
+      },
+      "experiment_id": "M-001",
+      "description": "ML confidence threshold >= 0.4",
+      "confidence_threshold": 0.4,
+      "trades_rejected": 86,
+      "rejection_rate_pct": 40.8,
+      "delta_avg_return": 27.18,
+      "delta_win_rate": 24.6,
+      "delta_max_dd": 11.6
+    },
+    {
+      "avg_return_pct": 26.8,
+      "total_trades": 123,
+      "total_wins": 104,
+      "win_rate": 84.6,
+      "years_profitable": "3/3",
+      "worst_year_dd": -16.73,
+      "overall_max_dd": -16.96,
+      "yearly": {
+        "2023": {
+          "year": 2023,
+          "return_pct": 39.24,
+          "trades": 42,
+          "wins": 37,
+          "win_rate": 88.1,
+          "max_drawdown": -4.23,
+          "total_pnl": 39238.89
+        },
+        "2024": {
+          "year": 2024,
+          "return_pct": 28.22,
+          "trades": 45,
+          "wins": 37,
+          "win_rate": 82.2,
+          "max_drawdown": -6.32,
+          "total_pnl": 28223.51
+        },
+        "2025": {
+          "year": 2025,
+          "return_pct": 12.95,
+          "trades": 36,
+          "wins": 30,
+          "win_rate": 83.3,
+          "max_drawdown": -16.73,
+          "total_pnl": 12946.25
+        }
+      },
+      "experiment_id": "M-002",
+      "description": "ML confidence threshold >= 0.45",
+      "confidence_threshold": 0.45,
+      "trades_rejected": 88,
+      "rejection_rate_pct": 41.7,
+      "delta_avg_return": 26.35,
+      "delta_win_rate": 24.4,
+      "delta_max_dd": 11.6
+    },
+    {
+      "avg_return_pct": 26.52,
+      "total_trades": 116,
+      "total_wins": 100,
+      "win_rate": 86.2,
+      "years_profitable": "3/3",
+      "worst_year_dd": -16.73,
+      "overall_max_dd": -16.96,
+      "yearly": {
+        "2023": {
+          "year": 2023,
+          "return_pct": 39.24,
+          "trades": 42,
+          "wins": 37,
+          "win_rate": 88.1,
+          "max_drawdown": -4.23,
+          "total_pnl": 39238.89
+        },
+        "2024": {
+          "year": 2024,
+          "return_pct": 27.62,
+          "trades": 40,
+          "wins": 34,
+          "win_rate": 85.0,
+          "max_drawdown": -6.32,
+          "total_pnl": 27622.84
+        },
+        "2025": {
+          "year": 2025,
+          "return_pct": 12.7,
+          "trades": 34,
+          "wins": 29,
+          "win_rate": 85.3,
+          "max_drawdown": -16.73,
+          "total_pnl": 12703.14
+        }
+      },
+      "experiment_id": "M-003",
+      "description": "ML confidence threshold >= 0.5",
+      "confidence_threshold": 0.5,
+      "trades_rejected": 95,
+      "rejection_rate_pct": 45.0,
+      "delta_avg_return": 26.07,
+      "delta_win_rate": 26.0,
+      "delta_max_dd": 11.6
+    },
+    {
+      "avg_return_pct": 26.58,
+      "total_trades": 113,
+      "total_wins": 98,
+      "win_rate": 86.7,
+      "years_profitable": "3/3",
+      "worst_year_dd": -16.73,
+      "overall_max_dd": -18.07,
+      "yearly": {
+        "2023": {
+          "year": 2023,
+          "return_pct": 41.31,
+          "trades": 41,
+          "wins": 37,
+          "win_rate": 90.2,
+          "max_drawdown": -2.43,
+          "total_pnl": 41306.06
+        },
+        "2024": {
+          "year": 2024,
+          "return_pct": 27.62,
+          "trades": 40,
+          "wins": 34,
+          "win_rate": 85.0,
+          "max_drawdown": -6.32,
+          "total_pnl": 27622.84
+        },
+        "2025": {
+          "year": 2025,
+          "return_pct": 10.82,
+          "trades": 32,
+          "wins": 27,
+          "win_rate": 84.4,
+          "max_drawdown": -16.73,
+          "total_pnl": 10820.5
+        }
+      },
+      "experiment_id": "M-004",
+      "description": "ML confidence threshold >= 0.55",
+      "confidence_threshold": 0.55,
+      "trades_rejected": 98,
+      "rejection_rate_pct": 46.4,
+      "delta_avg_return": 26.13,
+      "delta_win_rate": 26.5,
+      "delta_max_dd": 10.49
+    },
+    {
+      "avg_return_pct": 26.58,
+      "total_trades": 113,
+      "total_wins": 98,
+      "win_rate": 86.7,
+      "years_profitable": "3/3",
+      "worst_year_dd": -16.73,
+      "overall_max_dd": -18.07,
+      "yearly": {
+        "2023": {
+          "year": 2023,
+          "return_pct": 41.31,
+          "trades": 41,
+          "wins": 37,
+          "win_rate": 90.2,
+          "max_drawdown": -2.43,
+          "total_pnl": 41306.06
+        },
+        "2024": {
+          "year": 2024,
+          "return_pct": 27.62,
+          "trades": 40,
+          "wins": 34,
+          "win_rate": 85.0,
+          "max_drawdown": -6.32,
+          "total_pnl": 27622.84
+        },
+        "2025": {
+          "year": 2025,
+          "return_pct": 10.82,
+          "trades": 32,
+          "wins": 27,
+          "win_rate": 84.4,
+          "max_drawdown": -16.73,
+          "total_pnl": 10820.5
+        }
+      },
+      "experiment_id": "M-005",
+      "description": "ML confidence threshold >= 0.6",
+      "confidence_threshold": 0.6,
+      "trades_rejected": 98,
+      "rejection_rate_pct": 46.4,
+      "delta_avg_return": 26.13,
+      "delta_win_rate": 26.5,
+      "delta_max_dd": 10.49
+    }
+  ],
+  "confidence_distribution": {
+    "mean": 0.571,
+    "median": 0.7176,
+    "std": 0.3473,
+    "min": 0.038,
+    "max": 0.9919,
+    "pct_above_50": 55.0
+  },
+  "confidence_buckets": [
+    {
+      "range": "[0.0, 0.30)",
+      "trades": 75,
+      "win_rate": 22.7,
+      "avg_pnl": -919.87
+    },
+    {
+      "range": "[0.3, 0.40)",
+      "trades": 11,
+      "win_rate": 36.4,
+      "avg_pnl": -1142.76
+    },
+    {
+      "range": "[0.4, 0.50)",
+      "trades": 9,
+      "win_rate": 66.7,
+      "avg_pnl": 369.74
+    },
+    {
+      "range": "[0.5, 0.60)",
+      "trades": 3,
+      "win_rate": 66.7,
+      "avg_pnl": -61.51
+    },
+    {
+      "range": "[0.6, 0.70)",
+      "trades": 4,
+      "win_rate": 50.0,
+      "avg_pnl": -3591.99
+    },
+    {
+      "range": "[0.7, 1.00]",
+      "trades": 109,
+      "win_rate": 88.1,
+      "avg_pnl": 863.46
+    }
+  ],
+  "verdict": {
+    "best_experiment": "M-001",
+    "best_threshold": 0.4,
+    "improvement_pct": 27.18,
+    "improves_on_baseline": true
+  },
+  "elapsed_seconds": 1.5
+}

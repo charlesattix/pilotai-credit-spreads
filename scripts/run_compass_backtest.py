@@ -147,7 +147,7 @@ def fmt_delta(a: float, b: float) -> str:
 def get_compass_stats() -> dict:
     """Pull macro score distribution from the DB for context."""
     try:
-        from shared.macro_state_db import get_db
+        from compass.macro_db import get_db
         conn = get_db()
         rows = conn.execute(
             "SELECT date, overall FROM macro_score WHERE date >= '2020-01-01' AND date <= '2025-12-31' ORDER BY date"

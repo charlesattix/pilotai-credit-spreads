@@ -173,6 +173,10 @@ class MarketSnapshot:
     # DataProvider for real option fills (None → strategies use BS heuristic pricing)
     data_provider: Optional[Any] = None
 
+    # COMPASS extensions (populated by CompassBacktester when enabled)
+    macro_score: Optional[float] = None     # 0-100 macro composite; None = no data
+    rrg_breadth: Optional[float] = None     # fraction of sectors in Leading/Improving
+
 
 @dataclass
 class PortfolioState:

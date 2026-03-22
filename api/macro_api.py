@@ -40,8 +40,8 @@ PROJECT_ROOT = API_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 load_dotenv(PROJECT_ROOT / ".env")
 
-from shared.macro_event_gate import compute_composite_scaling, get_upcoming_events
-from shared.macro_state_db import (
+from compass.events import compute_composite_scaling, get_upcoming_events
+from compass.macro_db import (
     MACRO_DB_PATH,
     get_current_macro_score,
     get_db,
@@ -624,7 +624,7 @@ def get_regime(
     _key: str = Depends(require_api_key),
 ) -> RegimeResponse:
     """
-    Returns the current ComboRegimeDetector regime (BULL / NEUTRAL / BEAR) for
+    Returns the current ComboRegimeDetector regime (bull / neutral / bear) for
     the requested underlying, computed from daily price history in the local cache.
 
     Only tickers in `REGIME_SUPPORTED_UNDERLYINGS` are accepted (currently: SPY).
@@ -648,7 +648,7 @@ def get_regime(
 
     try:
         import pandas as pd
-        from ml.combo_regime_detector import ComboRegimeDetector
+        from compass.regime import ComboRegimeDetector
 
         conn = sqlite3.connect(str(MACRO_CACHE_DB))
         try:
@@ -674,7 +674,7 @@ def get_regime(
 
         return RegimeResponse(
             underlying=ticker,
-            regime=regime_result.get("regime", "NEUTRAL"),
+            regime=regime_result.get("regime", "neutral"),
             signals=regime_result,
             as_of_date=as_of,
         )

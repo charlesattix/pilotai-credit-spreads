@@ -14,7 +14,7 @@ from .iron_condor_exit_monitor import IronCondorExitMonitor
 from .iron_condor_scanner import IronCondorScanner
 from .momentum_exit_monitor import MomentumExitMonitor
 from .momentum_scanner import MomentumScanner
-from .risk_gate import RiskGate
+from compass.risk_gate import RiskGate
 from .telegram_bot import TelegramBot
 from .zero_dte_exit_monitor import ZeroDTEExitMonitor
 from .zero_dte_scanner import ZeroDTEScanner

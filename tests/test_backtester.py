@@ -1548,7 +1548,7 @@ class TestIronCondorExpiration:
           correct:  int(10_000 / ((10.0 - 2.30) * 100)) = int(10000/770) = 12
           bugged:   int(10_000 / ((5.0  - 2.30) * 100)) = int(10000/270) = 37
         """
-        from ml.position_sizer import get_contract_size
+        from compass.sizing import get_contract_size
 
         cfg = _make_config()
         cfg['backtest']['sizing_mode'] = 'flat'

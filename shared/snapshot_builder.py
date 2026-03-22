@@ -38,7 +38,7 @@ def build_live_market_snapshot(
         current_price: Latest close price.
         iv_data: Dict with iv_rank, iv_percentile, current_iv.
         technical_signals: Dict from TechnicalAnalyzer.analyze().
-        regime: Current market regime string (e.g. 'bull', 'bear', 'BULL').
+        regime: Current market regime string (e.g. 'bull', 'bear', 'neutral').
         vix_data: Optional VIX price DataFrame.
         upcoming_events: Economic events within lookahead window.
         recent_events: Economic events that recently occurred.

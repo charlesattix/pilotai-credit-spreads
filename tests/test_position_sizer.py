@@ -1,17 +1,6 @@
 """Tests for the Kelly-criterion position sizer."""
-import importlib
 
-# Import PositionSizer directly from its module file to avoid
-# ml/__init__.py pulling in xgboost/SignalModel.
-import importlib.util
-
-_spec = importlib.util.spec_from_file_location(
-    "ml.position_sizer",
-    str(__import__("pathlib").Path(__file__).resolve().parent.parent / "ml" / "position_sizer.py"),
-)
-_mod = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_mod)
-PositionSizer = _mod.PositionSizer
+from compass.sizing import PositionSizer
 
 
 class TestPositionSizer:

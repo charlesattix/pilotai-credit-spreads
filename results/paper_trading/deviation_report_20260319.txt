@@ -1,0 +1,35 @@
+PAPER TRADING DEVIATION REPORT — 2026-03-19
+============================================================
+Date Range: 2025-06-01 to 2025-06-30
+Config: /home/node/openclaw/workspace/pilotai-credit-spreads/configs/champion.json
+Source: CSV (/tmp/test_fills.csv)
+
+SUMMARY
+  Actual trades:   3     Backtest trades: 2
+  Matched:         0     Paper-only: 3    BT-only: 2
+  Alignment score: 0.0   Status: SUSPECT
+
+SLIPPAGE ANALYSIS
+  Entry slippage (actual credit vs backtest):
+    Mean: $+0.0000    Median: $+0.0000    P95: $+0.0000
+
+REGIME ACCURACY
+  Period distribution: bear 0%, bull 100%, crash 0%, high_vol 0%, low_vol 0%
+  Transitions: 0
+  Per-regime win rates:
+    bull         actual  50.0% vs backtest  50.0%  [PASS]
+    unknown      actual 100.0% vs backtest   0.0%  [WARN +100.0pp]
+
+
+UNMATCHED TRADES
+  Paper-only (3):
+    2025-06-10  SPY  credit_spread  credit=0.8500  pnl=425.00
+    2025-06-12  SPY  credit_spread  credit=0.7200  pnl=-180.00
+    2025-06-15  SPY  credit_spread  credit=0.9500  pnl=380.00
+  BT-only (2):
+    2025-06-09  SPY  DebitSpreadStrategy  credit=-1.4060  pnl=-505.11
+    2025-06-24  SPY  DebitSpreadStrategy  credit=-1.4509  pnl=1536.10
+
+FLAGS & ACTION ITEMS
+  - 3 paper-only trades suggest signal generation divergence
+  - 2 BT-only trades — paper trader may be missing signals

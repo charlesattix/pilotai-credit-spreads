@@ -22,7 +22,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
 
-from shared.macro_state_db import (
+from compass.macro_db import (
     LIQUID_SECTOR_ETFS,
     get_current_macro_score,
     get_sector_rankings,
@@ -43,7 +43,7 @@ from alerts import AlertGenerator, TelegramBot
 from alerts.alert_position_sizer import AlertPositionSizer
 from alerts.alert_router import AlertRouter
 from alerts.formatters.telegram import TelegramAlertFormatter
-from alerts.risk_gate import RiskGate
+from compass.risk_gate import RiskGate
 from backtest import Backtester, HistoricalOptionsData, PerformanceMetrics
 from shared.data_cache import DataCache
 from shared.database import get_trades, insert_alert, save_scanner_state, load_scanner_state
@@ -375,7 +375,7 @@ class CreditSpreadSystem:
             # derive regime directly from the RRG quadrant so each sector gets its own
             # independent signal rather than inheriting SPY's macro regime.
             if direction_override is not None:
-                rrg_regime = 'BULL' if direction_override == 'bull_put' else 'BEAR'
+                rrg_regime = 'bull' if direction_override == 'bull_put' else 'bear'
                 technical_signals['combo_regime'] = rrg_regime
                 if rrg_quadrant:
                     technical_signals['compass_rrg_quadrant'] = rrg_quadrant
@@ -409,10 +409,9 @@ class CreditSpreadSystem:
                         logger.info("%s: ComboRegime = %s", ticker, current_regime)
                 except Exception as e:
                     logger.warning("ComboRegimeDetector failed for %s: %s", ticker, e)
-                    # BULL matches ComboRegimeDetector's optimistic prior and the backtester's
-                    # starting state. Defense-in-depth: blocks ICs (which require NEUTRAL regime).
-                    # Without this, combo_regime is absent → ic_neutral_regime_only check skips.
-                    technical_signals['combo_regime'] = 'BULL'
+                    # Safe default: 'neutral' allows bull puts but blocks aggressive
+                    # bear calls.  Previous 'bull' was optimistic and could misfire.
+                    technical_signals['combo_regime'] = 'neutral'
 
             # IV analysis
             current_iv = self.options_analyzer.get_current_iv(options_chain)

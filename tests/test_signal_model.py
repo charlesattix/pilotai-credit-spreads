@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ml.signal_model import SignalModel
+from compass.signal_model import SignalModel
 
 # ---------------------------------------------------------------------------
 # Helpers
