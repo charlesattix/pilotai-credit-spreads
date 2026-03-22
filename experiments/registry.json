@@ -35,8 +35,8 @@
       "created_date": "2026-03-12",
       "status": "in_development",
       "ticker": "SPY",
-      "phase": "1 — Data Collection",
-      "next_step": "Accumulate 200+ labeled trade samples from EXP-400 paper trades, then train XGBoost model",
+      "phase": "Phase 1 complete. ML work shipped via EXP-503.",
+      "next_step": "Model validation \u2014 assess EXP-503 paper trading results",
       "paper_config": null,
       "backtest_config": null,
       "notes": "XGBoost confidence overlay on EXP-400."
@@ -48,7 +48,7 @@
       "created_date": "2026-03-12",
       "status": "in_development",
       "ticker": "SPY",
-      "phase": "0 — Blocked",
+      "phase": "0 \u2014 Blocked",
       "next_step": "Blocked on EXP-500. Start after EXP-500 proves concept.",
       "paper_config": null,
       "backtest_config": null,
@@ -90,7 +90,7 @@
       "retired_reason": "Overfit score 0.590 (hard gate failed). DTE cliff. Compound sizing artifacts.",
       "paper_config": null,
       "backtest_config": null,
-      "notes": "REJECTED — overfit score 0.590 (hard gate failed), DTE cliff, compound sizing artifacts"
+      "notes": "REJECTED \u2014 overfit score 0.590 (hard gate failed), DTE cliff, compound sizing artifacts"
     },
     "EXP-036": {
       "id": "EXP-036",
