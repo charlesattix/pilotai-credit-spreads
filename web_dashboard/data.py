@@ -35,7 +35,19 @@ def _project_root() -> Path:
 
 PROJECT_ROOT     = _project_root()
 REGISTRY_PATH    = PROJECT_ROOT / "experiments" / "registry.json"
+PUSHED_DATA_PATH = PROJECT_ROOT / "data" / "pushed_dashboard.json"
 STARTING_EQUITY  = float(os.environ.get("STARTING_EQUITY", "100000"))
+
+
+def load_pushed_data() -> Optional[dict]:
+    """Load the most recent pushed data snapshot (from sync script)."""
+    if PUSHED_DATA_PATH.exists():
+        try:
+            with open(PUSHED_DATA_PATH) as f:
+                return json.load(f)
+        except Exception:
+            return None
+    return None
 
 BACKTEST_EXPECTATIONS: dict[str, dict] = {
     "EXP-400": {"avg_return": 32.7,  "max_dd": -12.1, "robust": 0.870},
@@ -273,10 +285,45 @@ def query_experiment(exp: dict, report_date: Optional[str] = None) -> dict:
 
 def query_all_live(report_date: Optional[str] = None) -> List[dict]:
     registry = load_registry()
-    return [
+    results = [
         query_experiment(exp, report_date)
         for exp in get_live_experiments(registry)
     ]
+    # If all experiments have no DB (Railway), try pushed data
+    if all(r.get("error") == "Database not found" for r in results) and results:
+        pushed = load_pushed_data()
+        if pushed and "experiments" in pushed:
+            # Flatten nested sync format to match query_experiment output
+            flattened = []
+            for exp in pushed["experiments"]:
+                stats = exp.get("stats", {})
+                flat = {
+                    "id":          exp.get("id"),
+                    "name":        exp.get("name"),
+                    "ticker":      exp.get("ticker", "SPY"),
+                    "creator":     exp.get("creator", "—"),
+                    "live_since":  exp.get("live_since", "—"),
+                    "account_id":  exp.get("account_id", "—"),
+                    "db_path":     "pushed",
+                    "db_found":    True,
+                    "total_closed": stats.get("total_closed", 0),
+                    "wins":         stats.get("wins", 0),
+                    "losses":       stats.get("losses", 0),
+                    "win_rate":     stats.get("win_rate", 0.0),
+                    "total_pnl":    stats.get("total_pnl", 0.0),
+                    "max_dd":       stats.get("max_dd_pct", 0.0),
+                    "open_count":   stats.get("open_count", 0),
+                    "avg_pnl":      stats.get("avg_pnl", 0.0),
+                    "trades_week":  stats.get("trades_week", 0),
+                    "last_trade":   stats.get("last_trade_date"),
+                    "strategy_breakdown": exp.get("strategy_breakdown", {}),
+                    "recent_trades": exp.get("recent_trades", []),
+                    "open_trades":  exp.get("open_positions", []),
+                    "error":        exp.get("error"),
+                }
+                flattened.append(flat)
+            return flattened
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +367,10 @@ def get_positions(exp: dict) -> list[dict]:
 
 def summary_all() -> dict:
     """High-level summary for /api/v1/summary."""
+    # Check for pushed summary first
+    pushed = load_pushed_data()
+    if pushed and "summary" in pushed:
+        return pushed["summary"]
     all_stats = query_all_live()
     total_pnl    = sum(s["total_pnl"]    for s in all_stats)
     total_closed = sum(s["total_closed"] for s in all_stats)

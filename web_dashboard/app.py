@@ -43,6 +43,8 @@ from .data import (
     query_all_live,
     query_experiment,
     summary_all,
+    PUSHED_DATA_PATH,
+    load_pushed_data,
 )
 from .html import render_dashboard
 
@@ -226,6 +228,29 @@ async def experiment_positions(
 async def summary(_key: str = Depends(require_api_key)):
     """Combined P&L summary across all live experiments."""
     return _cached("summary", 30.0, summary_all)
+
+
+# ---------------------------------------------------------------------------
+# Admin — data push (for Railway sync from local Mac)
+# ---------------------------------------------------------------------------
+
+@app.post("/api/admin/push-data")
+async def push_data(request: Request, _key: str = Depends(require_api_key)):
+    """
+    Accept a full dashboard data snapshot from the local sync script.
+    Stores as JSON file so the dashboard can render even without SQLite DBs.
+    """
+    import json as _json
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Expected JSON object")
+
+    body["pushed_at"] = datetime.now(timezone.utc).isoformat()
+    PUSHED_DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PUSHED_DATA_PATH.write_text(_json.dumps(body, indent=2))
+    _cache.clear()  # bust cache so next request uses fresh data
+    logger.info(f"Received pushed data: {len(_json.dumps(body))} bytes")
+    return {"status": "ok", "message": "Data received", "pushed_at": body["pushed_at"]}
 
 
 # ---------------------------------------------------------------------------

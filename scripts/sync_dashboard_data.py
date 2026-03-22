@@ -362,13 +362,13 @@ def build_export(report_date: str) -> dict:
 
 def push_to_railway(payload: dict, railway_url: str, token: str, verbose: bool = True) -> bool:
     """
-    POST the export JSON to Railway's /api/admin/push-experiments endpoint.
+    POST the export JSON to Railway's /api/admin/push-data endpoint.
     Returns True on success.
     """
     import urllib.request
     import urllib.error
 
-    url = railway_url.rstrip("/") + "/api/admin/push-experiments"
+    url = railway_url.rstrip("/") + "/api/admin/push-data"
     body = json.dumps(payload).encode("utf-8")
 
     req = urllib.request.Request(
@@ -376,7 +376,7 @@ def push_to_railway(payload: dict, railway_url: str, token: str, verbose: bool =
         data=body,
         headers={
             "Content-Type":  "application/json",
-            "Authorization": f"Bearer {token}",
+            "X-API-Key": token,
             "User-Agent":    "pilotai-sync/1.0",
         },
         method="POST",
