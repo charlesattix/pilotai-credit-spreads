@@ -2,10 +2,11 @@
 """List experiments from registry.json.
 
 Usage:
-    python scripts/list_experiments.py           # active only (default)
-    python scripts/list_experiments.py --active  # active only
-    python scripts/list_experiments.py --retired # retired only
-    python scripts/list_experiments.py --all     # everything
+    python scripts/list_experiments.py           # live only (default)
+    python scripts/list_experiments.py --live    # live paper trading
+    python scripts/list_experiments.py --dev     # in development
+    python scripts/list_experiments.py --retired # retired
+    python scripts/list_experiments.py --all     # all three tables
 """
 
 import json
@@ -14,20 +15,10 @@ from pathlib import Path
 
 REGISTRY = Path(__file__).resolve().parent.parent / "experiments" / "registry.json"
 
+LIVE_STATUSES    = {"paper_trading", "deployed"}
+DEV_STATUSES     = {"in_development", "data_collection", "backtesting", "validated",
+                    "pending", "awaiting_deploy"}
 RETIRED_STATUSES = {"retired"}
-ACTIVE_STATUSES = {"data_collection", "backtesting", "validated", "paper_trading",
-                   "deployed", "pending", "awaiting_deploy"}
-
-STATUS_LABEL = {
-    "data_collection": "data_collection",
-    "backtesting":     "backtesting",
-    "validated":       "validated",
-    "paper_trading":   "paper_trading",
-    "deployed":        "deployed",
-    "pending":         "pending",
-    "awaiting_deploy": "awaiting_deploy",
-    "retired":         "retired",
-}
 
 
 def load_registry() -> dict:
@@ -38,68 +29,121 @@ def load_registry() -> dict:
         return json.load(f)
 
 
-def print_table(experiments: list[dict], title: str) -> None:
-    if not experiments:
-        print(f"  (no experiments)\n")
+def sort_key(e: dict) -> int:
+    try:
+        return int(e["id"].split("-")[1])
+    except (IndexError, ValueError):
+        return 0
+
+
+def col_widths(rows: list[list[str]], headers: list[str]) -> list[int]:
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for i, cell in enumerate(row):
+            widths[i] = max(widths[i], len(cell))
+    return widths
+
+
+def print_table(title: str, headers: list[str], rows: list[list[str]]) -> None:
+    print(f"\n{title}")
+
+    if not rows:
+        print("  (none)\n")
         return
 
-    # Column widths — fit content, minimum width per header
-    col_id     = max(len("ID"),         max(len(e["id"])                   for e in experiments))
-    col_name   = max(len("Name"),       max(len(e["name"])                 for e in experiments))
-    col_by     = max(len("Created By"), max(len(e["created_by"])           for e in experiments))
-    col_status = max(len("Status"),     max(len(e["status"])               for e in experiments))
-    col_config = max(len("Config"),     max(len(e.get("paper_config") or "—") for e in experiments))
+    widths = col_widths(rows, headers)
+    sep    = "+-" + "-+-".join("-" * w for w in widths) + "-+"
+    fmt    = "| " + " | ".join(f"{{:<{w}}}" for w in widths) + " |"
 
-    sep = (f"+-{'-' * col_id}-+-{'-' * col_name}-+-{'-' * col_by}-+"
-           f"-{'-' * col_status}-+-{'-' * col_config}-+")
-    header = (f"| {'ID':<{col_id}} | {'Name':<{col_name}} | {'Created By':<{col_by}} |"
-              f" {'Status':<{col_status}} | {'Config':<{col_config}} |")
+    print(sep)
+    print(fmt.format(*headers))
+    print(sep)
+    for row in rows:
+        print(fmt.format(*row))
+    print(sep)
+    print(f"  {len(rows)} experiment(s)\n")
 
-    print(f"\n{title}")
-    print(sep)
-    print(header)
-    print(sep)
+
+def live_table(experiments: list[dict]) -> None:
+    headers = ["ID", "Name", "Creator", "Ticker", "Account", "Config", "Live Since"]
+    rows = []
     for e in experiments:
-        config = e.get("paper_config") or "—"
-        print(f"| {e['id']:<{col_id}} | {e['name']:<{col_name}} | {e['created_by']:<{col_by}} |"
-              f" {e['status']:<{col_status}} | {config:<{col_config}} |")
-    print(sep)
-    print(f"  {len(experiments)} experiment(s)\n")
+        rows.append([
+            e["id"],
+            e["name"],
+            e["created_by"],
+            e.get("ticker") or "—",
+            e.get("account_id") or "—",
+            e.get("paper_config") or "—",
+            e.get("live_since") or "—",
+        ])
+    print_table("Live Paper Trading", headers, rows)
+
+
+def dev_table(experiments: list[dict]) -> None:
+    headers = ["ID", "Name", "Creator", "Phase", "Next Step"]
+    rows = []
+    for e in experiments:
+        next_step = e.get("next_step") or "—"
+        # Truncate long next_step for display
+        if len(next_step) > 60:
+            next_step = next_step[:57] + "..."
+        rows.append([
+            e["id"],
+            e["name"],
+            e["created_by"],
+            e.get("phase") or "—",
+            next_step,
+        ])
+    print_table("In Development", headers, rows)
+
+
+def retired_table(experiments: list[dict]) -> None:
+    headers = ["ID", "Name", "Creator", "Why Retired"]
+    rows = []
+    for e in experiments:
+        reason = e.get("retired_reason") or e.get("notes") or "—"
+        if len(reason) > 70:
+            reason = reason[:67] + "..."
+        rows.append([
+            e["id"],
+            e["name"],
+            e["created_by"],
+            reason,
+        ])
+    print_table("Retired", headers, rows)
 
 
 def main() -> None:
     args = sys.argv[1:]
-    if len(args) > 1 or (args and args[0] not in ("--active", "--retired", "--all")):
-        print("Usage: list_experiments.py [--active|--retired|--all]")
+    valid_flags = {"--live", "--dev", "--retired", "--all"}
+    if len(args) > 1 or (args and args[0] not in valid_flags):
+        print("Usage: list_experiments.py [--live|--dev|--retired|--all]")
         sys.exit(1)
 
-    mode = args[0] if args else "--active"
+    mode = args[0] if args else "--live"
 
     registry = load_registry()
-    all_exps = list(registry["experiments"].values())
+    all_exps = sorted(registry["experiments"].values(), key=sort_key)
 
-    # Sort by ID numerically where possible
-    def sort_key(e):
-        try:
-            return int(e["id"].split("-")[1])
-        except (IndexError, ValueError):
-            return 0
-
-    all_exps.sort(key=sort_key)
-
-    active  = [e for e in all_exps if e["status"] in ACTIVE_STATUSES]
+    live    = [e for e in all_exps if e["status"] in LIVE_STATUSES]
+    dev     = [e for e in all_exps if e["status"] in DEV_STATUSES]
     retired = [e for e in all_exps if e["status"] in RETIRED_STATUSES]
 
-    print(f"Experiment Registry  (schema v{registry.get('schema_version', '?')}"
-          f"  |  last updated: {registry.get('last_updated', '?')})")
+    print(f"Experiment Registry  "
+          f"(schema v{registry.get('schema_version', '?')}  |  "
+          f"last updated: {registry.get('last_updated', '?')})")
 
-    if mode == "--active":
-        print_table(active, "Active Experiments")
+    if mode == "--live":
+        live_table(live)
+    elif mode == "--dev":
+        dev_table(dev)
     elif mode == "--retired":
-        print_table(retired, "Retired Experiments")
+        retired_table(retired)
     else:  # --all
-        print_table(active,  "Active Experiments")
-        print_table(retired, "Retired Experiments")
+        live_table(live)
+        dev_table(dev)
+        retired_table(retired)
 
 
 if __name__ == "__main__":

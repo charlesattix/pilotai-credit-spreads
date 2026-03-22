@@ -15,16 +15,25 @@ Build a validated, multi-strategy options trading system on SPY. Data-driven app
 
 ## 📋 EXPERIMENT REGISTRY
 
-All experiments are tracked here. Every new experiment gets an ID and entry.
+> **Authoritative data:** `experiments/registry.json`
+> **Rules:** `EXPERIMENT_PROTOCOL.md`
+> **Quick view:** `python scripts/list_experiments.py --all`
 
-### Active Experiments
+### 🟢 Live Paper Trading
 
-| ID | Name | Created By | Strategy | Avg Return | After Slippage | Max DD | ROBUST | Status |
-|----|------|------------|----------|-----------|----------------|--------|--------|--------|
-| **EXP-400** | **The Champion** | maximus | Regime-adaptive CS + IC (SPY) | +32.7% | ~20-25% est | -12.1% | 0.870 | ✅ PAPER TRADE READY |
-| **EXP-401** | **The Blend** | maximus | Regime-optimized CS + S/S (SPY) | +40.7% | +26.9% | -7.0% | TBD | ⚠️ VALIDATED — needs paper trader wiring |
-| **EXP-503** | **ML V2 Aggressive** | maximus | CreditSpread + RegimeModelRouter ML sizing | TBD | TBD | TBD | TBD | 🚀 DEPLOYED 2026-03-22 |
-| **EXP-600** | **IBIT Adaptive** | charles | Direction-adaptive CS on IBIT (MA50) | +139.2% | TBD | -19.4% | 0.950 | ⏳ Awaiting Deploy |
+| ID | Name | Creator | Ticker | Account | Avg Return | Max DD | ROBUST | Live Since |
+|----|------|---------|--------|---------|-----------|--------|--------|------------|
+| **EXP-400** | **The Champion** | maximus | SPY | PA36XFVLG0WE | +32.7% | -12.1% | 0.870 | 2026-03-15 |
+| **EXP-401** | **The Blend** | maximus | SPY | PA3Y2XDYB9I3 | +40.7% | -7.0% | TBD | 2026-03-15 |
+| **EXP-503** | **ML V2 Aggressive** | maximus | SPY | PA3Z9PLVYUL5 | TBD | TBD | TBD | 2026-03-22 |
+| **EXP-600** | **IBIT Adaptive** | charles | IBIT | PA3O14JAJHJ0 | +139.2% | -19.4% | 0.950 | 2026-03-22 |
+
+### 🔬 In Development
+
+| ID | Name | Creator | Phase | Next Step |
+|----|------|---------|-------|-----------|
+| **EXP-500** | **ML Champion** | maximus | 1 — Data Collection | Accumulate 200+ labeled samples from EXP-400, then train XGBoost |
+| **EXP-501** | **ML Blend** | maximus | 0 — Blocked | Blocked on EXP-500. Start after EXP-500 proves concept. |
 
 ### Experiment Details
 
@@ -67,31 +76,15 @@ All experiments are tracked here. Every new experiment gets an ID and entry.
 - **Branch:** `compass-v2` (pushed to origin)
 - **Baseline for comparison:** EXP-401 (same CS core, no ML sizing)
 
-| **EXP-500** | **ML Champion** | maximus | ML-enhanced EXP-400 (CS+IC) | TBD | TBD | TBD | TBD | 🔄 Phase 1: Data Collection |
-| **EXP-501** | **ML Blend** | maximus | ML-enhanced EXP-401 (CS+S/S) | TBD | TBD | TBD | TBD | ⏳ Pending EXP-500 |
+### 🪦 Retired
 
-#### EXP-500: ML Champion (ML-Enhanced EXP-400)
-- **Approach:** XGBoost confidence overlay on rule-based signals
-- **ML Role:** FILTER only — ML can reduce/block signals, never create new ones
-- **Kill switch:** `min_confidence=0.0` reverts to pure rule-based
-- **Phases:** 1) Data collection 2) Model training 3) Strategy wrapper 4) Backtest validation 5) Paper trading
-- **Training data:** ~200-400 samples from backtests (mitigated with shallow trees + strong regularization)
-- **Time-series CV:** mandatory (no random splits)
-- **Status:** Phase 1 — Data Collection
-
-#### EXP-501: ML Blend (ML-Enhanced EXP-401)
-- **Approach:** Same ML overlay applied to EXP-401 blend
-- **Status:** Pending — starts after EXP-500 proves concept
-
-### Retired / Failed Experiments
-
-| ID | Name | Created By | Why Retired |
-|----|------|------------|-------------|
-| EXP-031 | Compound Bull Put | maximus | REJECTED — overfit score 0.590 (hard gate failed), DTE cliff, compound sizing artifacts |
-| EXP-036 | Compound 10% Both MA200 | maximus | Baseline experiment, superseded by EXP-400 |
-| EXP-059 | Various | maximus | Superseded |
-| EXP-154 | Various | maximus | Superseded |
-| EXP-305 | COMPASS Portfolio | maximus | Multi-ticker experiment, superseded by EXP-400/401 |
+| ID | Name | Creator | Why Retired |
+|----|------|---------|-------------|
+| EXP-031 | Compound Bull Put | maximus | Overfit score 0.590 (hard gate failed). DTE cliff. Compound sizing artifacts. |
+| EXP-036 | Compound 10% Both MA200 | maximus | Baseline experiment, superseded by EXP-400. |
+| EXP-059 | Various | maximus | Superseded by EXP-400/401. |
+| EXP-154 | Various | maximus | Superseded by EXP-400/401. |
+| EXP-305 | COMPASS Portfolio | maximus | Multi-ticker approach superseded by focused EXP-400/401. |
 
 ---
 
