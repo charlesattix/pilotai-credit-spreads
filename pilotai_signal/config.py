@@ -46,6 +46,20 @@ ALERT_MOVER_DELTA = 0.15                # |Δconviction| >= this → MOVER
 ALERT_NEW_ABSENCE_DAYS = 5             # re-fires NEW if ticker absent this many days
 ALERT_DIGEST_TOP_N = 10                 # tickers in daily digest
 
+# ── Alert filtering / noise suppression ───────────────────────────────────────
+# NEW alerts: only send when conviction clears this bar (suppress weaker entries)
+ALERT_MIN_CONVICTION_NEW = 0.70
+# MOVER_UP alerts: resulting conviction must reach this level
+ALERT_MIN_CONVICTION_MOVER = 0.60
+# MOVER_UP alerts: delta must be at least this large (mirrors ALERT_MOVER_DELTA)
+ALERT_MIN_DELTA_MOVER = ALERT_MOVER_DELTA
+# Alert types suppressed from Telegram (informational / watchlist only)
+ALERT_SUPPRESS_TYPES = ["STRONG", "MOVER_DOWN"]
+# Max one MOVER_UP alert per ticker within this many days
+ALERT_MOVER_COOLDOWN_DAYS = 7
+# JSON file tracking last-fired date per ticker for MOVER_UP cooldown
+MOVER_COOLDOWN_FILE = PROJECT_ROOT / "data" / "mover_up_cooldown.json"
+
 # Gold / precious metals tickers (flagged separately in digest)
 GOLD_TICKERS = {
     "GLD", "IAU", "SGOL", "GLDM", "GDX", "GDXJ",

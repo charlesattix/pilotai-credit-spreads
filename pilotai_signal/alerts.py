@@ -9,11 +9,20 @@ Alert types:
   MOVER_DOWN — conviction falls >= delta threshold in one day
 
 Also sends a daily digest of top-N tickers.
+
+Filtering (noise suppression):
+  - STRONG and MOVER_DOWN are saved to the DB but NOT sent to Telegram.
+  - NEW alerts with conviction < ALERT_MIN_CONVICTION_NEW are suppressed.
+  - MOVER_UP requires conviction_after >= ALERT_MIN_CONVICTION_MOVER and
+    a 7-day per-ticker cooldown (at most one MOVER_UP per ticker per week).
+  - Suppressed counts are appended to the daily digest so Carlos sees the
+    volume without getting spammed.
 """
 
 import logging
+from collections import Counter
 from datetime import date
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import requests
 
@@ -215,10 +224,104 @@ def classify_alerts(
     return alerts
 
 
+# ── Alert filtering (noise suppression) ───────────────────────────────────────
+
+def filter_alerts(
+    alerts: List[dict],
+    mover_cooldown: Dict[str, date],
+    today: date,
+) -> Tuple[List[dict], Dict[str, int]]:
+    """Decide which classified alerts should be sent to Telegram.
+
+    Rules:
+      - STRONG / MOVER_DOWN → always suppressed (informational, not actionable)
+      - NEW with conviction_after < ALERT_MIN_CONVICTION_NEW → suppressed
+      - MOVER_UP with delta < ALERT_MIN_DELTA_MOVER → suppressed
+      - MOVER_UP with conviction_after < ALERT_MIN_CONVICTION_MOVER → suppressed
+      - MOVER_UP within cooldown window → suppressed
+
+    All classified alerts are still written to the DB by the caller; this
+    function only controls what reaches Telegram.
+
+    Args:
+        alerts:          Full list from classify_alerts().
+        mover_cooldown:  Dict mapping ticker → last MOVER_UP sent date.
+        today:           The alert run date (for cooldown comparison).
+
+    Returns:
+        (sendable, suppressed_counts) where sendable is the filtered list
+        and suppressed_counts maps label → count for the digest footer.
+    """
+    sendable: List[dict] = []
+    suppressed: Counter = Counter()
+
+    for alert in alerts:
+        typ = alert["alert_type"]
+
+        # Hard-suppressed types
+        if typ in config.ALERT_SUPPRESS_TYPES:
+            suppressed[typ] += 1
+            continue
+
+        # NEW — conviction gate
+        if typ == "NEW":
+            if alert["conviction_after"] < config.ALERT_MIN_CONVICTION_NEW:
+                suppressed["low-conviction NEW"] += 1
+                continue
+
+        # MOVER_UP — delta + conviction + cooldown
+        if typ == "MOVER_UP":
+            conv_before = alert.get("conviction_before") or 0.0
+            delta = alert["conviction_after"] - conv_before
+            if delta < config.ALERT_MIN_DELTA_MOVER:
+                suppressed["MOVER_UP (low delta)"] += 1
+                continue
+            if alert["conviction_after"] < config.ALERT_MIN_CONVICTION_MOVER:
+                suppressed["MOVER_UP (low conviction)"] += 1
+                continue
+            ticker = alert["ticker"]
+            last_fired = mover_cooldown.get(ticker)
+            if last_fired is not None and (today - last_fired).days < config.ALERT_MOVER_COOLDOWN_DAYS:
+                suppressed["MOVER_UP (cooldown)"] += 1
+                continue
+
+        sendable.append(alert)
+
+    return sendable, suppressed
+
+
+# ── MOVER_UP cooldown persistence ─────────────────────────────────────────────
+
+def _load_mover_cooldown() -> Dict[str, date]:
+    """Load per-ticker last-fired dates from JSON. Returns {} on any error."""
+    from shared.io_utils import safe_json_read
+    raw = safe_json_read(config.MOVER_COOLDOWN_FILE, default={})
+    try:
+        return {ticker: date.fromisoformat(d) for ticker, d in raw.items()}
+    except (ValueError, AttributeError):
+        return {}
+
+
+def _save_mover_cooldown(cooldown: Dict[str, date]) -> None:
+    """Persist per-ticker last-fired dates to JSON."""
+    from shared.io_utils import atomic_json_write
+    atomic_json_write(config.MOVER_COOLDOWN_FILE, {ticker: d.isoformat() for ticker, d in cooldown.items()})
+
+
 # ── Daily digest ───────────────────────────────────────────────────────────────
 
-def build_digest(today: date, signals: List[dict]) -> str:
-    """Build the daily digest message."""
+def build_digest(
+    today: date,
+    signals: List[dict],
+    suppressed: Optional[Dict[str, int]] = None,
+) -> str:
+    """Build the daily digest message.
+
+    Args:
+        today:      Digest date.
+        signals:    Today's full signal list.
+        suppressed: Suppressed alert counts from filter_alerts(), or None.
+    """
     equity = [s for s in signals if s["ticker"] not in config.GOLD_TICKERS]
     gold = [s for s in signals if s["ticker"] in config.GOLD_TICKERS]
 
@@ -250,6 +353,12 @@ def build_digest(today: date, signals: List[dict]) -> str:
         "",
         f"Universe: {n_total} tickers tracked | {today.isoformat()}",
     ]
+
+    # Suppressed summary footer
+    if suppressed:
+        parts = [f"{count} {label}" for label, count in suppressed.items()]
+        lines += ["", f"🔇 Suppressed: {', '.join(parts)}"]
+
     return "\n".join(lines)
 
 
@@ -266,6 +375,9 @@ def run_alerts(
     """
     today = alert_date or date.today()
 
+    # Load MOVER_UP cooldown state before entering the DB transaction
+    mover_cooldown = _load_mover_cooldown()
+
     with db.transaction() as conn:
         today_signals = db.get_signals_for_date(conn, today)
         if not today_signals:
@@ -281,18 +393,28 @@ def run_alerts(
             prev_rows = db.get_signals_for_date(conn, prev_date)
             yesterday_signals = {r["ticker"]: dict(r) for r in prev_rows}
 
-        # Classify alerts
+        # Classify all alerts (unchanged — ALL types generated)
         alerts = classify_alerts(today, today_signals, yesterday_signals, conn)
         logger.info("Generated %d alerts for %s", len(alerts), today)
 
-        # Save and send alerts
+        # Determine which alerts are sendable (Telegram filter)
+        sendable, suppressed = filter_alerts(alerts, mover_cooldown, today)
+        sendable_keys = {(a["alert_type"], a["ticker"]) for a in sendable}
+        logger.info(
+            "Filter: %d sendable, %d suppressed (%s)",
+            len(sendable),
+            len(alerts) - len(sendable),
+            suppressed,
+        )
+
+        # Save ALL alerts to DB (for audit trail), send only sendable ones
         sent_count = 0
         for alert in alerts:
             is_new = db.insert_alert(conn, alert)
-            if is_new and not dry_run:
+            should_send = is_new and (alert["alert_type"], alert["ticker"]) in sendable_keys
+            if should_send and not dry_run:
                 ok = send_telegram(alert["message"], dry_run=dry_run)
                 if ok:
-                    # Get the alert id
                     row = conn.execute(
                         "SELECT id FROM alerts WHERE alert_date=? AND alert_type=? AND ticker=?",
                         (alert["alert_date"], alert["alert_type"], alert["ticker"]),
@@ -300,17 +422,26 @@ def run_alerts(
                     if row:
                         db.mark_alert_sent(conn, row["id"])
                     sent_count += 1
+                    # Record MOVER_UP fires for cooldown tracking
+                    if alert["alert_type"] == "MOVER_UP":
+                        mover_cooldown[alert["ticker"]] = today
 
-        # Daily digest
+        # Daily digest (always includes suppressed summary)
         if send_digest:
-            digest_msg = build_digest(today, today_signals)
+            digest_msg = build_digest(today, today_signals, suppressed)
             send_telegram(digest_msg, dry_run=dry_run)
+
+    # Persist updated cooldown outside the DB transaction
+    if not dry_run:
+        _save_mover_cooldown(mover_cooldown)
 
     result = {
         "status": "ok",
         "date": today.isoformat(),
         "alerts_generated": len(alerts),
         "alerts_sent": sent_count,
+        "alerts_suppressed": len(alerts) - len(sendable),
+        "suppressed_breakdown": suppressed,
         "digest_sent": send_digest,
     }
     logger.info("Alert run complete: %s", result)

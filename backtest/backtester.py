@@ -558,17 +558,31 @@ class Backtester:
         _MA_WARMUP_DAYS = max(30, int(self._trend_ma_period * 1.4) + 15)
         data_fetch_start = start_date - timedelta(days=_MA_WARMUP_DAYS)
 
-        # Get historical price data (with MA warmup prefix)
-        price_data = self._get_historical_data(ticker, data_fetch_start, end_date)
+        # Get historical price data (with MA warmup prefix).
+        # Crypto mode: use adapter's underlying prices instead of Yahoo Finance.
+        from backtest.crypto_data_adapter import CryptoDataAdapter
+        from compass.crypto.risk_gate import check_all_gates
+        _is_crypto = isinstance(self.historical_data, CryptoDataAdapter)
+
+        if _is_crypto:
+            price_data = self.historical_data.get_underlying_prices(
+                ticker, data_fetch_start, end_date
+            )
+        else:
+            price_data = self._get_historical_data(ticker, data_fetch_start, end_date)
 
         if price_data.empty:
             logger.error(f"No historical data for {ticker}")
             return {}
 
-        # Build per-date IV Rank lookup from VIX data (Upgrade 3: IV-scaled sizing)
-        # Uses a 252-trading-day rolling IV Rank so the backtester sizes positions
-        # the same way the live scanner does — small in low-vol, large in high-vol.
-        self._iv_rank_by_date = self._build_iv_rank_series(data_fetch_start, end_date)
+        # Build per-date IV Rank lookup from VIX data (Upgrade 3: IV-scaled sizing).
+        # Skip for crypto: no VIX series available; IV rank gate is handled by risk gate.
+        if _is_crypto:
+            self._iv_rank_by_date = {}
+        else:
+            # Uses a 252-trading-day rolling IV Rank so the backtester sizes positions
+            # the same way the live scanner does — small in low-vol, large in high-vol.
+            self._iv_rank_by_date = self._build_iv_rank_series(data_fetch_start, end_date)
 
         # Build per-date realized vol for delta strike selection (fixes σ=25% constant)
         self._realized_vol_by_date = self._build_realized_vol_series(price_data)
@@ -576,6 +590,8 @@ class Backtester:
         # Phase 6: Combo regime — build direction-label series after VIX data is available
         if self._regime_mode == 'combo':
             self._build_combo_regime_series(price_data)
+        elif self._regime_mode == 'crypto_composite':
+            self._build_crypto_regime_series(price_data)
 
         # COMPASS: load macro score + sector RRG series from macro_state.db if enabled
         if self._compass_enabled or self._compass_rrg_filter:
@@ -750,6 +766,25 @@ class Backtester:
                 or _excluded_month
                 or self._ruin_triggered  # P1-D: halt all entries after capital reaches zero
             )
+
+            # Crypto risk gate: additional entry filters for crypto ETF backtests.
+            # Evaluated after the standard gates so it can only add blocks, not remove them.
+            if not _skip_new_entries and self._regime_mode == 'crypto_composite':
+                _idx = price_data.index.searchsorted(lookup_date, side='left') - 1
+                _prev_close = float(price_data.iloc[_idx]['Close']) if _idx >= 0 else current_price
+                _gate_result = check_all_gates({
+                    'btc_price_now': current_price,
+                    'etf_close_price': _prev_close,
+                    'day_of_week': current_date.weekday(),
+                    'dte': self._current_trade_dte,
+                })
+                if not _gate_result['allowed']:
+                    _skip_new_entries = True
+                    logger.debug(
+                        "%s  Crypto risk gate blocked: %s",
+                        current_date.strftime("%Y-%m-%d"),
+                        [g['reason'] for g in _gate_result['gates'] if g['blocked']],
+                    )
 
             _ic_enabled = self.strategy_params.get('iron_condor', {}).get('enabled', False)
 
@@ -1153,6 +1188,17 @@ class Backtester:
             sum(1 for v in self._regime_by_date.values() if v == 'BEAR'),
             sum(1 for v in self._regime_by_date.values() if v == 'NEUTRAL'),
         )
+
+    def _build_crypto_regime_series(self, price_data: pd.DataFrame) -> None:
+        """Build self._regime_by_date using CryptoRegimeDetector (Phase 2).
+
+        Uses an MA-based regime (BULL/NEUTRAL/BEAR) suited for short crypto ETF
+        history (default MA50 instead of MA200).  Called instead of
+        _build_combo_regime_series when regime_mode == 'crypto_composite'.
+        """
+        from ml.crypto_regime_detector import CryptoRegimeDetector
+        detector = CryptoRegimeDetector(self._regime_config)
+        self._regime_by_date = detector.compute_regime_series(price_data)
 
     def _build_compass_series(self, start_date: datetime, end_date: datetime) -> None:
         """Load COMPASS risk_appetite + XLI/XLF RRG quadrants from macro_state.db.

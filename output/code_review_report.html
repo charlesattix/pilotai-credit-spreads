@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🔍 Paper Trading Code Review — Full Report</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f8f9fa; color: #1a1a2e; line-height: 1.7; padding: 24px; }
+  .container { max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 24px; margin-bottom: 4px; }
+  .subtitle { color: #666; font-size: 14px; margin-bottom: 24px; }
+  .card { background: white; border-radius: 12px; padding: 22px 24px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.07); }
+  .card h2 { font-size: 18px; margin-bottom: 12px; }
+  .card.red { border-left: 5px solid #ef4444; }
+  .card.amber { border-left: 5px solid #f59e0b; }
+  .card.blue { border-left: 5px solid #3b82f6; }
+  .card.green { border-left: 5px solid #10b981; }
+  .card.purple { border-left: 5px solid #8b5cf6; }
+  h3 { font-size: 15px; margin: 14px 0 6px; color: #374151; }
+  p, li { font-size: 14px; color: #4b5563; }
+  ul { padding-left: 20px; margin: 6px 0 10px; }
+  li { margin-bottom: 5px; }
+  code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-size: 12.5px; font-family: 'SF Mono', monospace; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13.5px; }
+  th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+  th { background: #f9fafb; font-weight: 600; }
+  .badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
+  .badge.critical { background: #fef2f2; color: #991b1b; }
+  .badge.high { background: #fff7ed; color: #9a3412; }
+  .badge.medium { background: #fefce8; color: #854d0e; }
+  .badge.low { background: #f0fdf4; color: #166534; }
+  .badge.ok { background: #d1fae5; color: #065f46; }
+  .box { border-radius: 8px; padding: 14px 18px; margin: 12px 0; font-size: 13.5px; }
+  .box.red { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+  .box.amber { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+  .box.blue { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
+  .box.green { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; }
+  .issue { background: #fafafa; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px 16px; margin: 10px 0; }
+  .issue h4 { font-size: 14px; margin-bottom: 6px; color: #1a1a2e; }
+  .issue p { font-size: 13px; margin: 4px 0; }
+  .divider { height: 1px; background: #e5e7eb; margin: 16px 0; }
+  .footer { text-align: center; color: #9ca3af; font-size: 12px; margin-top: 28px; }
+  .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0; }
+  .summary-item { text-align: center; padding: 16px; border-radius: 8px; }
+  .summary-item .num { font-size: 28px; font-weight: 700; }
+  .summary-item .label { font-size: 12px; color: #6b7280; margin-top: 4px; }
+  .s-critical { background: #fef2f2; }
+  .s-critical .num { color: #dc2626; }
+  .s-high { background: #fff7ed; }
+  .s-high .num { color: #ea580c; }
+  .s-medium { background: #fefce8; }
+  .s-medium .num { color: #ca8a04; }
+  .s-ok { background: #ecfdf5; }
+  .s-ok .num { color: #059669; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>🔍 Paper Trading Code Review — Full Report</h1>
+<p class="subtitle">CC1 (Core Trading Flow) + CC2 (COMPASS & Edge Cases) · March 9, 2026 · READ-ONLY review, no code changes made</p>
+
+<!-- EXECUTIVE SUMMARY -->
+<div class="card red">
+  <h2>⚡ Executive Summary</h2>
+  
+  <div class="box red">
+    <strong>🚨 SHOWSTOPPER FINDING:</strong> COMPASS (multi-underlying, exp_305) is NOT wired into the live trading path at all. main.py has zero COMPASS code — it uses a static ticker list, not dynamic sector selection. The COMPASS features exist only in the backtester. exp_305 paper trading <strong>will not work as described</strong> in the technical report.
+  </div>
+
+  <div class="summary-grid">
+    <div class="summary-item s-critical"><div class="num">7</div><div class="label">CRITICAL / BLOCKER</div></div>
+    <div class="summary-item s-high"><div class="num">7</div><div class="label">HIGH SEVERITY</div></div>
+    <div class="summary-item s-medium"><div class="num">10</div><div class="label">MEDIUM SEVERITY</div></div>
+    <div class="summary-item s-ok"><div class="num">12</div><div class="label">WORKING WELL</div></div>
+  </div>
+
+  <p><strong>Bottom line:</strong> The SPY-only experiments (exp036, exp059, exp154) are architecturally sound for paper trading with some bugs to fix. The COMPASS experiment (exp305) requires significant implementation work before it can paper trade.</p>
+</div>
+
+<!-- CRITICAL BLOCKERS -->
+<div class="card red">
+  <h2>🚨 CRITICAL BLOCKERS (Must Fix Before Paper Trading)</h2>
+
+  <div class="issue">
+    <h4>1. COMPASS Not Wired to Live Path <span class="badge critical">BLOCKER</span></h4>
+    <p><strong>Found by:</strong> CC2</p>
+    <p><code>main.py</code> has zero COMPASS code. The scanner uses a static ticker list from config, not <code>get_eligible_underlyings()</code>. Dynamic sector selection, RRG filtering, macro score gating — none of it exists in the live trading path. It only exists in the backtester.</p>
+    <p><strong>Impact:</strong> exp_305 will trade SPY only, ignoring all COMPASS features.</p>
+  </div>
+
+  <div class="issue">
+    <h4>2. No macro_state.db Exists <span class="badge critical">BLOCKER</span></h4>
+    <p><strong>Found by:</strong> CC2</p>
+    <p>The <code>data/macro_cache.db</code> file doesn't exist. Even if COMPASS were wired in, there's no data to drive it.</p>
+  </div>
+
+  <div class="issue">
+    <h4>3. No portfolio_heat_tracker.py Exists <span class="badge critical">BLOCKER</span></h4>
+    <p><strong>Found by:</strong> CC2</p>
+    <p><code>alerts/portfolio_heat_tracker.py</code> doesn't exist. Per-ticker capital limits are unenforced.</p>
+  </div>
+
+  <div class="issue">
+    <h4>4. No COMPASS Risk Rules (8-10) in risk_gate.py <span class="badge critical">BLOCKER</span></h4>
+    <p><strong>Found by:</strong> CC2</p>
+    <p>Rules 8-10 (macro score flags, RRG quadrant filter, portfolio risk limits) don't exist in the live risk_gate.py. The technical report describes them but they haven't been implemented.</p>
+  </div>
+
+  <div class="issue">
+    <h4>5. No paper_exp305.yaml Config <span class="badge critical">BLOCKER</span></h4>
+    <p><strong>Found by:</strong> CC2</p>
+    <p><code>configs/paper_exp305.yaml</code> doesn't exist. There's no COMPASS paper trading config file.</p>
+  </div>
+
+  <div class="issue">
+    <h4>6. No COMPASS Tests Exist <span class="badge critical">BLOCKER</span></h4>
+    <p><strong>Found by:</strong> CC2</p>
+    <p><code>test_compass_scanner.py</code>, <code>test_risk_gate_macro.py</code>, <code>test_portfolio_sizer.py</code> — all missing. The technical report claims 102 COMPASS tests passing, but the test files don't exist.</p>
+  </div>
+
+  <div class="issue">
+    <h4>7. Risk Gate Uses Fake 2% Risk, Not Real Sized Risk <span class="badge critical">HIGH</span></h4>
+    <p><strong>Found by:</strong> CC1</p>
+    <p><code>Alert.from_opportunity()</code> hardcodes <code>risk_pct=0.02</code> for every alert. The risk gate checks this fake number, not the actual position size. Risk rules 1 & 2 are effectively enforcing wrong limits.</p>
+  </div>
+</div>
+
+<!-- HIGH SEVERITY -->
+<div class="card amber">
+  <h2>⚠️ HIGH SEVERITY ISSUES</h2>
+
+  <div class="issue">
+    <h4>8. Iron Condor Execution is Non-Atomic <span class="badge high">HIGH</span></h4>
+    <p><strong>Found by:</strong> CC1</p>
+    <p>ICs are submitted as two separate 2-leg orders. If the put wing fills but call wing fails, you get a naked bull put spread. Cancel-after-fail may arrive too late.</p>
+  </div>
+
+  <div class="issue">
+    <h4>9. Correlated Position Check Never Matches <span class="badge high">HIGH</span></h4>
+    <p><strong>Found by:</strong> CC1</p>
+    <p>Risk rule #5 compares <code>direction.value</code> ("bullish"/"bearish") against DB values ("bull_put"/"bear_call"). These never match → rule is effectively disabled.</p>
+  </div>
+
+  <div class="issue">
+    <h4>10. IC Max Loss Doubles Actual Risk <span class="badge high">HIGH</span></h4>
+    <p><strong>Found by:</strong> CC1</p>
+    <p>Position sizer calculates IC max loss as <code>(spread_width × 2 - credit) × 100</code>, treating both wings as losing simultaneously (impossible). ICs get ~half the contracts they should.</p>
+  </div>
+
+  <div class="issue">
+    <h4>11. No Default config.yaml <span class="badge high">HIGH</span></h4>
+    <p><strong>Found by:</strong> CC1</p>
+    <p>Running <code>python main.py scan</code> with no --config crashes on file-not-found. Only experiment-specific configs exist.</p>
+  </div>
+
+  <div class="issue">
+    <h4>12. Risk Gate Bypassed When Alpaca Down <span class="badge high">HIGH</span></h4>
+    <p><strong>Found by:</strong> CC2</p>
+    <p>When Alpaca API fails, fallback <code>account_state</code> has empty positions → all risk checks pass (no existing exposure detected). Could allow unlimited new positions.</p>
+  </div>
+
+  <div class="issue">
+    <h4>13. No SQLite Busy Timeout <span class="badge high">HIGH</span></h4>
+    <p><strong>Found by:</strong> CC2</p>
+    <p>Scanner and PositionMonitor write to same DB concurrently. Default busy timeout is 0 (fail immediately). Concurrent writes will get SQLITE_BUSY with no retry.</p>
+  </div>
+
+  <div class="issue">
+    <h4>14. Profit Target May Be Unreachable <span class="badge high">HIGH</span></h4>
+    <p><strong>Found by:</strong> CC1</p>
+    <p>If <code>profit_target_pct</code> is stored as 55 (percent) not 0.55 (decimal), the monitor converts it to 5500%, making profit target unreachable. Positions would only exit via stop loss or DTE.</p>
+  </div>
+</div>
+
+<!-- MEDIUM SEVERITY -->
+<div class="card blue">
+  <h2>📋 MEDIUM SEVERITY ISSUES</h2>
+
+  <table>
+    <tr><th>#</th><th>Issue</th><th>Found By</th><th>Impact</th></tr>
+    <tr><td>15</td><td>Failed execution still dedup-blocks opportunity for 30 min</td><td>CC1</td><td>Missed trades after transient failures</td></tr>
+    <tr><td>16</td><td>Daily P&L uses rolling 24h, not calendar day</td><td>CC1</td><td>Daily loss breaker may trigger from yesterday's losses</td></tr>
+    <tr><td>17</td><td>Dedup ledger is in-memory only (lost on restart)</td><td>CC1</td><td>Duplicate orders possible after crash</td></tr>
+    <tr><td>18</td><td>VIX sizer creates orphan DataCache (extra API calls)</td><td>CC1+CC2</td><td>Redundant Yahoo Finance calls</td></tr>
+    <tr><td>19</td><td>MAX_TOTAL_EXPOSURE=15% caps at ~3 positions</td><td>CC1</td><td>System frequently gates itself out of new trades</td></tr>
+    <tr><td>20</td><td>Spread value uses market_value not mid-price</td><td>CC1</td><td>Inaccurate P&L during low liquidity</td></tr>
+    <tr><td>21</td><td>ML model trains on synthetic data silently</td><td>CC2</td><td>60% weight on junk predictions if model missing</td></tr>
+    <tr><td>22</td><td>No 65/35 portfolio allocation in live sizer</td><td>CC2</td><td>COMPASS sizing not implemented</td></tr>
+    <tr><td>23</td><td>Iron condor alert_source bug — misclassifies IC alerts</td><td>CC2</td><td>ICs may get wrong risk gate treatment</td></tr>
+    <tr><td>24</td><td>PositionMonitor holidays hardcoded for 2026 only</td><td>CC1</td><td>Wrong market hours in 2027+</td></tr>
+  </table>
+</div>
+
+<!-- WHAT WORKS WELL -->
+<div class="card green">
+  <h2>✅ What Works Well</h2>
+  <ul>
+    <li>✅ Core scan→score→risk→execute→monitor pipeline is complete and sound</li>
+    <li>✅ Risk gate rules 1-7 are solid and well-tested (24/24 pass)</li>
+    <li>✅ WAL mode properly configured on both SQLite databases</li>
+    <li>✅ Polygon API failure degrades gracefully (no crash, just no opportunities)</li>
+    <li>✅ Paper mode enforcement adequate (URL check, paper flag)</li>
+    <li>✅ Scheduler timing is correct (ET timezone, weekday-only, 30s startup delay)</li>
+    <li>✅ ExecutionEngine writes to DB before calling Alpaca (crash-safe)</li>
+    <li>✅ PositionMonitor resets positions to "open" if close order fails</li>
+    <li>✅ ML pipeline has proper fallback chains (won't crash if model missing)</li>
+    <li>✅ Circuit breaker on all Alpaca API calls</li>
+    <li>✅ Backtester COMPASS implementation is complete and correct</li>
+    <li>✅ macro_state_db has clean graceful degradation patterns</li>
+  </ul>
+</div>
+
+<!-- TEST RESULTS -->
+<div class="card purple">
+  <h2>🧪 Test Results (Actual: 836 passed, 11 failed)</h2>
+  <p>Note: Technical report claimed 937 passed / 18 failed. Actual is 836/11.</p>
+  
+  <table>
+    <tr><th>Group</th><th>Failures</th><th>Cause</th><th>Production Risk</th></tr>
+    <tr><td>Zero-DTE Scanner</td><td>6</td><td>Missing <code>config['strategy']['technical']</code> key</td><td><span class="badge medium">Medium</span> — config gap</td></tr>
+    <tr><td>Iron Condor Finder</td><td>3</td><td>Test data doesn't match IC filters</td><td><span class="badge low">Low</span> — test issue only</td></tr>
+    <tr><td>IC Scanner</td><td>1</td><td><code>alert_source</code> returns None instead of "iron_condor"</td><td><span class="badge medium">Medium</span> — misclassification</td></tr>
+    <tr><td>Alert Generator</td><td>1</td><td>Score threshold mismatch</td><td><span class="badge low">Low</span></td></tr>
+  </table>
+</div>
+
+<!-- VERDICT -->
+<div class="card red">
+  <h2>🎯 Verdict & Recommendations</h2>
+
+  <div class="box amber">
+    <strong>SPY-Only Experiments (exp036, exp059, exp154):</strong> CAN paper trade with caveats. The core pipeline works. Fix issues #7 (fake risk_pct), #9 (correlated check), #14 (profit target conversion) before going live. The remaining issues are tolerable for paper trading.
+  </div>
+
+  <div class="box red">
+    <strong>COMPASS Experiment (exp305):</strong> CANNOT paper trade. The COMPASS features (dynamic sectors, macro scoring, RRG filtering, portfolio allocation, risk rules 8-10) exist only in the backtester. The live scanner has none of this code. The technical report describes planned features as if they're implemented — they are not.
+  </div>
+
+  <h3>Recommended Fix Priority for exp305:</h3>
+  <ol>
+    <li>Create <code>macro_state.db</code> with initial data (run snapshot engine)</li>
+    <li>Wire <code>get_eligible_underlyings()</code> into main.py's ticker selection</li>
+    <li>Implement COMPASS sizing multiplier in live alert pipeline</li>
+    <li>Add COMPASS risk rules 8-10 to risk_gate.py</li>
+    <li>Create <code>portfolio_heat_tracker.py</code></li>
+    <li>Create <code>configs/paper_exp305.yaml</code></li>
+    <li>Add SQLite busy timeout (5000ms) to both DB modules</li>
+    <li>Fix risk_pct hardcode (use real sized risk in gate)</li>
+    <li>Fix correlated position direction string mismatch</li>
+    <li>Create COMPASS test suite</li>
+  </ol>
+</div>
+
+<p class="footer">🛡️ Reviewed by CC1 (Core Trading Flow) + CC2 (COMPASS & Edge Cases) · No code was modified · March 9, 2026</p>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Pricing Sensitivity Report — PilotAI Credit Spreads</title>
+  <style>
+    body {
+      background: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #2c3e50;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    h1 { font-size: 24px; border-bottom: 3px solid #2c3e50; padding-bottom: 8px; }
+    h2 { font-size: 18px; color: #2c3e50; margin-top: 36px; border-left: 4px solid #2c3e50; padding-left: 10px; }
+    h3 { font-size: 15px; color: #555; margin-top: 24px; }
+    .callout {
+      background: #f8f9fa;
+      border-left: 4px solid #17a2b8;
+      padding: 14px 18px;
+      margin: 16px 0;
+      border-radius: 0 6px 6px 0;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .warning {
+      background: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 14px 18px;
+      margin: 16px 0;
+      border-radius: 0 6px 6px 0;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .danger {
+      background: #f8d7da;
+      border-left: 4px solid #dc3545;
+      padding: 14px 18px;
+      margin: 16px 0;
+      border-radius: 0 6px 6px 0;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .success {
+      background: #d4edda;
+      border-left: 4px solid #28a745;
+      padding: 14px 18px;
+      margin: 16px 0;
+      border-radius: 0 6px 6px 0;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .legend {
+      display: flex;
+      gap: 12px;
+      margin: 12px 0;
+      flex-wrap: wrap;
+      font-size: 12px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .legend-swatch {
+      width: 16px;
+      height: 16px;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+    }
+    table { margin: 12px 0; box-shadow: 0 2px 6px rgba(0,0,0,0.08); border-radius: 6px; overflow: hidden; }
+    th, td { border: 1px solid #dee2e6; }
+    .meta { font-size: 12px; color: #888; margin-top: 40px; border-top: 1px solid #eee; padding-top: 10px; }
+    .section { margin-bottom: 40px; }
+    .findings-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin: 16px 0;
+    }
+    .finding-card {
+      border: 1px solid #dee2e6;
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .finding-card h4 { margin: 0 0 8px 0; font-size: 14px; color: #495057; }
+    .finding-card p { margin: 0; font-size: 13px; line-height: 1.5; }
+    .big-number { font-size: 32px; font-weight: bold; color: #2c3e50; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+    .badge-green { background: #d4edda; color: #155724; }
+    .badge-yellow { background: #fff3cd; color: #856404; }
+    .badge-red { background: #f8d7da; color: #721c24; }
+  </style>
+</head>
+<body>
+
+<h1>Pricing Sensitivity Report</h1>
+<p style="color:#666; font-size:14px;">
+  Champion config <code>exp_213_champion_maxc100.json</code> &nbsp;|&nbsp;
+  SPY 2020–2025 &nbsp;|&nbsp;
+  <b>Heuristic mode</b> (no Polygon API) &nbsp;|&nbsp;
+  Generated: 2026-03-15 06:40 UTC
+</p>
+
+<div class="warning">
+  <b>Important: Heuristic Mode Caveat</b><br>
+  These runs use the <em>simplified heuristic pricer</em> (no real option prices), which produces
+  <b>artificially high win rates (~99.7%)</b> and near-zero drawdowns under normal conditions.
+  Real-data backtests (Champion: avg +820%) show more realistic outcomes.
+  Use these sensitivity curves to understand the <em>shape</em> of risk and the <em>relative</em>
+  break-even thresholds — not as absolute return predictions.
+</div>
+
+<h2>Executive Summary</h2>
+
+<div class="findings-grid">
+  <div class="finding-card">
+    <h4>Credit Assumption Sensitivity</h4>
+    <p>Strategy is profitable across all tested credit fractions — no break-even found in the 20%–45% range.</p>
+    <br>
+    <p>
+      At the worst-case tested (20% of width = $1.00 credit on a $5 spread),
+      the strategy still returns <b>+124%</b> avg/yr
+      with <b>6/6 profitable years</b>.
+      Every $0.05 decrease in credit fraction costs roughly
+      <b>~64%</b> in avg annual return.
+    </p>
+  </div>
+  <div class="finding-card">
+    <h4>Exit Slippage Sensitivity</h4>
+    <p>Break-even at <b>14%</b> of width ($0.70). That's 605% headroom above the <b>2%</b> baseline.</p>
+    <br>
+    <p>
+      At 10% exit slippage ($0.50 on $5 spread), avg return drops to
+      <b>+77%</b>
+      and 2020 goes negative (−27%).
+      Exit slippage is the <b>higher-risk assumption</b>: it can hit suddenly in gap scenarios
+      while credit degradation is gradual.
+    </p>
+  </div>
+</div>
+
+<div class="callout">
+  <b>Key Question: What does 14% exit slippage mean in practice?</b><br>
+  Break-even is at $0.70 of slippage on a $5-wide spread = 14% of width.
+  For a 3% OTM bull put spread on SPY at $450, that's paying an extra $0.70/share to
+  close (vs mid-price). This happens in fast markets, at open, or when liquidity is thin.
+  The <b>2%</b> baseline ($0.10) is tight and likely optimistic for real paper trading —
+  expect <b>5–8%</b> ($0.25–0.40) in normal conditions, which still lands us at +223–314% avg.
+</div>
+
+<h2>Part 1 — Credit Assumption Sensitivity</h2>
+<p style="font-size:13px; color:#555;">
+  Tests <code>BACKTEST_CREDIT_FRACTION</code> in <code>shared/constants.py</code> — the fraction of
+  spread width used as the synthetic entry credit in heuristic mode. Baseline = <b>35%</b> ($1.75 on $5 wide).
+  <br>★ = baseline &nbsp;|&nbsp; *** = net negative
+</p>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-swatch" style="background:#d4edda"></div> Positive return</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#fff3cd"></div> 0–50% return</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#ffeeba"></div> Marginal / near zero</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#f8d7da"></div> Negative return</div>
+</div>
+
+<table style="border-collapse:collapse; width:100%; font-family: monospace; font-size: 13px;">
+<thead><tr>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Fraction of spread width collected as credit">Credit %</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Dollar credit for $5 spread">Credit $</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Average annual return 2020-2025">Avg Return</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Worst intra-year drawdown across all years">Worst DD</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Average win rate across all years">Win Rate</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Total trades across all years">Total Trades</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Average Sharpe ratio across all years">Avg Sharpe</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Years with positive return / 6">Prof. Years</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Annual return for 2020">2020</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Annual return for 2021">2021</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Annual return for 2022">2022</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Annual return for 2023">2023</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Annual return for 2024">2024</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Annual return for 2025">2025</th>
+</tr></thead><tbody>
+<tr>
+<td style="padding:7px 12px; text-align:center;">20%</td>
+<td style="padding:7px 12px; text-align:center;">$1.00</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+123.6%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">-1.7%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">99.7%</td>
+<td style="padding:7px 12px; text-align:center;">281</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">7.06</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">6/6</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+103%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+132%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+105%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+130%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+136%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+135%</td>
+</tr>
+<tr>
+<td style="padding:7px 12px; text-align:center;">25%</td>
+<td style="padding:7px 12px; text-align:center;">$1.25</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+187.7%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">-0.6%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">99.7%</td>
+<td style="padding:7px 12px; text-align:center;">281</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">7.14</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">6/6</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+168%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+197%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+167%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+192%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+201%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+201%</td>
+</tr>
+<tr>
+<td style="padding:7px 12px; text-align:center;">30%</td>
+<td style="padding:7px 12px; text-align:center;">$1.50</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+251.1%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">-0.6%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">99.7%</td>
+<td style="padding:7px 12px; text-align:center;">281</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">7.05</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">6/6</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+234%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+261%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+228%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+254%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+264%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+266%</td>
+</tr>
+<tr style="outline: 2px solid #2c3e50;">
+<td style="background:#e8f4f8; padding:7px 12px; text-align:center;"><b>35% ★</b></td>
+<td style="padding:7px 12px; text-align:center;">$1.75</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+313.8%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">-0.4%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">99.7%</td>
+<td style="padding:7px 12px; text-align:center;">281</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">6.91</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">6/6</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+298%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+324%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+289%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+314%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+328%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+330%</td>
+</tr>
+<tr>
+<td style="padding:7px 12px; text-align:center;">40%</td>
+<td style="padding:7px 12px; text-align:center;">$2.00</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+375.9%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">-0.1%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">99.7%</td>
+<td style="padding:7px 12px; text-align:center;">281</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">6.73</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">6/6</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+361%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+386%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+349%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+374%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+390%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+394%</td>
+</tr>
+<tr>
+<td style="padding:7px 12px; text-align:center;">45%</td>
+<td style="padding:7px 12px; text-align:center;">$2.25</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+437.1%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">-0.1%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">99.7%</td>
+<td style="padding:7px 12px; text-align:center;">281</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">6.56</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">6/6</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+424%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+448%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+408%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+433%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+452%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+457%</td>
+</tr>
+</tbody></table>
+
+<h3>Credit Sensitivity — Per-Year Breakdown</h3>
+<table style="border-collapse:collapse; font-family:monospace; font-size:12px;">
+<thead><tr>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;">Credit Fraction</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;">2020</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;">2021</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;">2022</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;">2023</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;">2024</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;">2025</th>
+</tr></thead><tbody>
+<tr>
+<td style="padding:6px 10px; font-weight:bold;">20% (1.00$)</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+102.7%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+132.4%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+104.7%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+130.3%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+136.2%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+135.3%</td>
+</tr>
+<tr>
+<td style="padding:6px 10px; font-weight:bold;">25% (1.25$)</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+168.4%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+197.0%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+166.8%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+192.3%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+200.6%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+201.1%</td>
+</tr>
+<tr>
+<td style="padding:6px 10px; font-weight:bold;">30% (1.50$)</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+233.5%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+260.8%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+228.0%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+253.8%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+264.5%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+266.2%</td>
+</tr>
+<tr>
+<td style="padding:6px 10px; font-weight:bold;">35% (1.75$)</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+297.7%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+324.1%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+288.6%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+314.3%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+327.6%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+330.4%</td>
+</tr>
+<tr>
+<td style="padding:6px 10px; font-weight:bold;">40% (2.00$)</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+361.4%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+386.4%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+348.7%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+374.3%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+390.1%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+394.2%</td>
+</tr>
+<tr>
+<td style="padding:6px 10px; font-weight:bold;">45% (2.25$)</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+424.3%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+448.1%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+407.8%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+433.4%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+451.7%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+457.1%</td>
+</tr>
+</tbody></table>
+
+<div class="success">
+  <b>Finding:</b> Credit sensitivity is LOW risk. Even at 20% credit (nearly half the baseline),
+  the strategy returns +124% avg with 6/6 profitable years.
+  The heuristic win rate stays at ~99.7% because the simplified exit model doesn't
+  penalise losing trades as harshly as real data — but the direction of risk is clear.
+  Each 5% step down in credit fraction = roughly 64% lower avg return.
+</div>
+
+<h2>Part 2 — Exit Slippage Sensitivity</h2>
+<p style="font-size:13px; color:#555;">
+  Tests <code>exit_slippage</code> in the backtest config. Applied on all non-expiration
+  exits (profit target + stop loss) via <code>_vix_scaled_exit_slippage()</code>, which
+  also scales up 3x in extreme VIX regimes. Baseline = <b>$0.10</b> (2% of $5 spread).
+  <br>★ = baseline &nbsp;|&nbsp; ✗ = past break-even
+</p>
+
+<table style="border-collapse:collapse; width:100%; font-family: monospace; font-size: 13px;">
+<thead><tr>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Exit slippage as fraction of spread width">Slip %</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Dollar exit slippage per spread">Slip $</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Average annual return 2020-2025">Avg Return</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Worst intra-year drawdown">Worst DD</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Average win rate">Win Rate</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Total trades across all years">Total Trades</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Average Sharpe ratio">Avg Sharpe</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Years with positive return / 6">Prof. Years</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Annual return for 2020">2020</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Annual return for 2021">2021</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Annual return for 2022">2022</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Annual return for 2023">2023</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Annual return for 2024">2024</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;" title="Annual return for 2025">2025</th>
+</tr></thead><tbody>
+<tr>
+<td style="padding:7px 12px; text-align:center;">0%</td>
+<td style="padding:7px 12px; text-align:center;">$0.00</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+374.2%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">-0.1%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">99.7%</td>
+<td style="padding:7px 12px; text-align:center;">281</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">6.84</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">6/6</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+385%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+377%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+360%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+360%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+377%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+385%</td>
+</tr>
+<tr style="outline: 2px solid #2c3e50;">
+<td style="background:#e8f4f8; padding:7px 12px; text-align:center;"><b>2% ★</b></td>
+<td style="padding:7px 12px; text-align:center;">$0.10</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+313.8%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">-0.4%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">99.7%</td>
+<td style="padding:7px 12px; text-align:center;">281</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">6.91</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">6/6</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+298%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+324%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+289%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+314%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+328%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+330%</td>
+</tr>
+<tr>
+<td style="padding:7px 12px; text-align:center;">5%</td>
+<td style="padding:7px 12px; text-align:center;">$0.25</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+223.2%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">-3.4%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">99.7%</td>
+<td style="padding:7px 12px; text-align:center;">281</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">6.73</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">6/6</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+166%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+244%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+181%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+245%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+254%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+248%</td>
+</tr>
+<tr>
+<td style="padding:7px 12px; text-align:center;">10%</td>
+<td style="padding:7px 12px; text-align:center;">$0.50</td>
+<td style="background:#fff3cd; padding:7px 12px; text-align:center;">+77.0%</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-41.7%</td>
+<td style="background:#fff3cd; padding:7px 12px; text-align:center;">82.6%</td>
+<td style="padding:7px 12px; text-align:center;">281</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">4.07</td>
+<td style="background:#fff3cd; padding:7px 12px; text-align:center;">5/6</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-27%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+112%</td>
+<td style="background:#ffeeba; padding:7px 12px; text-align:center;">+7%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+129%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+131%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+111%</td>
+</tr>
+<tr>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">15% ✗</td>
+<td style="padding:7px 12px; text-align:center;">$0.75</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;"><b>-17.0%</b></td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-55.7%</td>
+<td style="background:#ffeeba; padding:7px 12px; text-align:center;">64.8%</td>
+<td style="padding:7px 12px; text-align:center;">232</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-0.70</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">2/6</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-55%</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-9%</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-55%</td>
+<td style="background:#ffeeba; padding:7px 12px; text-align:center;">+16%</td>
+<td style="background:#ffeeba; padding:7px 12px; text-align:center;">+12%</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-12%</td>
+</tr>
+<tr>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">20% ✗</td>
+<td style="padding:7px 12px; text-align:center;">$1.00</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;"><b>-54.7%</b></td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-58.4%</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">0.0%</td>
+<td style="padding:7px 12px; text-align:center;">183</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-4.27</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">0/6</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-58%</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-55%</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-58%</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-48%</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-53%</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-55%</td>
+</tr>
+</tbody></table>
+
+<h3>Exit Slippage — Per-Year Breakdown</h3>
+<table style="border-collapse:collapse; font-family:monospace; font-size:12px;">
+<thead><tr>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;">Exit Slippage Fraction</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;">2020</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;">2021</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;">2022</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;">2023</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;">2024</th>
+<th style="background:#2c3e50; color:white; padding:8px 14px; text-align:center;">2025</th>
+</tr></thead><tbody>
+<tr>
+<td style="padding:6px 10px; font-weight:bold;">0% ($0.00)</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+385.2%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+377.0%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+360.5%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+360.5%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+376.7%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+385.2%</td>
+</tr>
+<tr>
+<td style="padding:6px 10px; font-weight:bold;">2% ($0.10)</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+297.7%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+324.1%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+288.6%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+314.3%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+327.6%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+330.4%</td>
+</tr>
+<tr>
+<td style="padding:6px 10px; font-weight:bold;">5% ($0.25)</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+166.5%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+244.4%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+180.9%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+245.0%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+253.9%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+248.5%</td>
+</tr>
+<tr>
+<td style="padding:6px 10px; font-weight:bold;">10% ($0.50)</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-27.1%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+111.6%</td>
+<td style="background:#ffeeba; padding:7px 12px; text-align:center;">+6.6%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+129.1%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+130.9%</td>
+<td style="background:#d4edda; padding:7px 12px; text-align:center;">+111.1%</td>
+</tr>
+<tr>
+<td style="padding:6px 10px; font-weight:bold;">15% ($0.75)</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-54.6%</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-8.7%</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-54.7%</td>
+<td style="background:#ffeeba; padding:7px 12px; text-align:center;">+16.4%</td>
+<td style="background:#ffeeba; padding:7px 12px; text-align:center;">+11.5%</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-11.8%</td>
+</tr>
+<tr>
+<td style="padding:6px 10px; font-weight:bold;">20% ($1.00)</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-58.1%</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-55.4%</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-58.4%</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-48.1%</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-52.9%</td>
+<td style="background:#f8d7da; padding:7px 12px; text-align:center;">-55.3%</td>
+</tr>
+</tbody></table>
+
+<div class="danger">
+  <b>Finding:</b> Exit slippage is HIGH risk once it exceeds ~8% of width ($0.40).
+  At 10% ($0.50), 2020 goes to −27% and worst drawdown hits −42%.
+  At 15% ($0.75), 4 out of 6 years lose money.
+  <b>Real paper trading should track actual fill slippage vs the $0.10 assumption.
+  If fills are consistently ≥ $0.40 wider than mid, this config needs adjustment.</b>
+</div>
+
+<h2>Part 3 — Combined Risk Assessment</h2>
+
+<table style="border-collapse:collapse; width:100%; font-size:13px; font-family:monospace;">
+  <thead>
+    <tr>
+      <th style="background:#2c3e50; color:white; padding:9px 14px; text-align:left;">Assumption</th>
+      <th style="background:#2c3e50; color:white; padding:9px 14px; text-align:center;">Baseline</th>
+      <th style="background:#2c3e50; color:white; padding:9px 14px; text-align:center;">Break-Even</th>
+      <th style="background:#2c3e50; color:white; padding:9px 14px; text-align:center;">Headroom</th>
+      <th style="background:#2c3e50; color:white; padding:9px 14px; text-align:center;">Risk Rating</th>
+      <th style="background:#2c3e50; color:white; padding:9px 14px; text-align:left;">Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="padding:9px 14px;">Credit fraction (heuristic)</td>
+      <td style="padding:9px 14px; text-align:center;">35% ($1.75)</td>
+      <td style="padding:9px 14px; text-align:center;"><20%</td>
+      <td style="padding:9px 14px; text-align:center; background:#d4edda;">> 15pp</td>
+      <td style="padding:9px 14px; text-align:center;"><span class="badge badge-green">LOW</span></td>
+      <td style="padding:9px 14px;">Monitor avg credit received vs 35% of width in paper trading</td>
+    </tr>
+    <tr>
+      <td style="padding:9px 14px;">Exit slippage</td>
+      <td style="padding:9px 14px; text-align:center;">2% ($0.10)</td>
+      <td style="padding:9px 14px; text-align:center;">14% ($0.70)</td>
+      <td style="padding:9px 14px; text-align:center; background:#fff3cd;">+12pp (605%)</td>
+      <td style="padding:9px 14px; text-align:center;"><span class="badge badge-yellow">MEDIUM</span></td>
+      <td style="padding:9px 14px;">Log actual fill prices vs mid. Alert if slippage &gt; $0.30 per spread</td>
+    </tr>
+    <tr>
+      <td style="padding:9px 14px;">VIX-scaled exit (extreme VIX)</td>
+      <td style="padding:9px 14px; text-align:center;">3× at VIX=40</td>
+      <td style="padding:9px 14px; text-align:center;">~4.7% base ($0.23)</td>
+      <td style="padding:9px 14px; text-align:center; background:#ffeeba;">~130% above baseline</td>
+      <td style="padding:9px 14px; text-align:center;"><span class="badge badge-yellow">MEDIUM</span></td>
+      <td style="padding:9px 14px;">Circuit breaker at VIX&gt;40 already in place — validates design</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Methodology Notes</h2>
+<ul style="font-size:13px; line-height:1.8; color:#555;">
+  <li><b>Heuristic mode</b>: No real Polygon option prices. Credits are synthetic
+      (<code>spread_width × BACKTEST_CREDIT_FRACTION</code> minus entry slippage).
+      Exit prices are estimated from a simplified time-decay + delta model.
+      This makes win rates appear very high (~99.7%) and drawdowns unrealistically small.</li>
+  <li><b>Real-data mode</b> (champion exp_213): Uses actual Polygon OHLCV bars for each
+      option contract leg. Shows realistic win rates of ~80–90% and real P&amp;L per contract.</li>
+  <li><b>ICs disabled in heuristic mode</b>: Iron condor logic requires real data; these sweeps
+      test credit spread legs only. The champion config has ICs enabled in real-data runs.</li>
+  <li><b>Interpretation</b>: Use the credit sensitivity to understand the <em>return sensitivity
+      per dollar of credit reduction</em>. Use the slippage sensitivity to set paper-trading
+      alert thresholds for fill quality monitoring.</li>
+  <li><b>Next step</b>: Re-run these sweeps in real-data mode (offline_mode=True) to get
+      accurate per-assumption break-even curves. Expected run time: 2–3 days on warm cache.</li>
+</ul>
+
+<div class="meta">
+  Generated by <code>scripts/generate_pricing_report.py</code> on 2026-03-15 06:40 UTC<br>
+  Source data: <code>output/credit_sensitivity.json</code>, <code>output/exit_slippage_sensitivity.json</code><br>
+  Config: <code>configs/exp_213_champion_maxc100.json</code> | Mode: heuristic | SPY 2020-2025
+</div>
+
+</body>
+</html>

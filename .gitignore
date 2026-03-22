@@ -1,6 +1,9 @@
 
 !data/.gitkeep
 !output/.gitkeep
+!output/*.json
+!output/*.md
+!output/*.html
 !tests/fixtures/*.json
 !web/package-lock.json
 !web/package.json
@@ -43,6 +46,7 @@
 .eggs/
 .env
 .env.local
+.env.exp*
 .hypothesis/
 .idea/
 .installed.cfg
@@ -71,7 +75,14 @@ ml/models/*.joblib
 ml/models/*.pickle
 ml/models/*.pkl
 node_modules/
-output/
+output/*.log
+output/*.txt
+output/*.csv
+output/html_reports/
+output/html_reports_v2/
+output/backtest_reports/
+output/historical_snapshots/
+output/data/
 parts/
 sdist/
 secrets.yaml
