@@ -19,10 +19,12 @@ All experiments are tracked here. Every new experiment gets an ID and entry.
 
 ### Active Experiments
 
-| ID | Name | Strategy | Avg Return | After Slippage | Max DD | ROBUST | Status |
-|----|------|----------|-----------|----------------|--------|--------|--------|
-| **EXP-400** | **The Champion** | Regime-adaptive CS + IC (SPY) | +32.7% | ~20-25% est | -12.1% | 0.870 | ✅ PAPER TRADE READY |
-| **EXP-401** | **The Blend** | Regime-optimized CS + S/S (SPY) | +40.7% | +26.9% | -7.0% | TBD | ⚠️ VALIDATED — needs paper trader wiring |
+| ID | Name | Created By | Strategy | Avg Return | After Slippage | Max DD | ROBUST | Status |
+|----|------|------------|----------|-----------|----------------|--------|--------|--------|
+| **EXP-400** | **The Champion** | maximus | Regime-adaptive CS + IC (SPY) | +32.7% | ~20-25% est | -12.1% | 0.870 | ✅ PAPER TRADE READY |
+| **EXP-401** | **The Blend** | maximus | Regime-optimized CS + S/S (SPY) | +40.7% | +26.9% | -7.0% | TBD | ⚠️ VALIDATED — needs paper trader wiring |
+| **EXP-503** | **ML V2 Aggressive** | maximus | CreditSpread + RegimeModelRouter ML sizing | TBD | TBD | TBD | TBD | 🚀 DEPLOYED 2026-03-22 |
+| **EXP-600** | **IBIT Adaptive** | charles | Direction-adaptive CS on IBIT (MA50) | +139.2% | TBD | -19.4% | 0.950 | ⏳ Awaiting Deploy |
 
 ### Experiment Details
 
@@ -47,8 +49,26 @@ All experiments are tracked here. Every new experiment gets an ID and entry.
 - **Paper trader support:** ✅ Full — Operation Unified Front completed (straddle/strangle wired, unified entry+exit paths)
 - **Branch:** `maximus/unified-front`
 
-| **EXP-500** | **ML Champion** | ML-enhanced EXP-400 (CS+IC) | TBD | TBD | TBD | TBD | 🔄 Phase 1: Data Collection |
-| **EXP-501** | **ML Blend** | ML-enhanced EXP-401 (CS+S/S) | TBD | TBD | TBD | TBD | ⏳ Pending EXP-500 |
+#### EXP-503: ML V2 Aggressive (DEPLOYED 2026-03-22)
+- **Config:** `configs/paper_exp503.yaml`
+- **Plist:** `deploy/com.pilotai.exp503.plist` → `~/Library/LaunchAgents/com.pilotai.exp503.plist`
+- **Account:** PA3Z9PLVYUL5 (Alpaca paper, fresh — no prior trades)
+- **Strategy:** CreditSpreadStrategy wrapped with RegimeModelRouter (ML V2 Aggressive)
+- **Sizing profile:**
+  - bull → 1.50× (lean in hard)
+  - neutral → 1.00× (normal)
+  - low_vol → 1.20× (calm markets, slightly more)
+  - high_vol → 0.10× (near-flat, defensive)
+  - bear → 0.10× (near-flat, defensive)
+  - crash → 0.00× (no new trades)
+- **regime_gate:** enabled — suppresses signal generation entirely in defensive regimes
+- **ML model:** `ml/models/signal_model_20260217.joblib` (blend weight 0.25)
+- **Dry-run:** 28/28 checks pass (`scripts/dryrun_exp503.py`)
+- **Branch:** `compass-v2` (pushed to origin)
+- **Baseline for comparison:** EXP-401 (same CS core, no ML sizing)
+
+| **EXP-500** | **ML Champion** | maximus | ML-enhanced EXP-400 (CS+IC) | TBD | TBD | TBD | TBD | 🔄 Phase 1: Data Collection |
+| **EXP-501** | **ML Blend** | maximus | ML-enhanced EXP-401 (CS+S/S) | TBD | TBD | TBD | TBD | ⏳ Pending EXP-500 |
 
 #### EXP-500: ML Champion (ML-Enhanced EXP-400)
 - **Approach:** XGBoost confidence overlay on rule-based signals
@@ -65,13 +85,13 @@ All experiments are tracked here. Every new experiment gets an ID and entry.
 
 ### Retired / Failed Experiments
 
-| ID | Name | Why Retired |
-|----|------|-------------|
-| EXP-031 | Compound Bull Put | REJECTED — overfit score 0.590 (hard gate failed), DTE cliff, compound sizing artifacts |
-| EXP-036 | Compound 10% Both MA200 | Baseline experiment, superseded by EXP-400 |
-| EXP-059 | Various | Superseded |
-| EXP-154 | Various | Superseded |
-| EXP-305 | COMPASS Portfolio | Multi-ticker experiment, superseded by EXP-400/401 |
+| ID | Name | Created By | Why Retired |
+|----|------|------------|-------------|
+| EXP-031 | Compound Bull Put | maximus | REJECTED — overfit score 0.590 (hard gate failed), DTE cliff, compound sizing artifacts |
+| EXP-036 | Compound 10% Both MA200 | maximus | Baseline experiment, superseded by EXP-400 |
+| EXP-059 | Various | maximus | Superseded |
+| EXP-154 | Various | maximus | Superseded |
+| EXP-305 | COMPASS Portfolio | maximus | Multi-ticker experiment, superseded by EXP-400/401 |
 
 ---
 
