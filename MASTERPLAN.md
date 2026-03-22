@@ -34,6 +34,7 @@ Build a validated, multi-strategy options trading system on SPY. Data-driven app
 |----|------|---------|-------|-----------|
 | **EXP-500** | **ML Champion** | maximus | 1 — Data Collection | Accumulate 200+ labeled samples from EXP-400, then train XGBoost |
 | **EXP-501** | **ML Blend** | maximus | 0 — Blocked | Blocked on EXP-500. Start after EXP-500 proves concept. |
+| **EXP-601** | **IBIT ML Signal Filter** | charles | 1 — Built & Trained | Accumulate 12+ months walk-forward data; retrain for out-of-sample test |
 
 ### Experiment Details
 
@@ -75,6 +76,18 @@ Build a validated, multi-strategy options trading system on SPY. Data-driven app
 - **Dry-run:** 28/28 checks pass (`scripts/dryrun_exp503.py`)
 - **Branch:** `compass-v2` (pushed to origin)
 - **Baseline for comparison:** EXP-401 (same CS core, no ML sizing)
+
+#### EXP-601: IBIT ML Signal Filter
+- **Script:** `scripts/exp601_ml_signal_filter.py`
+- **Training data:** `ml/ibit_training_data.csv` (249 trades, Nov 2024 – Mar 2026)
+- **Model:** `ml/ibit_signal_model.joblib` (XGBoost, max_depth=3, min_child_weight=5, n_estimators=50)
+- **Features:** dte, credit_pct, vix, realized_vol_20d, ma50_distance_pct, rsi_14, volume_ratio, btc_corr_30d, direction_bull (+3 others)
+- **CV results:** AUC ≈ 0.50 (3-fold time-series) — no reliable out-of-sample signal yet
+- **Baseline (EXP-600):** 249 trades | WR=84.3% | Return=+2.77% | MaxDD=-26.93%
+- **In-sample comparison (threshold=0.50):** 151 trades | WR=89.4% | Return=+40.99% | MaxDD=-9.93%
+- **CAVEAT:** Comparison is in-sample — improvement is overfit. Use CV AUC=0.50 as honest signal estimate.
+- **Next step:** Accumulate 12+ months of EXP-600 paper trade data, retrain, test on held-out period.
+- **Outputs:** `ml/ibit_model_report.md`, `ml/ibit_feature_importance.md`, `output/exp601_ml_comparison.json`
 
 ### 🪦 Retired
 

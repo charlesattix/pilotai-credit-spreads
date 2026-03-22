@@ -139,6 +139,19 @@
       "paper_config": "configs/paper_exp305.yaml",
       "backtest_config": null,
       "notes": "Multi-ticker experiment, superseded by EXP-400/401"
+    },
+    "EXP-601": {
+      "id": "EXP-601",
+      "name": "IBIT ML Signal Filter",
+      "created_by": "charles",
+      "created_date": "2026-03-22",
+      "status": "in_development",
+      "ticker": "IBIT",
+      "account_id": null,
+      "live_since": null,
+      "paper_config": null,
+      "backtest_config": null,
+      "notes": "XGBoost binary classifier (win/loss) trained on EXP-600 champion config trade features. Time-series CV only. max_depth=3, min_child_weight=5. Backtest comparison: EXP-600 with vs without ML filter."
     }
   }
 }
