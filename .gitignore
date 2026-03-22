@@ -79,3 +79,4 @@ tasks/
 var/
 venv/
 wheels/
+.env.exp*
