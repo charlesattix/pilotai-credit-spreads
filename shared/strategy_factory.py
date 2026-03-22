@@ -100,11 +100,38 @@ def _extract_straddle_strangle_params(config: Dict) -> Dict[str, Any]:
     return params
 
 
+def _extract_ml_enhanced_params(config: Dict) -> Dict[str, Any]:
+    """Extract MLEnhancedStrategy params from nested config."""
+    strategy = config.get("strategy", {})
+    risk = config.get("risk", {})
+    ml_cfg = strategy.get("ml_enhanced", {})
+
+    # Start with base credit-spread params so MLEnhancedStrategy can forward them
+    params = _extract_credit_spread_params(config)
+    params.update({
+        "min_mult":         float(ml_cfg.get("min_mult",         0.10)),
+        "max_mult":         float(ml_cfg.get("max_mult",         1.50)),
+        "neutral_mult":     float(ml_cfg.get("neutral_mult",     1.00)),
+        "low_vol_mult":     float(ml_cfg.get("low_vol_mult",     1.20)),
+        "crash_mult":       float(ml_cfg.get("crash_mult",       0.00)),
+        "regime_gate":      bool(ml_cfg.get("regime_gate",       True)),
+        "use_signal_model": bool(ml_cfg.get("use_signal_model",  True)),
+        "ml_blend_weight":  float(ml_cfg.get("ml_blend_weight",  0.25)),
+        "min_score_threshold": float(ml_cfg.get("min_score_threshold", 30.0)),
+    })
+    if "model_path" in ml_cfg:
+        params["model_path"] = ml_cfg["model_path"]
+    return params
+
+
 def build_strategy_list(config: Dict) -> List:
     """Build strategy instances from config.
 
-    Returns a list of (strategy_instance, strategy_name) tuples.
+    Returns a list of strategy instances.
     Only includes strategies that are enabled in config.
+
+    When strategy.ml_enhanced.enabled is true, wraps CreditSpreadStrategy
+    with MLEnhancedStrategy (ML V2 Aggressive regime-aware sizing).
     """
     from strategies.credit_spread import CreditSpreadStrategy
     from strategies.iron_condor import IronCondorStrategy
@@ -112,10 +139,25 @@ def build_strategy_list(config: Dict) -> List:
 
     strategies = []
 
-    # Credit spread — always enabled
-    cs_params = _extract_credit_spread_params(config)
-    strategies.append(CreditSpreadStrategy(cs_params))
-    logger.info("Strategy factory: CreditSpreadStrategy enabled (direction=%s)", cs_params["direction"])
+    # ML Enhanced — wraps CreditSpreadStrategy with regime-aware sizing
+    ml_cfg = config.get("strategy", {}).get("ml_enhanced", {})
+    if ml_cfg.get("enabled", False):
+        from strategies.ml_enhanced_strategy import MLEnhancedStrategy
+        ml_params = _extract_ml_enhanced_params(config)
+        cs_params = _extract_credit_spread_params(config)
+        wrapped_cs = CreditSpreadStrategy(cs_params)
+        ml_strategy = MLEnhancedStrategy(ml_params, wrapped_cs)
+        strategies.append(ml_strategy)
+        logger.info(
+            "Strategy factory: MLEnhancedStrategy enabled (wraps CreditSpread, "
+            "min_mult=%.2f max_mult=%.2f regime_gate=%s)",
+            ml_params["min_mult"], ml_params["max_mult"], ml_params["regime_gate"],
+        )
+    else:
+        # Credit spread — always enabled (non-ML path)
+        cs_params = _extract_credit_spread_params(config)
+        strategies.append(CreditSpreadStrategy(cs_params))
+        logger.info("Strategy factory: CreditSpreadStrategy enabled (direction=%s)", cs_params["direction"])
 
     # Iron condor — enabled if config section exists and enabled=true
     ic_config = config.get("strategy", {}).get("iron_condor", {})
