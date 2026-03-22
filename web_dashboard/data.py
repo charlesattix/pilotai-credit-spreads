@@ -4,9 +4,9 @@ data.py — Data access layer for the paper trading dashboard.
 Reads from:
   - experiments/registry.json  (experiment metadata)
   - configs/paper_*.yaml       (db_path resolution)
-  - data/*/pilotai_*.db        (SQLite trade data)
+  - data/*/attix_*.db        (SQLite trade data)
 
-PILOTAI_ROOT env var overrides the project root path.
+ATTIX_ROOT env var overrides the project root path.
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ import yaml
 # ---------------------------------------------------------------------------
 
 def _project_root() -> Path:
-    """Return the pilotai-credit-spreads root. PILOTAI_ROOT env overrides."""
-    env = os.environ.get("PILOTAI_ROOT")
+    """Return the attix-credit-spreads root. ATTIX_ROOT env overrides."""
+    env = os.environ.get("ATTIX_ROOT")
     if env:
         return Path(env)
     # Default: parent of web_dashboard/
@@ -95,8 +95,8 @@ def resolve_db_path(exp: dict) -> Optional[Path]:
     Find the SQLite DB for an experiment.
     Priority:
       1. paper_config yaml → db_path
-      2. data/expNNN/pilotai_expNNN.db
-      3. data/pilotai_expNNN.db
+      2. data/expNNN/attix_expNNN.db
+      3. data/attix_expNNN.db
     Returns Path if found (even without trades table), None if nothing exists.
     """
     candidates: list[Path] = []
@@ -116,8 +116,8 @@ def resolve_db_path(exp: dict) -> Optional[Path]:
 
     num = exp["id"].replace("EXP-", "").lower()
     candidates += [
-        PROJECT_ROOT / f"data/exp{num}/pilotai_exp{num}.db",
-        PROJECT_ROOT / f"data/pilotai_exp{num}.db",
+        PROJECT_ROOT / f"data/exp{num}/attix_exp{num}.db",
+        PROJECT_ROOT / f"data/attix_exp{num}.db",
     ]
 
     first_existing: Optional[Path] = None

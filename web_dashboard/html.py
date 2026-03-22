@@ -170,12 +170,12 @@ def render_dashboard(all_stats: list[dict]) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PilotAI Dashboard</title>
+  <title>Attix Dashboard</title>
   <style>{_CSS}</style>
 </head>
 <body>
 <div class="top-bar">
-  <div><span class="brand">PilotAI</span> &nbsp; <span class="live-dot"></span> Live Paper Trading</div>
+  <div><span class="brand">Attix</span> &nbsp; <span class="live-dot"></span> Live Paper Trading</div>
   <div>Updated {now_str} &nbsp;&bull;&nbsp; Refresh in <span id="cd">300s</span></div>
 </div>
 <div class="page">
@@ -209,7 +209,7 @@ def render_dashboard(all_stats: list[dict]) -> str:
   </div>
 
   <div class="footer">
-    <span>PilotAI Credit Spreads</span>
+    <span>Attix Credit Spreads</span>
     <span>{now_str}</span>
   </div>
 </div>

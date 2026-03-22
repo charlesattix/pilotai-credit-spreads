@@ -8,11 +8,11 @@
 #
 # SETUP:
 #   1. Create .env.sync in the project root with:
-#        RAILWAY_URL=https://pilotai-credit-spreads-production.up.railway.app
+#        RAILWAY_URL=https://attix-credit-spreads-production.up.railway.app
 #        RAILWAY_ADMIN_TOKEN=your_token_here
 #
 #   2. Install the cron job (edit with: crontab -e):
-#        */5 9-16 * * 1-5 /Users/charlesbot/projects/pilotai-credit-spreads/scripts/sync_dashboard_data.sh >> ~/logs/sync_dashboard.log 2>&1
+#        */5 9-16 * * 1-5 /Users/charlesbot/projects/attix-credit-spreads/scripts/sync_dashboard_data.sh >> ~/logs/sync_dashboard.log 2>&1
 #
 #      Breakdown: every 5 min, hours 9-16, Mon-Fri
 #      Note: 9-16 covers 9:00-16:59 → catches pre-market open (9:30) through

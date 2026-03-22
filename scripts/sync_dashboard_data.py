@@ -14,7 +14,7 @@ Usage:
 
     # Export + push with explicit URL / token
     python scripts/sync_dashboard_data.py --push \\
-        --railway-url https://pilotai-credit-spreads-production.up.railway.app \\
+        --railway-url https://attix-credit-spreads-production.up.railway.app \\
         --token $RAILWAY_ADMIN_TOKEN
 
     # Dry run (print JSON, no writes)
@@ -63,7 +63,7 @@ BACKTEST_EXPECTATIONS = {
 
 def _resolve_db_path(exp: dict) -> Optional[Path]:
     """
-    Try config yaml → data/expNNN/pilotai_expNNN.db → data/pilotai_expNNN.db.
+    Try config yaml → data/expNNN/attix_expNNN.db → data/attix_expNNN.db.
     Returns the first path that exists AND has a trades table.
     Falls back to first existing path if none has trades.
     """
@@ -85,8 +85,8 @@ def _resolve_db_path(exp: dict) -> Optional[Path]:
 
     num = exp["id"].replace("EXP-", "").lower()
     candidates += [
-        PROJECT_ROOT / f"data/exp{num}/pilotai_exp{num}.db",
-        PROJECT_ROOT / f"data/pilotai_exp{num}.db",
+        PROJECT_ROOT / f"data/exp{num}/attix_exp{num}.db",
+        PROJECT_ROOT / f"data/attix_exp{num}.db",
     ]
 
     first_existing: Optional[Path] = None
@@ -377,7 +377,7 @@ def push_to_railway(payload: dict, railway_url: str, token: str, verbose: bool =
         headers={
             "Content-Type":  "application/json",
             "X-API-Key": token,
-            "User-Agent":    "pilotai-sync/1.0",
+            "User-Agent":    "attix-sync/1.0",
         },
         method="POST",
     )

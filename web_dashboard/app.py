@@ -1,5 +1,5 @@
 """
-app.py — PilotAI Paper Trading Dashboard
+app.py — Attix Paper Trading Dashboard
 
 FastAPI web app serving:
   GET /                                 — Live HTML dashboard (public)
@@ -10,13 +10,13 @@ FastAPI web app serving:
   GET /api/v1/summary                   — Combined summary (auth required)
 
 Environment variables:
-  PILOTAI_ROOT     — path to pilotai-credit-spreads repo (default: parent dir)
-  DASHBOARD_API_KEY — API key for /api/ endpoints (default: dev-pilotai-2026)
+  ATTIX_ROOT     — path to attix-credit-spreads repo (default: parent dir)
+  DASHBOARD_API_KEY — API key for /api/ endpoints (default: dev-attix-2026)
   PORT             — listen port (default: 8000)
   STARTING_EQUITY  — account size for % calculations (default: 100000)
 
 Run locally:
-  cd ~/projects/pilotai-credit-spreads
+  cd ~/projects/attix-credit-spreads
   uvicorn web_dashboard.app:app --reload --port 8000
 """
 
@@ -58,7 +58,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-_DEFAULT_API_KEY = "dev-pilotai-2026"
+_DEFAULT_API_KEY = "dev-attix-2026"
 _API_KEY         = os.environ.get("DASHBOARD_API_KEY", _DEFAULT_API_KEY)
 _RATE_LIMIT      = 120      # requests per 60s per key
 _RATE_WINDOW     = 60.0
@@ -68,7 +68,7 @@ _RATE_WINDOW     = 60.0
 # ---------------------------------------------------------------------------
 
 app = FastAPI(
-    title="PilotAI Paper Trading Dashboard",
+    title="Attix Paper Trading Dashboard",
     description="Live dashboard for paper trading experiments",
     version="1.0.0",
     docs_url="/api/docs",
@@ -261,8 +261,8 @@ async def push_data(request: Request, _key: str = Depends(require_api_key)):
 async def _on_startup():
     from .data import PROJECT_ROOT, REGISTRY_PATH
     logger.info("=" * 60)
-    logger.info("PilotAI Paper Trading Dashboard starting")
-    logger.info(f"  PILOTAI_ROOT  : {PROJECT_ROOT}")
+    logger.info("Attix Paper Trading Dashboard starting")
+    logger.info(f"  ATTIX_ROOT  : {PROJECT_ROOT}")
     logger.info(f"  Registry      : {REGISTRY_PATH} (exists={REGISTRY_PATH.exists()})")
     logger.info(f"  API key set   : {'custom' if _API_KEY != _DEFAULT_API_KEY else 'default (dev)'}")
     logger.info("=" * 60)
