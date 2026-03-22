@@ -1,0 +1,121 @@
+LIVE-READINESS CHECKLIST — 2026-03-19 10:46
+============================================================
+
+1. CONFIG FILES
+---------------
+  [PASS] Champion config exists
+        /home/node/openclaw/workspace/pilotai-credit-spreads/configs/champion.json
+  [PASS] Champion config valid JSON
+        Parsed successfully
+  [PASS] Champion config has strategies
+        strategies=['credit_spread', 'iron_condor', 'momentum_swing', 'debit_spread', 'zero_dte_spread']
+  [PASS] Champion config validated (ROBUST)
+        robustness_score=0.772 (ROBUST)
+  [FAIL] Main config exists
+        Not found: /home/node/openclaw/workspace/pilotai-credit-spreads/config.yaml
+  [FAIL] Env: ALPACA_API_KEY
+        Alpaca trading API key — NOT SET
+  [FAIL] Env: ALPACA_API_SECRET
+        Alpaca trading API secret — NOT SET
+  [FAIL] Env: POLYGON_API_KEY (RECOMMENDED)
+        Polygon data API key — NOT SET
+  [FAIL] Env: TELEGRAM_BOT_TOKEN (RECOMMENDED)
+        Telegram alert bot token — NOT SET
+  [FAIL] Env: TELEGRAM_CHAT_ID (RECOMMENDED)
+        Telegram chat ID for alerts — NOT SET
+
+2. DATABASE
+-----------
+  [PASS] Database file exists
+        /home/node/openclaw/workspace/pilotai-credit-spreads/data/pilotai.db
+  [PASS] Database connectable
+        SQLite connection OK
+  [PASS] Database WAL mode
+        journal_mode=wal
+  [PASS] Database required tables
+        Found: ['scanner_state', 'trades']
+  [PASS] Database data freshness
+        Latest trade update: 2026-03-15 14:06:27 (3d ago)
+  [PASS] Database trade history
+        Total: 77 (open: 18, closed: 59)
+
+3. BUYING POWER (Lesson 005)
+----------------------------
+  [PASS] Drawdown circuit breaker exists
+        ExecutionEngine._check_drawdown_cb() found
+  [PASS] Drawdown CB called before submission
+        submit_opportunity() calls _check_drawdown_cb()
+  [PASS] Account buying power fields exposed
+        get_account() returns buying_power + options_buying_power
+  [PASS] Explicit buying power pre-check (Lesson 005)
+        submit_opportunity() checks buying power before order
+
+4. ORDER FAILURE/RETRY
+----------------------
+  [PASS] Retry decorator exists
+        _retry_with_backoff decorator found in alpaca_provider
+  [PASS] Retry on submit_credit_spread
+        submit_credit_spread has retry wrapper
+  [PASS] Retry on close_spread
+        close_spread has retry wrapper
+  [PASS] Retry on close_iron_condor
+        close_iron_condor has retry wrapper
+  [PASS] Rate limit (429) handling
+        Retry-After / 429 handling found
+  [PASS] Non-retryable error handling
+        Client errors (4xx) fail fast without retry
+  [PASS] Order status coverage
+        Statuses handled: ['submitted', 'dry_run', 'error', 'duplicate', 'drawdown_blocked', 'market_closed']
+
+5. ALERTING (Telegram)
+----------------------
+  [PASS] Telegram module importable
+        shared.telegram_alerts imported successfully
+  [FAIL] Telegram credentials configured
+        Missing TELEGRAM_BOT_TOKEN and/or TELEGRAM_CHAT_ID env vars
+  [PASS] Alert function: notify_trade_open
+        notify_trade_open() found
+  [PASS] Alert function: notify_trade_close
+        notify_trade_close() found
+  [PASS] Alert function: notify_api_failure
+        notify_api_failure() found
+  [FAIL] Telegram send test (RECOMMENDED)
+        Skipped — credentials not configured
+
+6. POSITION LIMITS
+------------------
+  [PASS] Backtester: max_positions
+        default=10
+  [PASS] Backtester: max_positions_per_strategy
+        default=5
+  [PASS] Backtester: max_portfolio_risk_pct
+        default=0.4
+  [PASS] Backtester position limit enforcement
+        _can_accept() method enforces limits
+  [PASS] Constants: position caps
+        MAX_POSITIONS_PER_STRATEGY=5, MAX_CONTRACTS_PER_TRADE=10
+  [PASS] Execution engine position limit enforcement
+        Position limits enforced in submit_opportunity()
+
+7. REGIME DETECTOR
+------------------
+  [PASS] RegimeClassifier instantiable
+        RegimeClassifier created successfully
+  [PASS] Market data available
+        SPY: 81 days, VIX: 82 days
+  [PASS] Current regime detection
+        Current regime: bull (as of 2026-03-18)
+  [PASS] Regime distribution (120d)
+        bear=0%, bull=100%, crash=0%, high_vol=0%, low_vol=0% | transitions=0
+  [FAIL] Regime diversity (RECOMMENDED)
+        1 distinct regimes observed — classifier may be stuck
+
+============================================================
+TOTAL: 35 passed, 9 failed (4 required, 5 recommended)
+STATUS: NOT READY (4 required check(s) failing)
+
+ACTION ITEMS (required failures):
+  - [1. CONFIG FILES] Main config exists: Not found: /home/node/openclaw/workspace/pilotai-credit-spreads/config.yaml
+  - [1. CONFIG FILES] Env: ALPACA_API_KEY: Alpaca trading API key — NOT SET
+  - [1. CONFIG FILES] Env: ALPACA_API_SECRET: Alpaca trading API secret — NOT SET
+  - [5. ALERTING (Telegram)] Telegram credentials configured: Missing TELEGRAM_BOT_TOKEN and/or TELEGRAM_CHAT_ID env vars

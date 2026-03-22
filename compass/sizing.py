@@ -28,6 +28,7 @@ def calculate_dynamic_risk(
     current_portfolio_risk: float,
     flat_risk_pct: Optional[float] = None,
     max_risk_pct: Optional[float] = None,
+    ml_confidence_multiplier: float = 1.0,
 ) -> float:
     """Return the dollar risk budget for one new trade.
 
@@ -55,6 +56,8 @@ def calculate_dynamic_risk(
         max_risk_pct: If set, caps the IV-rank-derived target at this percentage
                       (e.g. 10.0 for 10%). Has no effect when flat_risk_pct is
                       set. Allows iv_scaled mode to respect max_risk_per_trade.
+        ml_confidence_multiplier: ML V2 sizing multiplier (default 1.0 = no effect).
+                                  Scales the trade dollar risk by ML confidence.
 
     Returns:
         Dollar risk budget for the new trade (>= 0).
@@ -82,6 +85,7 @@ def calculate_dynamic_risk(
         target_risk_pct = min(target_risk_pct, max_risk_pct / 100.0)
 
     trade_dollar_risk = account_value * target_risk_pct
+    trade_dollar_risk *= ml_confidence_multiplier  # ML V2 scaling
 
     heat_budget = account_value * max_portfolio_heat - current_portfolio_risk
     if trade_dollar_risk > heat_budget:

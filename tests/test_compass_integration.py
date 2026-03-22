@@ -67,6 +67,7 @@ class TestCompassExports:
         "calculate_dynamic_risk", "get_contract_size", "PositionSizer",
         # ML
         "SignalModel", "FeatureEngine", "IVAnalyzer", "MLEnhancedStrategy",
+        "confidence_to_size_multiplier", "RegimeModelRouter",
     ]
 
     def test_all_expected_symbols_in_all(self):

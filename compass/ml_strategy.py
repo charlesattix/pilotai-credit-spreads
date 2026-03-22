@@ -5,10 +5,15 @@ Wraps any BaseStrategy subclass and gates signal generation through
 the COMPASS SignalModel. Signals with ML confidence below the
 configured threshold are dropped before reaching the portfolio engine.
 
+V2 adds confidence-based sizing: instead of binary gating, ML confidence
+modulates position size. Low-confidence signals get smaller positions
+instead of being killed entirely.
+
 Position management is delegated unchanged to the base strategy.
 """
 
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 from strategies.base import (
@@ -30,6 +35,67 @@ logger = logging.getLogger(__name__)
 # confidence = 2 * |probability - 0.5|, so a threshold of 0.30
 # corresponds to probability outside [0.35, 0.65].
 DEFAULT_CONFIDENCE_THRESHOLD = 0.30
+
+
+def confidence_to_size_multiplier(
+    confidence: float,
+    min_mult: float = 0.25,
+    max_mult: float = 1.25,
+) -> float:
+    """Map ML confidence [0,1] to position size multiplier via linear interpolation.
+
+    Formula: min_mult + (max_mult - min_mult) * clamp(confidence, 0, 1)
+
+    Always returns at least min_mult (default 0.25), NEVER returns 0.
+    """
+    clamped = max(0.0, min(1.0, confidence))
+    return min_mult + (max_mult - min_mult) * clamped
+
+
+class RegimeModelRouter:
+    """Routes predictions to regime-specific ML models.
+
+    Falls back to the default model if a regime-specific model
+    is unavailable or fails to load.
+
+    Supports a virtual "defensive" regime that merges bear and high_vol:
+    when regime is "bear" or "high_vol" and a "defensive" model is loaded,
+    the defensive model is used as a shared fallback for both.
+    """
+
+    # Regimes that map to the "defensive" virtual regime
+    DEFENSIVE_REGIMES = frozenset({"bear", "high_vol"})
+
+    def __init__(
+        self,
+        default_model: SignalModel,
+        regime_model_paths: Optional[Dict[str, str]] = None,
+    ):
+        self.default_model = default_model
+        self.regime_models: Dict[str, SignalModel] = {}
+        if regime_model_paths:
+            for regime, path in regime_model_paths.items():
+                model = SignalModel(model_dir=os.path.dirname(path))
+                if model.load(os.path.basename(path)):
+                    self.regime_models[regime] = model
+                    logger.info("Loaded regime model for %s from %s", regime, path)
+                else:
+                    logger.warning("Failed to load regime model for %s from %s", regime, path)
+
+    def predict(self, features: Dict, regime: Optional[str] = None) -> Dict:
+        """Predict using regime-specific model if available, else default.
+
+        Lookup order for bear/high_vol regimes:
+          1. Exact regime model (e.g. "bear")
+          2. "defensive" model (shared bear+high_vol)
+          3. Default model
+        """
+        if regime and regime in self.regime_models:
+            return self.regime_models[regime].predict(features)
+        # Defensive fallback for bear / high_vol
+        if regime in self.DEFENSIVE_REGIMES and "defensive" in self.regime_models:
+            return self.regime_models["defensive"].predict(features)
+        return self.default_model.predict(features)
 
 
 class MLEnhancedStrategy(BaseStrategy):
@@ -71,6 +137,19 @@ class MLEnhancedStrategy(BaseStrategy):
         # Override name to include ML prefix for identification
         self._name = f"ML_{base_strategy.name}"
 
+        # V2: confidence sizing mode (kill switch — False = V1 binary gating)
+        self.ml_sizing_enabled = ml_config.get('ml_sizing', False)
+
+        # V2: regime model router (only instantiated when ml_sizing=True)
+        if self.ml_sizing_enabled:
+            regime_model_paths = ml_config.get('regime_model_paths')
+            self.regime_router = RegimeModelRouter(
+                default_model=signal_model,
+                regime_model_paths=regime_model_paths,
+            )
+        else:
+            self.regime_router = None
+
         # Counters for monitoring
         self._total_signals = 0
         self._passed_signals = 0
@@ -79,9 +158,10 @@ class MLEnhancedStrategy(BaseStrategy):
 
         logger.info(
             "MLEnhancedStrategy wrapping %s "
-            "(threshold=%.2f, feature_engine=%s)",
+            "(threshold=%.2f, ml_sizing=%s, feature_engine=%s)",
             base_strategy.name,
             self.confidence_threshold,
+            self.ml_sizing_enabled,
             feature_engine is not None,
         )
 
@@ -92,14 +172,10 @@ class MLEnhancedStrategy(BaseStrategy):
     def generate_signals(
         self, market_data: MarketSnapshot
     ) -> List[Signal]:
-        """Generate signals from base strategy, then filter by ML confidence.
+        """Generate signals from base strategy, then filter/size by ML confidence.
 
-        For each base signal:
-        1. Build features via FeatureEngine (if available)
-        2. Call SignalModel.predict()
-        3. If confidence >= threshold → keep (attach ML metadata)
-        4. If confidence < threshold → drop
-        5. If features unavailable → drop (cache miss = skip trade)
+        V1 (ml_sizing=False): Binary gating — drop signals below threshold.
+        V2 (ml_sizing=True): Confidence sizing — never drop, attach size multiplier.
         """
         base_signals = self.base.generate_signals(market_data)
         if not base_signals:
@@ -107,68 +183,111 @@ class MLEnhancedStrategy(BaseStrategy):
 
         kept: List[Signal] = []
 
-        for signal in base_signals:
-            self._total_signals += 1
+        if self.ml_sizing_enabled:
+            # V2: confidence sizing — never drop, always attach multiplier
+            for signal in base_signals:
+                self._total_signals += 1
 
-            # --- Build features ---
-            features = self._build_features_for_signal(signal, market_data)
-            if features is None:
-                self._feature_miss_signals += 1
-                logger.debug(
-                    "ML gate: skipping %s %s — feature build returned None",
-                    signal.ticker,
-                    signal.metadata.get('spread_type', ''),
-                )
-                continue
+                features = self._build_features_for_signal(signal, market_data)
+                if features is None:
+                    # Feature miss → minimum sizing (25%), don't drop
+                    self._feature_miss_signals += 1
+                    signal.metadata['ml_size_multiplier'] = 0.25
+                    signal.metadata['ml_confidence'] = 0.0
+                    signal.metadata['ml_gated'] = False
+                    kept.append(signal)
+                    self._passed_signals += 1
+                    logger.debug(
+                        "ML V2: feature miss %s %s — multiplier=0.25",
+                        signal.ticker,
+                        signal.metadata.get('spread_type', ''),
+                    )
+                    continue
 
-            # --- ML prediction ---
-            prediction = self.signal_model.predict(features)
+                regime = market_data.regime
+                prediction = self.regime_router.predict(features, regime=regime)
+                confidence = prediction.get('confidence', 0.0)
 
-            confidence = prediction.get('confidence', 0.0)
-            probability = prediction.get('probability', 0.5)
-            is_fallback = prediction.get('fallback', False)
-
-            # If the model returned a fallback (not trained), let the
-            # signal through — don't block on an untrained model.
-            if is_fallback:
-                signal.metadata['ml_prediction'] = prediction
-                signal.metadata['ml_gated'] = False
-                kept.append(signal)
-                self._passed_signals += 1
-                continue
-
-            # --- Confidence gate ---
-            if confidence >= self.confidence_threshold:
+                multiplier = confidence_to_size_multiplier(confidence)
+                signal.metadata['ml_size_multiplier'] = multiplier
+                signal.metadata['ml_confidence'] = confidence
                 signal.metadata['ml_prediction'] = prediction
                 signal.metadata['ml_gated'] = True
-                signal.metadata['ml_confidence'] = confidence
-                signal.metadata['ml_probability'] = probability
                 kept.append(signal)
                 self._passed_signals += 1
                 logger.debug(
-                    "ML gate: PASS %s %s — confidence=%.3f probability=%.3f",
+                    "ML V2: PASS %s %s — confidence=%.3f multiplier=%.2f",
                     signal.ticker,
                     signal.metadata.get('spread_type', ''),
                     confidence,
-                    probability,
-                )
-            else:
-                self._filtered_signals += 1
-                logger.debug(
-                    "ML gate: SKIP %s %s — confidence=%.3f < threshold=%.2f",
-                    signal.ticker,
-                    signal.metadata.get('spread_type', ''),
-                    confidence,
-                    self.confidence_threshold,
+                    multiplier,
                 )
 
-        if base_signals:
-            logger.info(
-                "ML gate: %d/%d signals passed (threshold=%.2f)",
-                len(kept),
-                len(base_signals),
-                self.confidence_threshold,
-            )
+            if base_signals:
+                logger.info(
+                    "ML V2: %d/%d signals sized (all kept)",
+                    len(kept),
+                    len(base_signals),
+                )
+        else:
+            # V1: existing binary gating (unchanged)
+            for signal in base_signals:
+                self._total_signals += 1
+
+                features = self._build_features_for_signal(signal, market_data)
+                if features is None:
+                    self._feature_miss_signals += 1
+                    logger.debug(
+                        "ML gate: skipping %s %s — feature build returned None",
+                        signal.ticker,
+                        signal.metadata.get('spread_type', ''),
+                    )
+                    continue
+
+                prediction = self.signal_model.predict(features)
+
+                confidence = prediction.get('confidence', 0.0)
+                probability = prediction.get('probability', 0.5)
+                is_fallback = prediction.get('fallback', False)
+
+                if is_fallback:
+                    signal.metadata['ml_prediction'] = prediction
+                    signal.metadata['ml_gated'] = False
+                    kept.append(signal)
+                    self._passed_signals += 1
+                    continue
+
+                if confidence >= self.confidence_threshold:
+                    signal.metadata['ml_prediction'] = prediction
+                    signal.metadata['ml_gated'] = True
+                    signal.metadata['ml_confidence'] = confidence
+                    signal.metadata['ml_probability'] = probability
+                    kept.append(signal)
+                    self._passed_signals += 1
+                    logger.debug(
+                        "ML gate: PASS %s %s — confidence=%.3f probability=%.3f",
+                        signal.ticker,
+                        signal.metadata.get('spread_type', ''),
+                        confidence,
+                        probability,
+                    )
+                else:
+                    self._filtered_signals += 1
+                    logger.debug(
+                        "ML gate: SKIP %s %s — confidence=%.3f < threshold=%.2f",
+                        signal.ticker,
+                        signal.metadata.get('spread_type', ''),
+                        confidence,
+                        self.confidence_threshold,
+                    )
+
+            if base_signals:
+                logger.info(
+                    "ML gate: %d/%d signals passed (threshold=%.2f)",
+                    len(kept),
+                    len(base_signals),
+                    self.confidence_threshold,
+                )
 
         return kept
 
@@ -181,13 +300,16 @@ class MLEnhancedStrategy(BaseStrategy):
     def size_position(
         self, signal: Signal, portfolio_state: PortfolioState
     ) -> int:
-        """Delegate sizing to base strategy.
+        """Size position, applying ML confidence multiplier in V2 mode.
 
-        ML confidence is already embedded in signal.metadata for
-        downstream consumers (e.g. COMPASS PositionSizer) but the
-        base strategy's sizing logic is the source of truth.
+        V1: Delegates entirely to base strategy.
+        V2: Scales base contracts by ml_size_multiplier (min 1 contract).
         """
-        return self.base.size_position(signal, portfolio_state)
+        base_contracts = self.base.size_position(signal, portfolio_state)
+        if self.ml_sizing_enabled and base_contracts > 0:
+            multiplier = signal.metadata.get('ml_size_multiplier', 1.0)
+            return max(1, int(round(base_contracts * multiplier)))
+        return base_contracts
 
     @classmethod
     def get_param_space(cls) -> List[ParamDef]:
