@@ -19,7 +19,7 @@
 
 # --- Paper trading safety flags ---
 paper_mode: true          # SAFETY: blocks live API URLs when true
-db_path: "data/pilotai_champion.db"  # Isolated DB per experiment
+db_path: "data/pilotai_exp400.db"  # Isolated DB per experiment
 experiment_id: "EXP-400"  # Prefix for Telegram alerts
 
 # Tickers
