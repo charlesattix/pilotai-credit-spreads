@@ -54,4 +54,6 @@ _run_scan() {
 }
 
 _run_scan "exp400" "configs/paper_champion.yaml" ".env.exp400" "data/pilotai_exp400.db"
-_run_scan "exp401"   "configs/paper_exp401.yaml"   ".env.exp401"   "data/pilotai_exp401.db"
+_run_scan "exp401" "configs/paper_exp401.yaml"   ".env.exp401" "data/pilotai_exp401.db"
+_run_scan "exp503" "configs/paper_exp503.yaml"   ".env.exp503" "data/pilotai_exp503.db"
+_run_scan "exp600" "configs/paper_exp600.yaml"   ".env.exp600" "data/pilotai_exp600.db"
