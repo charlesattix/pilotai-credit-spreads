@@ -27,6 +27,7 @@
 paper_mode: true
 db_path: "data/pilotai_ibit.db"
 experiment_id: "EXP-IBIT-001"
+created_by: "maximus"     # Attribution: experiment creator
 
 # Tickers
 tickers:

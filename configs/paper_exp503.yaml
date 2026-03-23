@@ -30,6 +30,7 @@
 paper_mode: true
 db_path: "data/exp503/pilotai_exp503.db"
 experiment_id: "EXP-503"
+created_by: "maximus"     # Attribution: experiment creator
 
 tickers:
   - SPY

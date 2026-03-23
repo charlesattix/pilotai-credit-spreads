@@ -27,6 +27,7 @@
 paper_mode: true
 db_path: "data/exp600/pilotai_exp600.db"
 experiment_id: "EXP-600"
+created_by: "charles"     # Attribution: experiment creator
 
 tickers:
   - IBIT
