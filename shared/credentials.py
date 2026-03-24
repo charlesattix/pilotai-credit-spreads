@@ -89,7 +89,7 @@ def _alpaca_get(endpoint: str, api_key: str, api_secret: str):
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
             return json.loads(resp.read())
     except Exception as exc:
-        logger.debug("Alpaca %s failed: %s", url, exc)
+        logger.warning("Alpaca %s failed: %s", url, exc)  # SECURITY AUDIT #14
         return None
 
 

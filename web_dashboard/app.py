@@ -36,10 +36,11 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 import uvicorn
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.security import APIKeyHeader
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from .auth import (
     SESSION_COOKIE,
@@ -73,7 +74,8 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_API_KEY = "dev-attix-2026"
 _API_KEY         = os.environ.get("DASHBOARD_API_KEY", _DEFAULT_API_KEY)
-_RATE_LIMIT      = 120      # requests per 60s per key
+_RATE_LIMIT      = 120      # requests per 60s per API key
+_IP_RATE_LIMIT   = 200      # requests per 60s per source IP (SECURITY AUDIT #10)
 _RATE_WINDOW     = 60.0
 
 # ---------------------------------------------------------------------------
@@ -94,6 +96,28 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+
+class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add security headers to every response. SECURITY AUDIT #12."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        # Only sent over HTTPS; harmless over HTTP (browsers ignore it there).
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        # Dashboard uses inline <style>/<script> blocks; tighten with nonces
+        # if those are ever moved to external files.
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "script-src 'self' 'unsafe-inline'"
+        )
+        return response
+
+
+app.add_middleware(_SecurityHeadersMiddleware)
 
 # ---------------------------------------------------------------------------
 # Session auth — cookie-based for browser routes
@@ -128,14 +152,40 @@ _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 _rate_windows: dict[str, deque] = defaultdict(deque)
 
 
-def _check_rate(key: str) -> None:
+def _get_client_ip(request: Request) -> str:
+    """Extract real client IP, respecting Railway / nginx reverse-proxy headers.
+    SECURITY AUDIT #10.
+    """
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip.strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _check_rate(key: str, request: Request | None = None) -> None:
+    """Sliding-window rate limiter by API key, with an additional per-IP layer.
+    SECURITY AUDIT #10: per-IP limit catches credential-stuffing / key enumeration.
+    """
     now = time.time()
+    # Per-key bucket
     win = _rate_windows[key]
     while win and win[0] < now - _RATE_WINDOW:
         win.popleft()
     if len(win) >= _RATE_LIMIT:
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
     win.append(now)
+    # Per-IP bucket (higher ceiling — one IP may legitimately hold multiple keys)
+    if request is not None:
+        ip_key = f"ip:{_get_client_ip(request)}"
+        ip_win = _rate_windows[ip_key]
+        while ip_win and ip_win[0] < now - _RATE_WINDOW:
+            ip_win.popleft()
+        if len(ip_win) >= _IP_RATE_LIMIT:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        ip_win.append(now)
 
 
 def require_api_key(
@@ -144,10 +194,28 @@ def require_api_key(
 ) -> str:
     """Accept X-API-Key header OR a valid session cookie (for browser tools)."""
     if api_key and api_key == _API_KEY:
-        _check_rate(api_key)
+        _check_rate(api_key, request)
         return api_key
     if _session_ok(request):
         return "session"
+    raise HTTPException(
+        status_code=401,
+        detail="Invalid or missing X-API-Key",
+        headers={"WWW-Authenticate": "ApiKey"},
+    )
+
+
+def require_api_key_only(
+    request: Request,
+    api_key: Optional[str] = Depends(_api_key_header),
+) -> str:
+    """Accept only X-API-Key header — no session cookie.
+    Used on admin endpoints so CSRF via browser session is impossible.
+    SECURITY AUDIT #13.
+    """
+    if api_key and api_key == _API_KEY:
+        _check_rate(api_key, request)
+        return api_key
     raise HTTPException(
         status_code=401,
         detail="Invalid or missing X-API-Key",
@@ -291,7 +359,7 @@ async def list_experiments(_key: str = Depends(require_api_key)):
 @app.get("/api/v1/experiments/{exp_id}/trades")
 async def experiment_trades(
     exp_id: str,
-    limit: int = 100,
+    limit: int = Query(default=100, ge=1, le=1000),  # SECURITY AUDIT #9
     _key: str = Depends(require_api_key),
 ):
     """Trade history for one experiment (closed trades, newest first)."""
@@ -299,7 +367,7 @@ async def experiment_trades(
     exp = registry["experiments"].get(exp_id.upper())
     if not exp:
         raise HTTPException(status_code=404, detail=f"{exp_id} not found in registry")
-    trades = get_trades(exp, limit=min(limit, 500))
+    trades = get_trades(exp, limit=limit)
     return {
         "experiment_id": exp["id"],
         "name":          exp["name"],
@@ -338,7 +406,7 @@ async def summary(_key: str = Depends(require_api_key)):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/admin/push-data")
-async def push_data(request: Request, _key: str = Depends(require_api_key)):
+async def push_data(request: Request, _key: str = Depends(require_api_key_only)):
     """
     Accept a full dashboard data snapshot from the local sync script.
     Stores as JSON file so the dashboard can render even without SQLite DBs.

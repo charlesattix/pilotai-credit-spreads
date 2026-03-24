@@ -410,11 +410,14 @@ def upsert_dedup_entry(ticker: str, direction: str, alert_type: str, last_routed
 
 def load_dedup_entries(window_seconds: int = 1800, path: Optional[str] = None) -> List[Dict[str, Any]]:
     """Return dedup entries younger than *window_seconds*."""
+    # SECURITY: parameterized query prevents SQL injection (SECURITY_AUDIT.md finding #2)
+    window_seconds = int(window_seconds)
     conn = get_db(path)
     try:
-        cutoff = f"datetime('now', '-{window_seconds} seconds')"
         rows = conn.execute(
-            f"SELECT ticker, direction, alert_type, last_routed_at FROM alert_dedup WHERE last_routed_at > {cutoff}"
+            "SELECT ticker, direction, alert_type, last_routed_at FROM alert_dedup "
+            "WHERE last_routed_at > datetime('now', ?)",
+            (f"-{window_seconds} seconds",),
         ).fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -423,10 +426,13 @@ def load_dedup_entries(window_seconds: int = 1800, path: Optional[str] = None) -
 
 def delete_old_dedup_entries(window_seconds: int = 1800, path: Optional[str] = None) -> None:
     """Delete dedup entries older than *window_seconds* to keep the table small."""
+    # SECURITY: parameterized query prevents SQL injection (SECURITY_AUDIT.md finding #2)
+    window_seconds = int(window_seconds)
     conn = get_db(path)
     try:
         conn.execute(
-            f"DELETE FROM alert_dedup WHERE last_routed_at <= datetime('now', '-{window_seconds} seconds')"
+            "DELETE FROM alert_dedup WHERE last_routed_at <= datetime('now', ?)",
+            (f"-{window_seconds} seconds",),
         )
         conn.commit()
     finally:

@@ -468,9 +468,21 @@ class HistoricalScoreCache:
     # Private helpers
     # ------------------------------------------------------------------
 
+    # SECURITY: whitelist of valid table names for _cached_dates.
+    # SQLite does not support parameterized identifiers, so we validate
+    # against this set before interpolating into SQL (SECURITY_AUDIT.md finding #3).
+    _ALLOWED_SCORE_TABLES: frozenset = frozenset({
+        "btc_daily",
+        "total_market_daily",
+        "fear_greed_daily",
+        "btc_funding_settlements",
+    })
+
     def _cached_dates(self, table: str) -> List[datetime.date]:
         """Return all dates present in ``table``."""
-        cur = self._conn.execute(f"SELECT date FROM {table}")  # noqa: S608
+        if table not in self._ALLOWED_SCORE_TABLES:
+            raise ValueError(f"Unknown score table: {table!r}")
+        cur = self._conn.execute(f"SELECT date FROM {table}")  # safe: whitelisted above
         return [datetime.date.fromisoformat(r[0]) for r in cur.fetchall()]
 
     def _funding_coverage(self) -> Tuple[Optional[int], Optional[int]]:

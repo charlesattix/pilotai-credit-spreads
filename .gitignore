@@ -90,7 +90,7 @@ tasks/
 var/
 venv/
 wheels/
-.env.exp*
+.env.*          # SECURITY AUDIT #15: covers .env.champion, .env.sync, etc.
 !experiments/registry.json
 !experiments/approvals.log
 !railway.json

@@ -3,8 +3,12 @@ html.py — Live dashboard HTML generation.
 """
 
 from __future__ import annotations
+import html as _html
+import logging
 from datetime import datetime, timezone
 from .data import STARTING_EQUITY
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 _CSS = """
@@ -276,7 +280,7 @@ def _render_exp_card(s: dict) -> str:
                 unreal = p.get("unrealized_pl", 0)
                 unreal_pct = p.get("unrealized_plpc", 0)
                 rows.append(f"""<tr>
-  <td class="pos-sym">{p.get('symbol','')}</td>
+  <td class="pos-sym">{_html.escape(str(p.get('symbol', '')))}</td>
   <td class="{side_cls}">{side_label}</td>
   <td style="text-align:right">{abs(p.get('qty',0)):.0f}</td>
   <td style="text-align:right">${p.get('current_price',0):.2f}</td>
@@ -299,19 +303,32 @@ def _render_exp_card(s: dict) -> str:
         else:
             pos_section = ""
     else:
-        err_msg = alp_error or "No Alpaca credentials"
+        # SECURITY AUDIT #11: log raw error server-side; show only a generic
+        # message in the HTML so API error strings are never rendered to users.
+        if alp_error:
+            logger.warning("[dashboard] Alpaca error for %s: %s", s.get("id"), alp_error)
+            err_msg = "Alpaca account unavailable"
+        else:
+            err_msg = "No Alpaca credentials configured"
         alpaca_detail = f'<div class="no-alpaca">{err_msg}</div>'
         pos_section = ""
+
+    # SECURITY AUDIT #7: escape all registry-sourced values before inserting into HTML.
+    eid      = _html.escape(str(s['id']))
+    ename    = _html.escape(str(s['name']))
+    eticker  = _html.escape(str(s['ticker']))
+    ecreator = _html.escape(str(s.get('creator', '—')))
+    elive    = _html.escape(str(s.get('live_since', '—')))
 
     return f"""
 <div class="exp-card">
   <div class="exp-header">
     <div class="exp-left">
-      <div class="exp-id-line">{s['id']}</div>
-      <div class="exp-name">{s['name']}</div>
+      <div class="exp-id-line">{eid}</div>
+      <div class="exp-name">{ename}</div>
       <div class="exp-meta">
-        <span class="ticker {tc}">{s['ticker']}</span>
-        &nbsp; by {s.get('creator','—')} &nbsp;&bull;&nbsp; live since {s.get('live_since','—')}
+        <span class="ticker {tc}">{eticker}</span>
+        &nbsp; by {ecreator} &nbsp;&bull;&nbsp; live since {elive}
       </div>
     </div>
     {equity_html}
