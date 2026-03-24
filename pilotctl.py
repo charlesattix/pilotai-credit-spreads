@@ -68,13 +68,23 @@ def cmd_start(experiments: dict, target: str) -> None:
         if not _run_preflight(cfg["config_file"]):
             print(f"[{name}] preflight FAILED — not starting")
             continue
-        cmd = (
-            f"python main.py scheduler "
-            f"--config {cfg['config_file']} "
-            f"--env-file {cfg['env_file']}"
-        )
+        # SECURITY AUDIT #5: use list args to prevent shell injection via
+        # config_file/env_file values containing shell metacharacters.
+        config_path = Path(cfg["config_file"])
+        env_path    = Path(cfg["env_file"])
+        if not config_path.exists():
+            print(f"[{name}] config file not found: {config_path}")
+            continue
+        if not env_path.exists():
+            print(f"[{name}] env file not found: {env_path}")
+            continue
         subprocess.run(
-            ["tmux", "new-session", "-d", "-s", session, cmd],
+            [
+                "tmux", "new-session", "-d", "-s", session,
+                sys.executable, "main.py", "scheduler",
+                "--config", str(config_path),
+                "--env-file", str(env_path),
+            ],
             check=True,
         )
         print(f"[{name}] started in tmux session '{session}'")

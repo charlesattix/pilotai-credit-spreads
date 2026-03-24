@@ -65,7 +65,12 @@ DEFAULT_PORT = 8420
 # Auth + rate limiting
 # ─────────────────────────────────────────────────────────────────────────────
 
-_DEFAULT_DEV_KEY = "dev-pilotai-macro-2026"
+# SECURITY AUDIT #4: fail fast if MACRO_API_KEYS is not set — no hardcoded fallback.
+_raw_keys = os.getenv("MACRO_API_KEYS")
+if not _raw_keys:
+    raise RuntimeError("MACRO_API_KEYS environment variable must be set before starting")
+_VALID_KEYS: set = {k.strip() for k in _raw_keys.split(",") if k.strip()}
+
 _rate_windows: Dict[str, deque] = defaultdict(deque)
 _RATE_LIMIT = 100      # requests per 60s window
 _RATE_WINDOW = 60.0    # seconds
@@ -74,8 +79,7 @@ _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 def _valid_keys() -> set:
-    raw = os.getenv("MACRO_API_KEYS", _DEFAULT_DEV_KEY)
-    return {k.strip() for k in raw.split(",") if k.strip()}
+    return _VALID_KEYS
 
 
 def _check_rate_limit(api_key: str) -> bool:
@@ -770,10 +774,8 @@ if __name__ == "__main__":
     logger.info("Starting PilotAI Macro API v%s on %s:%d", API_VERSION, args.host, args.port)
     logger.info("Swagger UI: http://localhost:%d/docs", args.port)
     logger.info("ReDoc:      http://localhost:%d/redoc", args.port)
-    logger.info(
-        "Auth: Set MACRO_API_KEYS env var (comma-separated). Dev key: %s",
-        _DEFAULT_DEV_KEY,
-    )
+    # SECURITY AUDIT #4: do not log key values or announce defaults.
+    logger.info("Auth: MACRO_API_KEYS loaded (%d key(s))", len(_VALID_KEYS))
 
     uvicorn.run(
         "api.macro_api:app",

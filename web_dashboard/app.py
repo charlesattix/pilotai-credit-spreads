@@ -72,11 +72,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-_DEFAULT_API_KEY = "dev-attix-2026"
-_API_KEY         = os.environ.get("DASHBOARD_API_KEY", _DEFAULT_API_KEY)
-_RATE_LIMIT      = 120      # requests per 60s per API key
-_IP_RATE_LIMIT   = 200      # requests per 60s per source IP (SECURITY AUDIT #10)
-_RATE_WINDOW     = 60.0
+# SECURITY AUDIT #4: fail fast if DASHBOARD_API_KEY is not set — no hardcoded fallback.
+_API_KEY = os.environ.get("DASHBOARD_API_KEY")
+if not _API_KEY:
+    raise RuntimeError("DASHBOARD_API_KEY environment variable must be set before starting")
+_RATE_LIMIT    = 120      # requests per 60s per API key
+_IP_RATE_LIMIT = 200      # requests per 60s per source IP (SECURITY AUDIT #10)
+_RATE_WINDOW   = 60.0
 
 # ---------------------------------------------------------------------------
 # App
@@ -90,11 +92,15 @@ app = FastAPI(
     redoc_url=None,
 )
 
+# SECURITY AUDIT #6: restrict CORS to the configured dashboard origin.
+# Set DASHBOARD_ORIGIN env var to the exact deployed URL (e.g. https://attix-dashboard-production.up.railway.app).
+# Falls back to no cross-origin access if unset.
+_CORS_ORIGINS = [o.strip() for o in os.environ.get("DASHBOARD_ORIGIN", "").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_CORS_ORIGINS,
     allow_methods=["GET", "POST"],
-    allow_headers=["*"],
+    allow_headers=["X-API-Key"],
 )
 
 
@@ -367,6 +373,9 @@ async def experiment_trades(
     exp = registry["experiments"].get(exp_id.upper())
     if not exp:
         raise HTTPException(status_code=404, detail=f"{exp_id} not found in registry")
+    # SECURITY AUDIT #8: restrict access to paper_trading experiments only to prevent IDOR.
+    if exp.get("status") != "paper_trading":
+        raise HTTPException(status_code=404, detail=f"{exp_id} not found in registry")
     trades = get_trades(exp, limit=limit)
     return {
         "experiment_id": exp["id"],
@@ -385,6 +394,9 @@ async def experiment_positions(
     registry = _cached("registry", 30.0, load_registry)
     exp = registry["experiments"].get(exp_id.upper())
     if not exp:
+        raise HTTPException(status_code=404, detail=f"{exp_id} not found in registry")
+    # SECURITY AUDIT #8: restrict access to paper_trading experiments only to prevent IDOR.
+    if exp.get("status") != "paper_trading":
         raise HTTPException(status_code=404, detail=f"{exp_id} not found in registry")
     positions = get_positions(exp)
     return {
@@ -435,7 +447,8 @@ async def _on_startup():
     logger.info("Attix Paper Trading Dashboard starting")
     logger.info(f"  ATTIX_ROOT  : {PROJECT_ROOT}")
     logger.info(f"  Registry      : {REGISTRY_PATH} (exists={REGISTRY_PATH.exists()})")
-    logger.info(f"  API key set   : {'custom' if _API_KEY != _DEFAULT_API_KEY else 'default (dev)'}")
+    # SECURITY AUDIT #4: do not log whether default key is in use (key is always required now).
+    logger.info("  API key set   : yes")
     import os as _os
     logger.info(f"  Dashboard pw  : {'custom' if _os.environ.get('DASHBOARD_PASSWORD') else 'default (dev)'}")
     logger.info(f"  Secret key    : {'custom' if _os.environ.get('SECRET_KEY') else 'default (dev — INSECURE)'}")

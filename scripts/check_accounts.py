@@ -1,5 +1,8 @@
 """
-check_accounts.py — Programmatic status check for all 4 Alpaca paper trading accounts.
+check_accounts.py — Programmatic status check for all Alpaca paper trading accounts.
+
+Credentials are loaded from .env.expNNN files in the project root (never hardcoded).
+SECURITY AUDIT #1: removed hardcoded API key/secret/account-ID triplets.
 
 Usage:
     python3 scripts/check_accounts.py
@@ -9,32 +12,56 @@ Importable:
     results = check_all_accounts()
 """
 
+import os
+from pathlib import Path
+
 import requests
 
 BASE_URL = "https://paper-api.alpaca.markets"
 
-ACCOUNTS = {
-    "exp036": {
-        "key": "PK4SGNFT3BGN54TCVOE4G44OYQ",
-        "secret": "D3pVjqqBF9kLjyW1W9UMJcoqzVvqex5azhGB15fzgTCh",
-        "account_id": "PA3D6UPXF5F2",
-    },
-    "exp059": {
-        "key": "PK6URS6OBCSSHZZ2RQZSE2FOAH",
-        "secret": "4PTrX1ppT5iZRAnwpcY7282of8UiFyN9pCEE2ZcmjzJ1",
-        "account_id": "PA3LP867WNGU",
-    },
-    "exp154": {
-        "key": "PKANAYVKHZX24Z3KCYNI2PLSCR",
-        "secret": "GyBN2gCyuXfG7yTqFKs5JKTHL8eyC8SYTQ77Y3oyQp4J",
-        "account_id": "PA3UNOV58WGK",
-    },
-    "exp305": {
-        "key": "PKSPAM5732NK425PEUR7ZBELCB",
-        "secret": "4Xmjn5wynCWoiJboiAf95tGozQCBD96rnQYujNTNuiZX",
-        "account_id": "PA3W9FZKK6XD",
-    },
-}
+# Project root is one level above this script.
+_PROJECT_ROOT = Path(__file__).parent.parent
+
+
+def _load_env_file(path: Path) -> dict:
+    """Parse a simple KEY=VALUE env file. Ignores comments and blank lines."""
+    result = {}
+    try:
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            result[key.strip()] = value.strip()
+    except OSError:
+        pass
+    return result
+
+
+def _discover_accounts() -> dict:
+    """
+    Discover all .env.expNNN files in the project root and extract Alpaca credentials.
+    Returns a dict keyed by experiment name (e.g. 'exp036').
+    """
+    accounts = {}
+    for env_file in sorted(_PROJECT_ROOT.glob(".env.exp*")):
+        exp_name = env_file.name.lstrip(".")  # '.env.exp036' -> 'env.exp036' -> strip further
+        # Keep just 'exp036' from '.env.exp036'
+        exp_name = env_file.stem  # stem of '.env.exp036' is '.env.exp036' on some Pythons
+        # Path.stem strips only one suffix; use name manipulation instead:
+        name = env_file.name  # '.env.exp036'
+        if name.startswith(".env."):
+            exp_name = name[len(".env."):]  # 'exp036'
+        else:
+            continue
+
+        env = _load_env_file(env_file)
+        key = env.get("ALPACA_API_KEY")
+        secret = env.get("ALPACA_API_SECRET")
+        if key and secret:
+            accounts[exp_name] = {"key": key, "secret": secret}
+
+    return accounts
 
 
 def _headers(key: str, secret: str) -> dict:
@@ -68,7 +95,7 @@ def _fetch_positions(key: str, secret: str) -> list:
 
 def check_all_accounts() -> dict:
     """
-    Check all 4 Alpaca paper trading accounts.
+    Check all Alpaca paper trading accounts discovered from .env.expNNN files.
 
     Returns a dict keyed by exp name, e.g.:
         {
@@ -84,15 +111,19 @@ def check_all_accounts() -> dict:
           ...
         }
     """
+    accounts = _discover_accounts()
+    if not accounts:
+        print("No .env.exp* files found in project root.")
+        return {}
+
     results = {}
 
-    for exp, creds in ACCOUNTS.items():
+    for exp, creds in accounts.items():
         key = creds["key"]
         secret = creds["secret"]
-        account_id = creds["account_id"]
 
         entry: dict = {
-            "account_id": account_id,
+            "account_id": None,
             "status": "ERROR",
             "equity": None,
             "buying_power": None,
@@ -110,6 +141,7 @@ def check_all_accounts() -> dict:
                 results[exp] = entry
                 continue
 
+            entry["account_id"] = acct.get("id", "")
             entry["equity"] = float(acct.get("equity") or 0)
             entry["buying_power"] = float(acct.get("buying_power") or 0)
 
@@ -142,7 +174,7 @@ def _print_summary(results: dict) -> None:
     has_error = False
     for exp, data in results.items():
         exp_short = exp.replace("exp", "")
-        account_id = data["account_id"]
+        account_id = data.get("account_id") or "unknown"
         status = data["status"]
 
         if status == "OK":
@@ -168,7 +200,7 @@ def _print_summary(results: dict) -> None:
         print("WARNING: One or more accounts reported errors.")
         for exp, data in results.items():
             if data["status"] == "ERROR":
-                print(f"  {exp} ({data['account_id']}): {data.get('error')}")
+                print(f"  {exp} ({data.get('account_id')}): {data.get('error')}")
         print()
 
 
