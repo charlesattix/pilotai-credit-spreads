@@ -47,7 +47,15 @@ A comprehensive Python-based trading system for high-probability credit spreads 
   - CSV (spreadsheet import)
 - **Telegram bot integration** (optional)
 
-### 5. Backtesting Module
+### 5. COMPASS ML Ensemble
+- **Ensemble signal model** combining XGBoost, RandomForest, and ExtraTrees with walk-forward-weighted, individually-calibrated probabilities
+- **ML confidence gating** filters low-quality signals before execution (V1: binary gate, V2: confidence-scaled sizing)
+- **Walk-forward validation** prevents lookahead bias in model evaluation — chronological expanding-window splits, not random CV
+- **Online retraining** monitors model staleness, feature drift, and performance degradation; auto-retrains with A/B holdout promotion gate
+- **Portfolio stress testing** via Monte Carlo block-bootstrap simulation and historical crisis scenario replay
+- See [`docs/ENSEMBLE_ML.md`](docs/ENSEMBLE_ML.md) for architecture, training pipeline, and configuration
+
+### 6. Backtesting Module
 - Backtest strategies against historical data
 - Track performance metrics:
   - Win rate
@@ -57,7 +65,7 @@ A comprehensive Python-based trading system for high-probability credit spreads 
   - Profit factor
 - Generate comprehensive performance reports
 
-### 6. P&L Tracker
+### 7. P&L Tracker
 - Track all trades (open and closed)
 - Running P&L dashboard
 - Win rate tracking
@@ -215,35 +223,46 @@ python main.py scan
 ## Project Structure
 
 ```
-credit-spread-system/
+pilotai-credit-spreads/
 ├── main.py                 # Main entry point
 ├── config.yaml             # Configuration file
 ├── requirements.txt        # Python dependencies
-├── utils.py                # Utility functions
-├── strategy/               # Strategy engine
-│   ├── __init__.py
-│   ├── spread_strategy.py      # Credit spread logic
-│   ├── technical_analysis.py   # Technical indicators
-│   └── options_analyzer.py     # Options chain analysis
-├── alerts/                 # Alert system
-│   ├── __init__.py
-│   ├── alert_generator.py      # Alert formatting
-│   └── telegram_bot.py         # Telegram integration
-├── backtest/               # Backtesting
-│   ├── __init__.py
-│   ├── backtester.py           # Backtest engine
-│   └── performance_metrics.py  # Performance calculations
-├── tracker/                # Trade tracking
-│   ├── __init__.py
-│   ├── trade_tracker.py        # Position tracking
-│   └── pnl_dashboard.py        # P&L display
-├── data/                   # Trade data storage
+├── compass/                # COMPASS: ML, regime, sizing, risk
+│   ├── ensemble_signal_model.py  # XGB+RF+ET ensemble (drop-in for SignalModel)
+│   ├── signal_model.py           # Base XGBoost signal model
+│   ├── features.py               # Feature engineering (46+ features)
+│   ├── walk_forward.py           # Walk-forward validation framework
+│   ├── online_retrain.py         # Auto-retrain with A/B promotion gate
+│   ├── stress_test.py            # Monte Carlo + crisis scenario analysis
+│   ├── portfolio_optimizer.py    # Cross-experiment capital allocation
+│   ├── regime.py                 # Market regime detection
+│   ├── ml_strategy.py            # ML-enhanced strategy wrapper (V1/V2)
+│   ├── sizing.py                 # Kelly + IV-scaled position sizing
+│   ├── risk_gate.py              # MASTERPLAN hard risk rules
+│   └── macro.py                  # Macro composite score engine
+├── strategies/             # Strategy definitions
+│   ├── base.py                 # BaseStrategy, Signal, Position, LegType
+│   └── credit_spread.py       # Bull put / bear call spread strategy
+├── alerts/                 # Alert system + scanners
+├── backtest/               # Backtesting engine
+│   ├── backtester.py           # Main backtest loop
+│   └── performance_metrics.py  # Report generation
+├── shared/                 # Shared infrastructure
+│   ├── iron_vault.py           # Singleton data provider (no synthetic data)
+│   ├── database.py             # SQLite persistence (WAL mode)
+│   ├── constants.py            # MASTERPLAN risk limits, FOMC dates
+│   └── credentials.py         # Multi-account credential management
+├── ml/models/              # Trained model artifacts (.joblib)
+├── configs/                # Experiment YAML configs
+│   └── paper_ensemble_test.yaml  # Ensemble A/B test config
+├── scripts/                # Utility scripts
+├── data/                   # Trade data, options cache
+├── docs/                   # Documentation
+│   ├── ENSEMBLE_ML.md          # Ensemble ML system docs
+│   ├── DATA_ARCHITECTURE.md    # IronVault data access
+│   └── COMPASS.md              # COMPASS macro intelligence
 ├── logs/                   # Log files
-└── output/                 # Generated alerts and reports
-    ├── alerts.json
-    ├── alerts.txt
-    ├── alerts.csv
-    └── backtest_reports/
+└── output/                 # Backtest results, alerts, reports
 ```
 
 ## Output Files

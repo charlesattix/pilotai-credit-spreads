@@ -1,15 +1,20 @@
 """
 Ensemble Signal Model — Multi-classifier trade prediction with walk-forward weighting.
 
-Combines XGBoost, RandomForest, and ExtraTrees into a weighted-average ensemble.
-Each base learner is individually calibrated (CalibratedClassifierCV) so the
-ensemble averages well-calibrated probabilities rather than raw scores.
+Combines XGBoost, RandomForest, ExtraTrees, and (optionally) LightGBM into a
+weighted-average ensemble.  Each base learner is individually calibrated
+(CalibratedClassifierCV) so the ensemble averages well-calibrated probabilities
+rather than raw scores.
 
 Ensemble weights are set by walk-forward validation: the training data is split
 into K chronological folds; each model is trained on folds 1..k and scored on
 fold k+1.  The per-model AUC across held-out folds determines the voting weight.
 This avoids look-ahead bias that random-shuffle CV would introduce on time-series
 trade data.
+
+If ``lightgbm`` is installed, a 4th LightGBM classifier is included
+automatically.  If the package is missing, the ensemble falls back to the
+original 3-model configuration (XGBoost + RF + ET) with no code changes needed.
 
 Implements the same public interface as SignalModel (predict, predict_batch, train,
 save, load, backtest) so it can be used as a drop-in replacement anywhere
@@ -18,6 +23,7 @@ SignalModel is accepted — including MLEnhancedStrategy and RegimeModelRouter.
 Based on research:
 - Dietterich (2000): Ensemble Methods in Machine Learning
 - Lakshminarayanan et al. (2017): Simple and Scalable Predictive Uncertainty Estimation
+- Ke et al. (2017): LightGBM: A Highly Efficient Gradient Boosting Decision Tree
 """
 
 import json
@@ -37,6 +43,11 @@ try:
     import xgboost as xgb
 except ImportError:
     xgb = None
+
+try:
+    import lightgbm as lgb
+except ImportError:
+    lgb = None
 
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier
@@ -94,6 +105,27 @@ _ET_PARAMS = {
     'n_jobs': -1,
 }
 
+# LightGBM — similar regularisation philosophy to XGBoost.
+# num_leaves=31 (default) with max_depth=6 gives comparable tree complexity.
+# verbose=-1 suppresses LightGBM's per-iteration stdout.
+_LGBM_PARAMS = {
+    'objective': 'binary',
+    'n_estimators': 200,
+    'max_depth': 6,
+    'learning_rate': 0.05,
+    'num_leaves': 31,
+    'min_child_samples': 5,
+    'subsample': 0.8,
+    'colsample_bytree': 0.8,
+    'reg_alpha': 0.1,
+    'reg_lambda': 1.0,
+    'random_state': 42,
+    'verbose': -1,
+}
+
+# Names of boosting models that accept eval_set for early stopping.
+_BOOSTING_MODELS = frozenset({'xgboost', 'lightgbm'})
+
 
 def _calibrate_prefit(
     estimator: object,
@@ -138,16 +170,21 @@ def _calibrate_prefit(
 
 
 def _build_base_models() -> List[Tuple[str, object]]:
-    """Instantiate the three base classifiers.
+    """Instantiate the base classifiers.
 
     Returns list of (name, unfitted_estimator) tuples.
-    XGBoost is skipped if the package is not installed.
+    XGBoost and LightGBM are each included only if the respective package
+    is installed; the ensemble gracefully degrades if either is missing.
     """
     models: List[Tuple[str, object]] = []
     if xgb is not None:
         models.append(('xgboost', xgb.XGBClassifier(**_XGB_PARAMS)))
     else:
-        logger.warning("XGBoost unavailable — ensemble will use RF + ET only")
+        logger.warning("XGBoost unavailable — ensemble will run without it")
+    if lgb is not None:
+        models.append(('lightgbm', lgb.LGBMClassifier(**_LGBM_PARAMS)))
+    else:
+        logger.info("LightGBM not installed — ensemble will run without it")
     models.append(('random_forest', RandomForestClassifier(**_RF_PARAMS)))
     models.append(('extra_trees', ExtraTreesClassifier(**_ET_PARAMS)))
     return models
@@ -201,8 +238,11 @@ def _walk_forward_weights(
             try:
                 from sklearn.base import clone
                 est = clone(base_est)
-                if name == 'xgboost':
-                    est.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False)
+                if name in _BOOSTING_MODELS:
+                    wf_fit_kw: dict = {"eval_set": [(X_val, y_val)]}
+                    if name == 'xgboost':
+                        wf_fit_kw["verbose"] = False
+                    est.fit(X_tr, y_tr, **wf_fit_kw)
                 else:
                     est.fit(X_tr, y_tr)
                 proba = est.predict_proba(X_val)[:, 1]
@@ -239,12 +279,16 @@ def _walk_forward_weights(
 
 class EnsembleSignalModel:
     """
-    Ensemble signal model combining XGBoost, RandomForest, and ExtraTrees.
+    Ensemble signal model combining XGBoost, RandomForest, ExtraTrees, and
+    (optionally) LightGBM.
 
     Each base learner is individually calibrated via CalibratedClassifierCV
-    (sigmoid method on a held-out calibration set).  The ensemble prediction
+    (isotonic method on a held-out calibration set).  The ensemble prediction
     is a weighted average of calibrated probabilities, where weights are
     derived from walk-forward validation AUC.
+
+    LightGBM is included automatically when the ``lightgbm`` package is
+    installed.  Otherwise the ensemble runs with 3 models (XGB + RF + ET).
 
     Drop-in replacement for SignalModel — same train/predict/save/load API.
     """
@@ -332,15 +376,19 @@ class EnsembleSignalModel:
                 est = clone(base_est)
 
                 # Train
-                if name == 'xgboost':
+                if name in _BOOSTING_MODELS:
                     # Use a small validation split for early stopping
                     X_inner, X_val, y_inner, y_val = train_test_split(
                         X_fit, y_fit, test_size=0.15, random_state=42, stratify=y_fit,
                     )
+                    # XGBoost accepts verbose= in fit(); LightGBM does not
+                    # (LightGBM verbosity is set via constructor param verbose=-1).
+                    fit_kwargs: dict = {"eval_set": [(X_val, y_val)]}
+                    if name == 'xgboost':
+                        fit_kwargs["verbose"] = False
                     est.fit(
                         X_inner, y_inner,
-                        eval_set=[(X_val, y_val)],
-                        verbose=False,
+                        **fit_kwargs,
                     )
                 else:
                     est.fit(X_fit, y_fit)
