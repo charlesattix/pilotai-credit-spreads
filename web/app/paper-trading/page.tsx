@@ -1,22 +1,27 @@
 'use client'
 
-import { RefreshCw, TrendingUp, DollarSign, Target, BarChart3 } from 'lucide-react'
-import { usePositions } from '@/lib/hooks'
-import { PaperTrade, PositionsSummary } from '@/lib/types'
+import { RefreshCw, TrendingUp, DollarSign, Activity, AlertCircle, CheckCircle } from 'lucide-react'
+import { useExperiments, ExperimentData } from '@/lib/hooks'
 
-function formatMoney(n: number) {
+function fmt$(n: number | null | undefined, decimals = 0) {
+  if (n == null) return '—'
   const sign = n >= 0 ? '+' : ''
-  return `${sign}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+  return `${sign}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`
 }
 
-function daysUntil(dateStr: string) {
-  const exp = new Date(dateStr)
-  const now = new Date()
-  return Math.max(0, Math.ceil((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+function fmtPct(n: number | null | undefined, decimals = 1) {
+  if (n == null) return '—'
+  const sign = n >= 0 ? '+' : ''
+  return `${sign}${n.toFixed(decimals)}%`
+}
+
+function pnlColor(n: number | null | undefined) {
+  if (n == null) return 'text-gray-500'
+  return n >= 0 ? 'text-green-600' : 'text-red-500'
 }
 
 export default function PaperTradingPage() {
-  const { data, isLoading, mutate } = usePositions()
+  const { data, isLoading, error, mutate } = useExperiments()
 
   if (isLoading || !data) return (
     <div className="min-h-screen bg-[#FAF9FB] flex items-center justify-center">
@@ -24,98 +29,89 @@ export default function PaperTradingPage() {
     </div>
   )
 
-  const portfolioData = {
-    account_size: data.account_size ?? 10000,
-    starting_balance: data.starting_balance ?? 10000,
-    current_balance: data.current_balance ?? 0,
-    total_pnl: data.total_pnl ?? 0,
-    total_realized_pnl: data.total_realized_pnl ?? 0,
-    total_unrealized_pnl: data.total_unrealized_pnl ?? 0,
-    total_trades: data.total_trades ?? 0,
-    total_credit: data.total_credit ?? 0,
-    total_max_loss: data.total_max_loss ?? 0,
-    open_count: data.open_count ?? 0,
-    closed_count: data.closed_count ?? 0,
-    win_rate: data.win_rate ?? 0,
-    open_positions: data.open_positions ?? [],
-    closed_trades: data.closed_trades ?? [],
-  }
+  if (error) return (
+    <div className="min-h-screen bg-[#FAF9FB] flex items-center justify-center">
+      <div className="text-center">
+        <p className="text-red-500 font-medium">Failed to load experiments</p>
+        <p className="text-gray-400 text-sm mt-1">Run sync_dashboard_data.py --push on the Mac</p>
+        <button onClick={() => mutate()} className="mt-3 px-4 py-2 rounded-lg text-sm font-medium text-white bg-[#9B6DFF]">
+          Retry
+        </button>
+      </div>
+    </div>
+  )
+
+  const s = data.summary
+  const starting = data.starting_equity ?? 100_000
+  const combinedReturn = s.combined_equity
+    ? ((s.combined_equity - starting * data.experiments.length) / (starting * data.experiments.length)) * 100
+    : null
+  const stale = data._meta?.stale
 
   return (
     <div className="min-h-screen bg-[#FAF9FB]">
       <main className="max-w-7xl mx-auto px-6 py-6 space-y-6">
-        {/* Page title + refresh (header is provided by root layout Navbar) */}
+
+        {/* Header */}
         <div className="flex items-center justify-between">
-          <h1 className="text-lg font-bold text-gray-900">Paper Trading</h1>
+          <div>
+            <h1 className="text-lg font-bold text-gray-900">Paper Trading — Live Experiments</h1>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {data.experiments.length} experiments · as of {new Date(data.generated_at).toLocaleString()}
+              {stale && <span className="ml-2 text-amber-500">(data may be stale)</span>}
+            </p>
+          </div>
           <button onClick={() => mutate()}
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition bg-gradient-brand">
             <RefreshCw className="w-3.5 h-3.5" /> Refresh
           </button>
         </div>
-        {/* Stats Cards */}
+
+        {/* Portfolio Summary Bar */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard icon={<DollarSign className="w-5 h-5" />} label="Balance"
-            value={`$${(portfolioData.current_balance || 0).toLocaleString()}`} color="#9B6DFF" />
-          <StatCard icon={<TrendingUp className="w-5 h-5" />} label="Total P&L"
-            value={formatMoney(portfolioData.total_pnl)}
-            color={portfolioData.total_pnl >= 0 ? '#22c55e' : '#ef4444'} />
-          <StatCard icon={<Target className="w-5 h-5" />} label="Credit Collected"
-            value={`$${(portfolioData.total_credit || 0).toLocaleString()}`} color="#E84FAD" />
-          <StatCard icon={<BarChart3 className="w-5 h-5" />} label="Win Rate"
-            value={portfolioData.closed_count > 0 ? `${portfolioData.win_rate.toFixed(0)}%` : 'N/A'} color="#F59E42" />
+          <SummaryCard
+            icon={<DollarSign className="w-5 h-5" />}
+            label="Combined Equity"
+            value={s.combined_equity ? `$${s.combined_equity.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}
+            sub={combinedReturn != null ? fmtPct(combinedReturn) + ' total return' : undefined}
+            color="#9B6DFF"
+          />
+          <SummaryCard
+            icon={<TrendingUp className="w-5 h-5" />}
+            label="Unrealized P&L"
+            value={fmt$(s.combined_unrealized_pl)}
+            color={s.combined_unrealized_pl >= 0 ? '#22c55e' : '#ef4444'}
+          />
+          <SummaryCard
+            icon={<Activity className="w-5 h-5" />}
+            label="Realized P&L"
+            value={fmt$(s.combined_pnl)}
+            color={s.combined_pnl >= 0 ? '#22c55e' : '#ef4444'}
+          />
+          <SummaryCard
+            icon={<Activity className="w-5 h-5" />}
+            label="Open Positions"
+            value={`${s.total_open}`}
+            sub={`${s.total_closed} closed trades`}
+            color="#F59E42"
+          />
         </div>
 
-        {/* Portfolio Risk Bar */}
-        <div className="bg-white rounded-lg border border-gray-100 p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-gray-700">Portfolio Risk</span>
-            <span className="text-sm text-gray-500">
-              {portfolioData.open_count} open · Max loss: ${(portfolioData.total_max_loss || 0).toLocaleString()}
-            </span>
-          </div>
-          <div className="w-full bg-gray-100 rounded-full h-3">
-            <div className="h-3 rounded-full transition-all bg-gradient-brand"
-              style={{
-                width: `${Math.min(100, (portfolioData.total_max_loss / portfolioData.account_size) * 100)}%`,
-              }} />
-          </div>
-          <p className="text-xs text-gray-400 mt-1">
-            {((portfolioData.total_max_loss / portfolioData.account_size) * 100).toFixed(1)}% of account at risk
-          </p>
+        {/* Experiment Cards */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {data.experiments.map(exp => (
+            <ExperimentCard key={exp.id} exp={exp} starting={starting} />
+          ))}
         </div>
 
-        {/* Open Positions */}
-        <div>
-          <h2 className="text-base font-semibold text-gray-800 mb-3">Open Positions ({portfolioData.open_count})</h2>
-          <div className="space-y-3">
-            {portfolioData.open_positions.map((pos) => (
-              <PositionCard key={pos.id} position={pos} />
-            ))}
-            {portfolioData.open_positions.length === 0 && (
-              <div className="bg-white rounded-lg border border-gray-100 p-8 text-center text-gray-400">
-                No open positions
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Closed Trades */}
-        {portfolioData.closed_trades.length > 0 && (
-          <div>
-            <h2 className="text-base font-semibold text-gray-800 mb-3">Trade History ({portfolioData.closed_count})</h2>
-            <div className="space-y-3">
-              {portfolioData.closed_trades.map((pos) => (
-                <PositionCard key={pos.id} position={pos} closed />
-              ))}
-            </div>
-          </div>
-        )}
       </main>
     </div>
   )
 }
 
-function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: string; color: string }) {
+function SummaryCard({ icon, label, value, sub, color }: {
+  icon: React.ReactNode; label: string; value: string; sub?: string; color: string
+}) {
   return (
     <div className="bg-white rounded-lg border border-gray-100 p-4">
       <div className="flex items-center gap-2 mb-1">
@@ -123,78 +119,127 @@ function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label:
         <span className="text-xs text-gray-500">{label}</span>
       </div>
       <p className="text-xl font-bold" style={{ color }}>{value}</p>
+      {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
     </div>
   )
 }
 
-function PositionCard({ position: p, closed }: { position: PaperTrade; closed?: boolean }) {
-  const dte = daysUntil(p.expiration)
-  const pnl = closed ? (p.realized_pnl || 0) : (p.unrealized_pnl ?? 0)
-  const isWin = pnl >= 0
-  const totalCredit = (p.entry_credit || 0) * 100 * (p.contracts || 1)
+function ExperimentCard({ exp, starting }: { exp: ExperimentData; starting: number }) {
+  const alp = exp.alpaca
+  const st = exp.stats
+  const hasAlpaca = alp && alp.equity != null
+  const totalReturn = hasAlpaca ? ((alp.equity! - starting) / starting) * 100 : null
 
   return (
-    <div className="bg-white rounded-lg border border-gray-100 p-4 hover:shadow-sm transition">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-3">
-          <span className="text-lg font-bold text-gray-900">{p.ticker}</span>
-          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-            p.type.includes('bear') || p.type.includes('call') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'
-          }`}>
-            {p.type.includes('bear') || p.type.includes('call') ? 'Bear Call' : 'Bull Put'}
-          </span>
-          {p.alpaca_status && (
-            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-              p.alpaca_status === 'filled' ? 'bg-green-50 text-green-600' :
-              p.alpaca_status === 'submitted' ? 'bg-yellow-50 text-yellow-600' :
-              'bg-gray-50 text-gray-500'
-            }`}>
-              Alpaca: {p.alpaca_status}
-            </span>
+    <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+      {/* Card header */}
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-base font-bold text-gray-900">{exp.id}</span>
+            <span className="text-xs text-gray-400 font-medium">{exp.ticker}</span>
+            {exp.error
+              ? <AlertCircle className="w-4 h-4 text-amber-400" />
+              : <CheckCircle className="w-4 h-4 text-green-400" />
+            }
+          </div>
+          {exp.name && exp.name !== exp.id && (
+            <p className="text-xs text-gray-400 mt-0.5">{exp.name}</p>
           )}
-          {closed && p.status !== 'open' && (
-            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-              isWin ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'
-            }`}>
-              {p.status.replace('closed_', '')}
-            </span>
-          )}
+          <p className="text-xs text-gray-400 mt-0.5">Live since {exp.live_since}</p>
         </div>
-        <span className={`text-lg font-bold ${isWin ? 'text-green-600' : 'text-red-500'}`}>
-          {formatMoney(pnl)}
-        </span>
+        {hasAlpaca && (
+          <div className="text-right">
+            <p className="text-2xl font-bold text-gray-900">
+              ${alp.equity!.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+            </p>
+            <p className={`text-xs font-semibold ${pnlColor(totalReturn)}`}>
+              {fmtPct(totalReturn)} since inception
+            </p>
+          </div>
+        )}
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-        <div>
-          <span className="text-gray-400 text-xs">Strikes</span>
-          <p className="font-medium text-gray-700">${p.short_strike} / ${p.long_strike}</p>
+      {/* Live Alpaca stats */}
+      {hasAlpaca ? (
+        <div className="grid grid-cols-3 gap-3 mb-4 p-3 bg-gray-50 rounded-lg">
+          <AlpacaMetric
+            label="Unrealized P&L"
+            value={fmt$(alp.unrealized_pl)}
+            valueColor={pnlColor(alp.unrealized_pl)}
+          />
+          <AlpacaMetric
+            label="Day P&L"
+            value={fmt$(alp.day_pl)}
+            valueColor={pnlColor(alp.day_pl)}
+          />
+          <AlpacaMetric
+            label="Cash"
+            value={alp.cash != null ? `$${alp.cash.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}
+            valueColor="text-gray-700"
+          />
         </div>
-        <div>
-          <span className="text-gray-400 text-xs">Contracts</span>
-          <p className="font-medium text-gray-700">x{p.contracts}</p>
-        </div>
-        <div>
-          <span className="text-gray-400 text-xs">Credit</span>
-          <p className="font-medium text-gray-700">${(totalCredit || 0).toLocaleString()}</p>
-        </div>
-        <div>
-          <span className="text-gray-400 text-xs">{closed ? 'Closed' : 'DTE'}</span>
-          <p className="font-medium text-gray-700">
-            {closed && p.exit_date ? new Date(p.exit_date).toLocaleDateString() : `${dte}d`}
-          </p>
-        </div>
-      </div>
-
-      {!closed && (
-        <div className="flex items-center gap-4 mt-3 pt-3 border-t border-gray-50 text-xs text-gray-400">
-          <span>PoP: {(p.pop || 0).toFixed(0)}%</span>
-          <span>Delta: {(p.short_delta || 0).toFixed(3)}</span>
-          <span>Score: {(p.score || 0).toFixed(1)}</span>
-          <span>Target: ${(p.profit_target || 0).toLocaleString()}</span>
-          <span>Stop: ${(p.stop_loss || 0).toLocaleString()}</span>
+      ) : (
+        <div className="mb-4 p-3 bg-gray-50 rounded-lg text-xs text-gray-400">
+          {alp?.error ?? 'No Alpaca data'}
         </div>
       )}
+
+      {/* Realized stats from SQLite */}
+      <div className="grid grid-cols-4 gap-2 text-center mb-4">
+        <div>
+          <p className="text-xs text-gray-400">Realized P&L</p>
+          <p className={`text-sm font-bold ${pnlColor(st.total_pnl)}`}>{fmt$(st.total_pnl)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-400">Win Rate</p>
+          <p className="text-sm font-bold text-gray-700">
+            {st.total_closed > 0 ? `${st.win_rate.toFixed(0)}%` : '—'}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-400">Open</p>
+          <p className="text-sm font-bold text-gray-700">{st.open_count}</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-400">Closed</p>
+          <p className="text-sm font-bold text-gray-700">{st.total_closed}</p>
+        </div>
+      </div>
+
+      {/* Alpaca open positions */}
+      {hasAlpaca && alp.positions.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">
+            Alpaca Positions ({alp.positions.length})
+          </p>
+          <div className="space-y-1.5">
+            {alp.positions.map((pos, i) => (
+              <div key={i} className="flex items-center justify-between text-xs bg-gray-50 rounded px-3 py-1.5">
+                <span className="font-mono font-medium text-gray-700">{pos.symbol}</span>
+                <span className="text-gray-500">qty {pos.qty > 0 ? '+' : ''}{pos.qty}</span>
+                <span className="text-gray-600">${pos.market_value.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>
+                <span className={`font-semibold ${pnlColor(pos.unrealized_pl)}`}>
+                  {fmt$(pos.unrealized_pl)} ({fmtPct(pos.unrealized_plpc)})
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {exp.error && (
+        <p className="text-xs text-amber-500 mt-2">{exp.error}</p>
+      )}
+    </div>
+  )
+}
+
+function AlpacaMetric({ label, value, valueColor }: { label: string; value: string; valueColor: string }) {
+  return (
+    <div className="text-center">
+      <p className="text-xs text-gray-400">{label}</p>
+      <p className={`text-sm font-bold ${valueColor}`}>{value}</p>
     </div>
   )
 }

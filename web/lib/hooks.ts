@@ -74,6 +74,102 @@ export function usePaperTrades(userId: string = 'default') {
   return result
 }
 
+// ---------------------------------------------------------------------------
+// Experiments dashboard (multi-account, from sync_dashboard_data.py export)
+// ---------------------------------------------------------------------------
+
+export interface AlpacaAccount {
+  equity: number | null
+  last_equity: number | null
+  unrealized_pl: number | null
+  portfolio_value: number | null
+  cash: number | null
+  buying_power: number | null
+  day_pl: number | null
+  positions: Array<{
+    symbol: string
+    qty: number
+    market_value: number
+    cost_basis: number
+    unrealized_pl: number
+    unrealized_plpc: number
+    current_price: number
+    avg_entry_price: number
+    side: string
+  }>
+  error: string | null
+  fetched_at: string
+}
+
+export interface ExperimentStats {
+  total_closed: number
+  wins: number
+  losses: number
+  win_rate: number
+  total_pnl: number
+  total_return_pct: number
+  max_dd_pct: number
+  max_dd_dollars: number
+  open_count: number
+  avg_pnl: number
+  trades_week: number
+  last_trade_date: string | null
+  profit_factor: number | null
+}
+
+export interface ExperimentData {
+  id: string
+  name: string
+  ticker: string
+  creator: string
+  live_since: string
+  account_id: string
+  notes: string
+  backtest: { avg_return?: number; max_dd?: number; robust?: number }
+  error: string | null
+  alpaca: AlpacaAccount | null
+  stats: ExperimentStats
+  equity_curve: Array<{ date: string; cumulative_pnl: number; cumulative_pnl_pct: number }>
+  open_positions: Array<{
+    id: string; ticker: string; strategy_type: string
+    entry_date: string; expiration: string
+    short_strike: number; long_strike: number; contracts: number; credit: number
+  }>
+  recent_trades: Array<{
+    id: string; ticker: string; strategy_type: string
+    entry_date: string; exit_date: string
+    short_strike: number; long_strike: number; contracts: number; credit: number
+    pnl: number; exit_reason: string
+  }>
+}
+
+export interface ExperimentsExport {
+  schema_version: string
+  generated_at: string
+  generated_epoch: number
+  report_date: string
+  starting_equity: number
+  experiments: ExperimentData[]
+  summary: {
+    total_experiments: number
+    with_trades: number
+    total_open: number
+    total_closed: number
+    combined_pnl: number
+    combined_equity: number
+    combined_unrealized_pl: number
+  }
+  _meta?: { served_at: string; stale: boolean; stale_minutes: number }
+}
+
+export function useExperiments() {
+  return useSWR<ExperimentsExport>('/api/experiments', fetcher<ExperimentsExport>, {
+    refreshInterval: 120_000,
+    dedupingInterval: 30_000,
+    revalidateOnFocus: true,
+  })
+}
+
 export function useConfig() {
   const { data, error, isLoading, mutate } = useSWR<Config>(
     '/api/config',

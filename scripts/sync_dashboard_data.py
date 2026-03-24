@@ -38,15 +38,16 @@ from pathlib import Path
 from typing import Optional
 
 # ---------------------------------------------------------------------------
-# Paths
+# Paths / constants
 # ---------------------------------------------------------------------------
 
 PROJECT_ROOT   = Path(__file__).parent.parent
 REGISTRY_PATH  = PROJECT_ROOT / "experiments" / "registry.json"
 OUTPUT_PATH    = PROJECT_ROOT / "data" / "dashboard_export.json"
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
 
-STARTING_EQUITY = 100_000.0
+STARTING_EQUITY    = 100_000.0
+ALPACA_PAPER_URL   = "https://paper-api.alpaca.markets"
 
 # Backtest expectations (from MASTERPLAN.md / registry notes)
 BACKTEST_EXPECTATIONS = {
@@ -55,6 +56,107 @@ BACKTEST_EXPECTATIONS = {
     "EXP-503": {"avg_return": None,   "max_dd": None,  "robust": None},
     "EXP-600": {"avg_return": 139.2, "max_dd": -19.4, "robust": 0.950},
 }
+
+
+# ---------------------------------------------------------------------------
+# Alpaca helpers
+# ---------------------------------------------------------------------------
+
+def _load_exp_env(exp: dict) -> dict:
+    """Parse ALPACA_API_KEY / ALPACA_API_SECRET from .env.expNNN file."""
+    num = exp["id"].replace("EXP-", "").lower()      # "EXP-400" → "400"
+    env_path = PROJECT_ROOT / f".env.exp{num}"
+    result: dict = {}
+    if not env_path.exists():
+        return result
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        result[key.strip()] = val.strip().strip('"').strip("'")
+    return result
+
+
+def _fetch_alpaca_account(api_key: str, api_secret: str) -> dict:
+    """
+    Fetch live account equity and open positions from Alpaca paper trading API.
+    Returns a dict with equity, unrealized_pl, portfolio_value, positions, etc.
+    """
+    import urllib.request
+    import urllib.error
+
+    headers = {
+        "APCA-API-KEY-ID":     api_key,
+        "APCA-API-SECRET-KEY": api_secret,
+    }
+
+    result: dict = {
+        "equity":          None,
+        "last_equity":     None,
+        "unrealized_pl":   None,
+        "portfolio_value": None,
+        "cash":            None,
+        "buying_power":    None,
+        "day_pl":          None,
+        "positions":       [],
+        "error":           None,
+        "fetched_at":      datetime.now(timezone.utc).isoformat(),
+    }
+
+    # ── Account ────────────────────────────────────────────────────────────
+    try:
+        req = urllib.request.Request(
+            f"{ALPACA_PAPER_URL}/v2/account",
+            headers=headers,
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            acct = json.loads(resp.read().decode("utf-8"))
+        result["equity"]          = float(acct.get("equity") or 0)
+        result["last_equity"]     = float(acct.get("last_equity") or 0)
+        result["unrealized_pl"]   = float(acct.get("unrealized_pl") or 0)
+        result["portfolio_value"] = float(acct.get("portfolio_value") or 0)
+        result["cash"]            = float(acct.get("cash") or 0)
+        result["buying_power"]    = float(acct.get("buying_power") or 0)
+        # Day P&L = equity - last_equity
+        if result["equity"] is not None and result["last_equity"] is not None:
+            result["day_pl"] = round(result["equity"] - result["last_equity"], 2)
+    except Exception as e:
+        result["error"] = f"account: {e}"
+        return result
+
+    # ── Positions ──────────────────────────────────────────────────────────
+    try:
+        req = urllib.request.Request(
+            f"{ALPACA_PAPER_URL}/v2/positions",
+            headers=headers,
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            raw_positions = json.loads(resp.read().decode("utf-8"))
+        if isinstance(raw_positions, list):
+            result["positions"] = [
+                {
+                    "symbol":           p.get("symbol"),
+                    "qty":              float(p.get("qty") or 0),
+                    "market_value":     float(p.get("market_value") or 0),
+                    "cost_basis":       float(p.get("cost_basis") or 0),
+                    "unrealized_pl":    float(p.get("unrealized_pl") or 0),
+                    "unrealized_plpc":  round(float(p.get("unrealized_plpc") or 0) * 100, 4),
+                    "current_price":    float(p.get("current_price") or 0),
+                    "avg_entry_price":  float(p.get("avg_entry_price") or 0),
+                    "side":             p.get("side"),
+                }
+                for p in raw_positions
+            ]
+            # Alpaca account-level unrealized_pl is often 0 for options;
+            # compute from individual positions as a reliable fallback.
+            pos_unrealized = sum(float(p.get("unrealized_pl") or 0) for p in raw_positions)
+            if result["unrealized_pl"] == 0 and pos_unrealized != 0:
+                result["unrealized_pl"] = round(pos_unrealized, 2)
+    except Exception as e:
+        result["error"] = f"positions: {e}"
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +247,7 @@ def _query_experiment(exp: dict, report_date: str) -> dict:
         "backtest":    BACKTEST_EXPECTATIONS.get(exp_id, {}),
         "db_path":     str(db_path) if db_path else None,
         "error":       None,
+        "alpaca":      None,   # populated below
         "stats": {
             "total_closed":    0,
             "wins":            0,
@@ -314,6 +417,18 @@ def _query_experiment(exp: dict, report_date: str) -> dict:
     except Exception as e:
         result["error"] = str(e)
 
+    # ── Alpaca live data ────────────────────────────────────────────────────
+    env_vars = _load_exp_env(exp)
+    api_key    = env_vars.get("ALPACA_API_KEY", "")
+    api_secret = env_vars.get("ALPACA_API_SECRET", "")
+    if api_key and api_secret:
+        result["alpaca"] = _fetch_alpaca_account(api_key, api_secret)
+    else:
+        result["alpaca"] = {
+            "error":      "No Alpaca credentials found",
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+        }
+
     return result
 
 
@@ -352,6 +467,16 @@ def build_export(report_date: str) -> dict:
             "total_open":        sum(e["stats"]["open_count"] for e in experiments),
             "total_closed":      sum(e["stats"]["total_closed"] for e in experiments),
             "combined_pnl":      round(sum(e["stats"]["total_pnl"] for e in experiments), 2),
+            "combined_equity":   round(sum(
+                e["alpaca"]["equity"] or 0
+                for e in experiments
+                if e.get("alpaca") and e["alpaca"].get("equity") is not None
+            ), 2),
+            "combined_unrealized_pl": round(sum(
+                e["alpaca"]["unrealized_pl"] or 0
+                for e in experiments
+                if e.get("alpaca") and e["alpaca"].get("unrealized_pl") is not None
+            ), 2),
         },
     }
 
@@ -473,9 +598,18 @@ def main() -> int:
     exp_count = len(payload["experiments"])
     for exp in payload["experiments"]:
         st = exp["stats"]
+        alp = exp.get("alpaca") or {}
         err = exp.get("error") or ""
+        alp_err = alp.get("error") or ""
+        equity_str = ""
+        if alp.get("equity") is not None:
+            equity_str = f"  alpaca_equity=${alp['equity']:,.0f}"
+            if alp.get("unrealized_pl") is not None:
+                equity_str += f"  unreal_pl={alp['unrealized_pl']:+,.0f}"
+        elif alp_err:
+            equity_str = f"  alpaca=({alp_err})"
         tag = f"({err})" if err else f"closed={st['total_closed']} open={st['open_count']} pnl={st['total_pnl']:+.2f}"
-        log(f"  {exp['id']:8s}  {tag}")
+        log(f"  {exp['id']:8s}  {tag}{equity_str}")
 
     log(f"  Summary: {exp_count} experiments | "
         f"{payload['summary']['total_closed']} closed | "
