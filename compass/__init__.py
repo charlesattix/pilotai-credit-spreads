@@ -25,6 +25,7 @@ from compass.signal_model import SignalModel
 from compass.features import FeatureEngine
 from compass.iv_surface import IVAnalyzer
 from compass.ml_strategy import MLEnhancedStrategy, confidence_to_size_multiplier, RegimeModelRouter
+from compass.stress_test import StressTester, CRISIS_SCENARIOS
 
 __all__ = [
     # regime
@@ -62,4 +63,7 @@ __all__ = [
     "MLEnhancedStrategy",
     "confidence_to_size_multiplier",
     "RegimeModelRouter",
+    # stress testing
+    "StressTester",
+    "CRISIS_SCENARIOS",
 ]
