@@ -2,21 +2,27 @@
 app.py — Attix Paper Trading Dashboard
 
 FastAPI web app serving:
-  GET /                                 — Live HTML dashboard (public)
-  GET /api/v1/health                    — Health check (public)
-  GET /api/v1/experiments               — All experiments (auth required)
-  GET /api/v1/experiments/{id}/trades   — Trade history (auth required)
-  GET /api/v1/experiments/{id}/positions — Open positions (auth required)
-  GET /api/v1/summary                   — Combined summary (auth required)
+  GET  /                                 — Live HTML dashboard (session required)
+  GET  /login                            — Login form (public)
+  POST /login                            — Submit password, set session cookie
+  GET  /logout                           — Clear session cookie
+  GET  /api/v1/health                    — Health check (public)
+  GET  /api/v1/experiments               — All experiments (X-API-Key or session)
+  GET  /api/v1/experiments/{id}/trades   — Trade history (X-API-Key or session)
+  GET  /api/v1/experiments/{id}/positions — Open positions (X-API-Key or session)
+  GET  /api/v1/summary                   — Combined summary (X-API-Key or session)
+  POST /api/admin/push-data              — Data push from sync script (X-API-Key)
 
 Environment variables:
-  ATTIX_ROOT     — path to attix-credit-spreads repo (default: parent dir)
-  DASHBOARD_API_KEY — API key for /api/ endpoints (default: dev-attix-2026)
-  PORT             — listen port (default: 8000)
-  STARTING_EQUITY  — account size for % calculations (default: 100000)
+  ATTIX_ROOT         — path to attix-credit-spreads repo (default: parent dir)
+  DASHBOARD_API_KEY  — API key for /api/ endpoints (default: dev-attix-2026)
+  DASHBOARD_PASSWORD — Password for the login form (default: attix-dev-2026!)
+  SECRET_KEY         — HMAC signing key for session tokens (default: dev value)
+  PORT               — listen port (default: 8000)
+  STARTING_EQUITY    — account size for % calculations (default: 100000)
 
 Run locally:
-  cd ~/projects/attix-credit-spreads
+  cd ~/projects/pilotai-credit-spreads
   uvicorn web_dashboard.app:app --reload --port 8000
 """
 
@@ -30,11 +36,18 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 import uvicorn
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.security import APIKeyHeader
 
+from .auth import (
+    SESSION_COOKIE,
+    SESSION_TTL_SECS,
+    check_password,
+    make_token,
+    verify_token,
+)
 from .data import (
     get_all_experiments,
     get_positions,
@@ -46,7 +59,7 @@ from .data import (
     PUSHED_DATA_PATH,
     load_pushed_data,
 )
-from .html import render_dashboard
+from .html import render_dashboard, render_login_page
 
 # ---------------------------------------------------------------------------
 # Config
@@ -78,12 +91,37 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
 # ---------------------------------------------------------------------------
-# Auth + rate limiting
+# Session auth — cookie-based for browser routes
+# ---------------------------------------------------------------------------
+
+class _NotAuthenticated(Exception):
+    """Raised when a browser route needs a valid session but none is present."""
+
+
+@app.exception_handler(_NotAuthenticated)
+async def _handle_not_authenticated(request: Request, _exc: _NotAuthenticated):
+    next_path = request.url.path
+    return RedirectResponse(url=f"/login?next={next_path}", status_code=302)
+
+
+def _session_ok(request: Request) -> bool:
+    token = request.cookies.get(SESSION_COOKIE)
+    return bool(token and verify_token(token))
+
+
+async def require_session(request: Request) -> None:
+    """Dependency for browser routes: redirect to /login if no valid session."""
+    if not _session_ok(request):
+        raise _NotAuthenticated()
+
+
+# ---------------------------------------------------------------------------
+# API key auth + rate limiting (also accepts valid session cookie)
 # ---------------------------------------------------------------------------
 
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -100,15 +138,21 @@ def _check_rate(key: str) -> None:
     win.append(now)
 
 
-def require_api_key(api_key: Optional[str] = Depends(_api_key_header)) -> str:
-    if not api_key or api_key != _API_KEY:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid or missing X-API-Key",
-            headers={"WWW-Authenticate": "ApiKey"},
-        )
-    _check_rate(api_key)
-    return api_key
+def require_api_key(
+    request: Request,
+    api_key: Optional[str] = Depends(_api_key_header),
+) -> str:
+    """Accept X-API-Key header OR a valid session cookie (for browser tools)."""
+    if api_key and api_key == _API_KEY:
+        _check_rate(api_key)
+        return api_key
+    if _session_ok(request):
+        return "session"
+    raise HTTPException(
+        status_code=401,
+        detail="Invalid or missing X-API-Key",
+        headers={"WWW-Authenticate": "ApiKey"},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -128,22 +172,70 @@ def _cached(key: str, ttl: float, fn):
 
 
 # ---------------------------------------------------------------------------
-# Routes — public
+# Routes — public (no auth)
+# ---------------------------------------------------------------------------
+
+@app.get("/login", response_class=HTMLResponse, include_in_schema=False)
+async def login_page(request: Request, error: str = ""):
+    """Show the login form. If already authenticated, redirect to /."""
+    if _session_ok(request):
+        return RedirectResponse(url="/", status_code=302)
+    return HTMLResponse(content=render_login_page(error), status_code=200)
+
+
+@app.post("/login", response_class=HTMLResponse, include_in_schema=False)
+async def login_submit(
+    request: Request,
+    password: str = Form(...),
+    next: str = "/",
+):
+    """Validate password; on success set session cookie and redirect."""
+    if not check_password(password):
+        logger.warning("[auth] Failed login attempt from %s", request.client.host if request.client else "unknown")
+        return HTMLResponse(
+            content=render_login_page("Incorrect password. Please try again."),
+            status_code=401,
+        )
+    # Success — issue signed session cookie
+    token = make_token()
+    safe_next = next if next.startswith("/") else "/"
+    response = RedirectResponse(url=safe_next, status_code=302)
+    response.set_cookie(
+        key=SESSION_COOKIE,
+        value=token,
+        max_age=SESSION_TTL_SECS,
+        httponly=True,
+        samesite="lax",
+        secure=not os.environ.get("INSECURE_COOKIES"),  # secure in prod, off locally
+    )
+    logger.info("[auth] Successful login from %s", request.client.host if request.client else "unknown")
+    return response
+
+
+@app.get("/logout", include_in_schema=False)
+async def logout():
+    """Clear the session cookie and redirect to /login."""
+    response = RedirectResponse(url="/login", status_code=302)
+    response.delete_cookie(SESSION_COOKIE)
+    return response
+
+
+# ---------------------------------------------------------------------------
+# Routes — session required (browser)
 # ---------------------------------------------------------------------------
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-async def dashboard(request: Request):
-    """Live paper trading dashboard — public, auto-refreshes every 5 minutes."""
+async def dashboard(request: Request, _: None = Depends(require_session)):
+    """Live paper trading dashboard — session required."""
     try:
         all_stats = _cached("dashboard_stats", 60.0, query_all_live)
-        # Debug: log alpaca presence for first experiment
+        # Log alpaca presence for first experiment (Railway diagnostics)
         if all_stats:
             first = all_stats[0]
             alp = first.get("alpaca")
             logger.info(
-                "[dashboard] exp=%s keys=%s has_alpaca=%s alpaca_equity=%s",
+                "[dashboard] exp=%s has_alpaca=%s alpaca_equity=%s",
                 first.get("id"),
-                sorted(first.keys()),
                 alp is not None,
                 alp.get("equity") if alp else None,
             )
@@ -276,6 +368,9 @@ async def _on_startup():
     logger.info(f"  ATTIX_ROOT  : {PROJECT_ROOT}")
     logger.info(f"  Registry      : {REGISTRY_PATH} (exists={REGISTRY_PATH.exists()})")
     logger.info(f"  API key set   : {'custom' if _API_KEY != _DEFAULT_API_KEY else 'default (dev)'}")
+    import os as _os
+    logger.info(f"  Dashboard pw  : {'custom' if _os.environ.get('DASHBOARD_PASSWORD') else 'default (dev)'}")
+    logger.info(f"  Secret key    : {'custom' if _os.environ.get('SECRET_KEY') else 'default (dev — INSECURE)'}")
     logger.info("=" * 60)
 
     if REGISTRY_PATH.exists():

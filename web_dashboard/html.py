@@ -18,6 +18,12 @@ body {
     padding: 10px 24px; display: flex; justify-content: space-between;
     align-items: center; flex-wrap: wrap; gap: 12px;
 }
+.logout-btn {
+    color: #64748b; font-size: 12px; text-decoration: none;
+    padding: 3px 10px; border: 1px solid #1e293b; border-radius: 5px;
+    transition: color 0.15s, border-color 0.15s;
+}
+.logout-btn:hover { color: #94a3b8; border-color: #334155; }
 .top-bar .brand { color: #f8fafc; font-weight: 700; font-size: 14px; }
 .live-dot {
     display: inline-block; width: 7px; height: 7px;
@@ -376,7 +382,10 @@ def render_dashboard(all_stats: list[dict]) -> str:
 <body>
 <div class="top-bar">
   <div><span class="brand">Attix</span> &nbsp; <span class="live-dot"></span> Live Paper Trading</div>
-  <div>Updated {now_str} &nbsp;&bull;&nbsp; Refresh in <span id="cd">300s</span></div>
+  <div style="display:flex;align-items:center;gap:16px">
+    <span>Updated {now_str} &nbsp;&bull;&nbsp; Refresh in <span id="cd">300s</span></span>
+    <a href="/logout" class="logout-btn">Sign out</a>
+  </div>
 </div>
 <div class="page">
   <h1>Attix Dashboard</h1>
@@ -412,5 +421,85 @@ def render_dashboard(all_stats: list[dict]) -> str:
   </div>
 </div>
 {_JS}
+</body>
+</html>"""
+
+
+# ---------------------------------------------------------------------------
+# Login page
+# ---------------------------------------------------------------------------
+
+def render_login_page(error: str = "") -> str:
+    error_html = (
+        f'<div class="login-error">{error}</div>' if error else ""
+    )
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Attix Dashboard — Sign In</title>
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: #0f172a; color: #e2e8f0; font-size: 14px;
+        min-height: 100vh; display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+    }}
+    .login-box {{
+        background: #1e293b; border: 1px solid #334155; border-radius: 14px;
+        padding: 40px 36px; width: 100%; max-width: 380px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }}
+    .login-brand {{
+        font-size: 22px; font-weight: 800; letter-spacing: -0.5px;
+        color: #f8fafc; margin-bottom: 4px;
+    }}
+    .login-sub {{
+        font-size: 13px; color: #64748b; margin-bottom: 28px;
+    }}
+    label {{
+        display: block; font-size: 12px; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.5px;
+        color: #94a3b8; margin-bottom: 6px;
+    }}
+    input[type=password] {{
+        width: 100%; padding: 10px 14px; font-size: 15px;
+        background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+        color: #f8fafc; outline: none; transition: border-color 0.15s;
+        font-family: inherit;
+    }}
+    input[type=password]:focus {{ border-color: #6366f1; }}
+    .login-error {{
+        background: #450a0a; border: 1px solid #7f1d1d; border-radius: 8px;
+        color: #fca5a5; font-size: 13px; padding: 10px 14px; margin-bottom: 18px;
+    }}
+    .login-btn {{
+        margin-top: 20px; width: 100%; padding: 11px;
+        background: #6366f1; border: none; border-radius: 8px;
+        color: #fff; font-size: 15px; font-weight: 600;
+        cursor: pointer; transition: background 0.15s; font-family: inherit;
+    }}
+    .login-btn:hover {{ background: #4f46e5; }}
+    .login-footer {{
+        margin-top: 24px; font-size: 11px; color: #475569; text-align: center;
+    }}
+  </style>
+</head>
+<body>
+  <div class="login-box">
+    <div class="login-brand">Attix</div>
+    <div class="login-sub">Paper Trading Dashboard</div>
+    {error_html}
+    <form method="post" action="/login">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password"
+             placeholder="Enter dashboard password"
+             autofocus autocomplete="current-password">
+      <button type="submit" class="login-btn">Sign In</button>
+    </form>
+    <div class="login-footer">Attix Credit Spreads &bull; Authorized access only</div>
+  </div>
 </body>
 </html>"""
