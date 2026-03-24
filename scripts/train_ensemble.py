@@ -62,6 +62,7 @@ logging.basicConfig(
 logger = logging.getLogger("train_ensemble")
 
 MODEL_DIR = ROOT / "ml" / "models"
+COMBINED_CSV = ROOT / "compass" / "training_data_combined.csv"
 CACHE_CSV = ROOT / "compass" / "training_data_exp400.csv"
 DEFAULT_BASELINE = "signal_model_20260321.joblib"
 
@@ -201,23 +202,10 @@ def train_ensemble(features_df: pd.DataFrame, labels: np.ndarray) -> tuple:
 # Step 4 — Walk-forward validation
 # ═══════════════════════════════════════════════════════════════════════════
 
-def run_walk_forward(df: pd.DataFrame) -> Dict:
-    """Run WalkForwardValidator on the raw trade DataFrame.
-
-    Uses XGBoost with the same hyperparameters as the existing SignalModel
-    to produce per-year OOS metrics for fair comparison.
-    """
-    logger.info("=" * 70)
-    logger.info("STEP 4: Walk-forward validation (expanding-window by year)")
-    logger.info("=" * 70)
-
-    try:
-        import xgboost as xgb
-    except ImportError:
-        logger.error("XGBoost not installed — cannot run walk-forward")
-        return {}
-
-    xgb_model = xgb.XGBClassifier(
+def _make_xgb_model():
+    """Build an XGBClassifier with the same hyperparams as SignalModel.train()."""
+    import xgboost as xgb
+    return xgb.XGBClassifier(
         objective="binary:logistic",
         max_depth=6,
         learning_rate=0.05,
@@ -232,43 +220,126 @@ def run_walk_forward(df: pd.DataFrame) -> Dict:
         eval_metric="logloss",
     )
 
-    validator = WalkForwardValidator(
-        model=xgb_model,
-        numeric_features=NUMERIC_FEATURES,
-        categorical_features=CATEGORICAL_FEATURES,
-        min_train_samples=30,
-    )
-    wf_results = validator.run(df)
 
+def _make_ensemble_pipeline():
+    """Build an sklearn-compatible ensemble that mirrors EnsembleSignalModel.
+
+    Returns a VotingClassifier (soft voting) with the same 3 base learners
+    so we can plug it into WalkForwardValidator for apples-to-apples
+    comparison against the standalone XGBoost.
+    """
+    import xgboost as xgb
+    from sklearn.ensemble import (
+        ExtraTreesClassifier,
+        RandomForestClassifier,
+        VotingClassifier,
+    )
+
+    return VotingClassifier(
+        estimators=[
+            ("xgboost", xgb.XGBClassifier(
+                objective="binary:logistic",
+                max_depth=6, learning_rate=0.05, n_estimators=200,
+                min_child_weight=5, subsample=0.8, colsample_bytree=0.8,
+                gamma=1, reg_alpha=0.1, reg_lambda=1.0,
+                random_state=42, eval_metric="logloss",
+            )),
+            ("random_forest", RandomForestClassifier(
+                n_estimators=200, max_depth=8, min_samples_leaf=5,
+                max_features="sqrt", random_state=42, n_jobs=-1,
+            )),
+            ("extra_trees", ExtraTreesClassifier(
+                n_estimators=200, max_depth=8, min_samples_leaf=5,
+                max_features="sqrt", random_state=42, n_jobs=-1,
+            )),
+        ],
+        voting="soft",
+    )
+
+
+def _log_wf_results(label: str, wf_results: Dict) -> None:
+    """Pretty-print walk-forward results."""
     logger.info("")
-    logger.info("Walk-forward results (%d folds):", wf_results["n_folds"])
+    logger.info("  [%s] Walk-forward results (%d folds):", label, wf_results["n_folds"])
     for fold in wf_results["folds"]:
         auc_str = f"{fold['auc']:.4f}" if fold["auc"] is not None else "N/A"
         logger.info(
-            "  Fold %d: %s  n_train=%d n_test=%d  AUC=%s  Acc=%.4f",
+            "    Fold %d: %s  train=%d test=%d  AUC=%s  Acc=%.4f  Brier=%.4f",
             fold["fold"],
             fold["test_period"],
             fold["n_train"],
             fold["n_test"],
             auc_str,
             fold["accuracy"],
+            fold["brier_score"],
         )
 
     agg = wf_results["aggregate"]
     logger.info("")
-    logger.info("  Aggregate:")
-    logger.info("    Accuracy:  %.4f ± %.4f", agg["accuracy_mean"], agg["accuracy_std"])
+    logger.info("    Aggregate:")
+    logger.info("      Accuracy:  %.4f +/- %.4f", agg["accuracy_mean"], agg["accuracy_std"])
+    auc_mean = agg.get("auc_mean")
+    auc_std = agg.get("auc_std")
     logger.info(
-        "    AUC:       %s ± %s",
-        f"{agg['auc_mean']:.4f}" if agg["auc_mean"] is not None else "N/A",
-        f"{agg['auc_std']:.4f}" if agg["auc_std"] is not None else "N/A",
+        "      AUC:       %s +/- %s",
+        f"{auc_mean:.4f}" if auc_mean is not None else "N/A",
+        f"{auc_std:.4f}" if auc_std is not None else "N/A",
     )
-    logger.info("    Brier:     %.4f ± %.4f", agg["brier_score_mean"], agg["brier_score_std"])
+    logger.info("      Brier:     %.4f +/- %.4f", agg["brier_score_mean"], agg["brier_score_std"])
     if agg.get("signal_sharpe_mean") is not None:
-        logger.info("    Sharpe:    %.4f ± %.4f", agg["signal_sharpe_mean"], agg["signal_sharpe_std"])
-    logger.info("    Total OOS: %d samples", agg["total_oos_samples"])
+        logger.info("      Sharpe:    %.4f +/- %.4f", agg["signal_sharpe_mean"], agg["signal_sharpe_std"])
+    logger.info("      Total OOS: %d samples", agg["total_oos_samples"])
 
-    return wf_results
+
+def run_walk_forward(df: pd.DataFrame) -> Dict:
+    """Run walk-forward validation for both XGBoost and Ensemble side-by-side.
+
+    Both models are evaluated on identical chronological folds so the
+    comparison is fair.  Returns dict with 'xgboost' and 'ensemble' results.
+    """
+    logger.info("=" * 70)
+    logger.info("STEP 4: Walk-forward validation — XGBoost vs Ensemble")
+    logger.info("=" * 70)
+
+    try:
+        import xgboost as xgb
+    except ImportError:
+        logger.error("XGBoost not installed — cannot run walk-forward")
+        return {}
+
+    results = {}
+
+    for label, model in [("XGBoost", _make_xgb_model()), ("Ensemble", _make_ensemble_pipeline())]:
+        validator = WalkForwardValidator(
+            model=model,
+            numeric_features=NUMERIC_FEATURES,
+            categorical_features=CATEGORICAL_FEATURES,
+            min_train_samples=30,
+        )
+        wf = validator.run(df)
+        results[label.lower()] = wf
+        _log_wf_results(label, wf)
+
+    # Side-by-side summary
+    xgb_agg = results.get("xgboost", {}).get("aggregate", {})
+    ens_agg = results.get("ensemble", {}).get("aggregate", {})
+    if xgb_agg and ens_agg:
+        logger.info("")
+        logger.info("  Walk-Forward Head-to-Head:")
+        logger.info("  %-18s %12s %12s %10s", "Metric", "XGBoost", "Ensemble", "Delta")
+        logger.info("  " + "-" * 54)
+        for metric in ["accuracy_mean", "auc_mean", "brier_score_mean", "signal_sharpe_mean"]:
+            xv = xgb_agg.get(metric)
+            ev = ens_agg.get(metric)
+            if xv is None or ev is None:
+                continue
+            delta = ev - xv
+            # For Brier, lower is better, so flip the sign for interpretation
+            sign = "+" if delta >= 0 else ""
+            label = metric.replace("_mean", "").replace("_", " ").title()
+            logger.info("  %-18s %12.4f %12.4f %10s", label, xv, ev, f"{sign}{delta:.4f}")
+
+    return results
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -389,7 +460,12 @@ def main():
     parser.add_argument(
         "--skip-backtest",
         action="store_true",
-        help=f"Reuse cached CSV at {CACHE_CSV} instead of re-running backtests",
+        help="Reuse cached CSV instead of re-running backtests",
+    )
+    parser.add_argument(
+        "--data",
+        default=None,
+        help="Path to training CSV (default: auto-detect combined > exp400)",
     )
     parser.add_argument(
         "--baseline",
@@ -405,15 +481,27 @@ def main():
     logger.info("=" * 70)
 
     # Step 1: Collect or load training data
-    if args.skip_backtest and CACHE_CSV.exists():
-        logger.info("Loading cached training data from %s", CACHE_CSV)
-        df = pd.read_csv(CACHE_CSV)
+    if args.data:
+        data_path = Path(args.data)
+        logger.info("Loading training data from %s", data_path)
+        df = pd.read_csv(data_path)
         logger.info("  %d trades loaded", len(df))
+    elif args.skip_backtest:
+        # Prefer combined > exp400
+        if COMBINED_CSV.exists():
+            data_path = COMBINED_CSV
+        elif CACHE_CSV.exists():
+            data_path = CACHE_CSV
+        else:
+            logger.warning("No cached data found — running backtests")
+            df = collect_training_data()
+            data_path = None
+
+        if data_path is not None:
+            logger.info("Loading cached training data from %s", data_path)
+            df = pd.read_csv(data_path)
+            logger.info("  %d trades loaded", len(df))
     else:
-        if args.skip_backtest:
-            logger.warning(
-                "Cache %s not found — running backtests anyway", CACHE_CSV,
-            )
         df = collect_training_data()
 
     if len(df) < 50:
@@ -462,9 +550,13 @@ def main():
             k: f"{v:.3f}" for k, v in train_stats["ensemble_weights"].items()
         })
     if wf_results:
-        agg = wf_results.get("aggregate", {})
-        if agg.get("auc_mean") is not None:
-            logger.info("  Walk-forward AUC:  %.4f ± %.4f", agg["auc_mean"], agg["auc_std"])
+        for model_key in ["xgboost", "ensemble"]:
+            agg = wf_results.get(model_key, {}).get("aggregate", {})
+            if agg.get("auc_mean") is not None:
+                logger.info(
+                    "  WF %s AUC:  %.4f +/- %.4f",
+                    model_key.title(), agg["auc_mean"], agg["auc_std"],
+                )
 
 
 if __name__ == "__main__":

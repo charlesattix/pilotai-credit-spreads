@@ -2,7 +2,8 @@
 MLEnhancedStrategy — ML confidence-gated strategy wrapper.
 
 Wraps any BaseStrategy subclass and gates signal generation through
-the COMPASS SignalModel. Signals with ML confidence below the
+the COMPASS SignalModel (or EnsembleSignalModel when ``ensemble_mode``
+is enabled in the ml_config).  Signals with ML confidence below the
 configured threshold are dropped before reaching the portfolio engine.
 
 V2 adds confidence-based sizing: instead of binary gating, ML confidence
@@ -10,11 +11,22 @@ modulates position size. Low-confidence signals get smaller positions
 instead of being killed entirely.
 
 Position management is delegated unchanged to the base strategy.
+
+Model selection
+~~~~~~~~~~~~~~~
+The ``ensemble_mode`` config flag controls which model class is used:
+
+* ``ensemble_mode: false`` (default) → ``SignalModel`` (single XGBoost)
+* ``ensemble_mode: true``           → ``EnsembleSignalModel`` (XGB+RF+ET)
+
+Both classes expose the same public API (``predict``, ``predict_batch``,
+``load``, ``save``, ``trained``, ``feature_names``), so the rest of the
+pipeline is unaffected.
 """
 
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from strategies.base import (
     BaseStrategy,
@@ -29,6 +41,56 @@ from compass.signal_model import SignalModel
 from compass.features import FeatureEngine
 
 logger = logging.getLogger(__name__)
+
+# Type alias — both model classes satisfy the same interface.
+AnySignalModel = Union[SignalModel, "EnsembleSignalModel"]
+
+# Lazy import guard so the module loads even if ensemble deps are missing.
+_EnsembleSignalModel = None
+
+
+def _get_ensemble_class():
+    """Lazy-import EnsembleSignalModel to avoid circular / heavy imports."""
+    global _EnsembleSignalModel
+    if _EnsembleSignalModel is None:
+        from compass.ensemble_signal_model import EnsembleSignalModel
+        _EnsembleSignalModel = EnsembleSignalModel
+    return _EnsembleSignalModel
+
+
+def load_signal_model(
+    model_dir: str = "ml/models",
+    ensemble_mode: bool = False,
+    filename: Optional[str] = None,
+) -> Optional[AnySignalModel]:
+    """Factory: instantiate and load the appropriate signal model.
+
+    Args:
+        model_dir: Directory containing ``.joblib`` model files.
+        ensemble_mode: If True, load :class:`EnsembleSignalModel`; otherwise
+            load the default single-XGBoost :class:`SignalModel`.
+        filename: Explicit model file name.  When ``None``, the most recent
+            file matching the model class's glob pattern is loaded.
+
+    Returns:
+        A loaded model instance, or ``None`` if loading fails.
+    """
+    if ensemble_mode:
+        cls = _get_ensemble_class()
+        model = cls(model_dir=model_dir)
+        logger.info("Ensemble mode enabled — loading EnsembleSignalModel")
+    else:
+        model = SignalModel(model_dir=model_dir)
+        logger.info("Default mode — loading SignalModel (XGBoost)")
+
+    if model.load(filename):
+        return model
+
+    logger.error(
+        "Failed to load %s from %s (filename=%s)",
+        type(model).__name__, model_dir, filename,
+    )
+    return None
 
 # Default confidence threshold — trades with ML confidence below this
 # are skipped.  Calibrated models produce probabilities in [0, 1];
@@ -68,15 +130,20 @@ class RegimeModelRouter:
 
     def __init__(
         self,
-        default_model: SignalModel,
+        default_model: AnySignalModel,
         regime_model_paths: Optional[Dict[str, str]] = None,
+        ensemble_mode: bool = False,
     ):
         self.default_model = default_model
-        self.regime_models: Dict[str, SignalModel] = {}
+        self.regime_models: Dict[str, AnySignalModel] = {}
         if regime_model_paths:
             for regime, path in regime_model_paths.items():
-                model = SignalModel(model_dir=os.path.dirname(path))
-                if model.load(os.path.basename(path)):
+                model = load_signal_model(
+                    model_dir=os.path.dirname(path),
+                    ensemble_mode=ensemble_mode,
+                    filename=os.path.basename(path),
+                )
+                if model is not None:
                     self.regime_models[regime] = model
                     logger.info("Loaded regime model for %s from %s", regime, path)
                 else:
@@ -120,7 +187,7 @@ class MLEnhancedStrategy(BaseStrategy):
     def __init__(
         self,
         base_strategy: BaseStrategy,
-        signal_model: SignalModel,
+        signal_model: AnySignalModel,
         feature_engine: Optional[FeatureEngine] = None,
         ml_config: Optional[Dict[str, Any]] = None,
     ):
@@ -137,6 +204,10 @@ class MLEnhancedStrategy(BaseStrategy):
         # Override name to include ML prefix for identification
         self._name = f"ML_{base_strategy.name}"
 
+        # Ensemble mode flag — propagated to regime model router so it
+        # loads the same model class for regime-specific models.
+        self.ensemble_mode = ml_config.get('ensemble_mode', False)
+
         # V2: confidence sizing mode (kill switch — False = V1 binary gating)
         self.ml_sizing_enabled = ml_config.get('ml_sizing', False)
 
@@ -146,6 +217,7 @@ class MLEnhancedStrategy(BaseStrategy):
             self.regime_router = RegimeModelRouter(
                 default_model=signal_model,
                 regime_model_paths=regime_model_paths,
+                ensemble_mode=self.ensemble_mode,
             )
         else:
             self.regime_router = None
@@ -156,10 +228,12 @@ class MLEnhancedStrategy(BaseStrategy):
         self._filtered_signals = 0
         self._feature_miss_signals = 0
 
+        model_label = type(signal_model).__name__
         logger.info(
             "MLEnhancedStrategy wrapping %s "
-            "(threshold=%.2f, ml_sizing=%s, feature_engine=%s)",
+            "(model=%s, threshold=%.2f, ml_sizing=%s, feature_engine=%s)",
             base_strategy.name,
+            model_label,
             self.confidence_threshold,
             self.ml_sizing_enabled,
             feature_engine is not None,

@@ -68,6 +68,8 @@ class TestCompassExports:
         # ML
         "SignalModel", "FeatureEngine", "IVAnalyzer", "MLEnhancedStrategy",
         "confidence_to_size_multiplier", "RegimeModelRouter",
+        # stress testing
+        "StressTester", "CRISIS_SCENARIOS",
     ]
 
     def test_all_expected_symbols_in_all(self):

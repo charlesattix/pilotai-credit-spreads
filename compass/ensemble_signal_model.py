@@ -269,7 +269,7 @@ class EnsembleSignalModel:
             logger.info("Training ensemble on %d samples...", len(features_df))
 
             self.feature_names = list(features_df.columns)
-            X = sanitize_features(features_df.values)
+            X = sanitize_features(features_df.values.astype(np.float64))
             y = labels
 
             # 1. Hold out 20% test set
@@ -442,7 +442,7 @@ class EnsembleSignalModel:
             return np.ones(len(features_df)) * 0.5
 
         try:
-            X = sanitize_features(features_df[self.feature_names].values)
+            X = sanitize_features(features_df[self.feature_names].values.astype(np.float64))
             self._check_feature_distribution(X)
             return self._weighted_predict_proba(X)
 
