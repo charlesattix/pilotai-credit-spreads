@@ -1,5 +1,5 @@
 """
-html.py — Live dashboard HTML generation (minimal v1).
+html.py — Live dashboard HTML generation.
 """
 
 from __future__ import annotations
@@ -18,59 +18,117 @@ body {
     padding: 10px 24px; display: flex; justify-content: space-between;
     align-items: center; flex-wrap: wrap; gap: 12px;
 }
-.top-bar .brand { color: #f8fafc; font-weight: 700; }
+.top-bar .brand { color: #f8fafc; font-weight: 700; font-size: 14px; }
 .live-dot {
     display: inline-block; width: 7px; height: 7px;
     background: #22c55e; border-radius: 50%; margin-right: 4px;
     animation: pulse 2s ease-in-out infinite;
 }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-.page { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
-h1 { font-size: 24px; font-weight: 700; margin-bottom: 4px; }
+.page { max-width: 1000px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { font-size: 22px; font-weight: 700; margin-bottom: 3px; }
 .subtitle { color: #64748b; font-size: 13px; margin-bottom: 28px; }
 
 /* Summary cards */
-.summary { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 32px; }
+.summary { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 32px; }
 .s-card {
     background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
-    padding: 14px 20px; flex: 1; min-width: 160px;
+    padding: 14px 20px; flex: 1; min-width: 150px;
 }
+.s-card.highlight {
+    background: #0f172a; border-color: #0f172a;
+}
+.s-card.highlight .s-label { color: #64748b; }
+.s-card.highlight .s-val { color: #f8fafc; }
+.s-card.highlight .s-sub { color: #475569; }
 .s-label { font-size: 10px; font-weight: 700; text-transform: uppercase;
            letter-spacing: 0.6px; color: #94a3b8; }
 .s-val { font-size: 22px; font-weight: 700; margin-top: 2px; }
 .s-sub { font-size: 11px; color: #94a3b8; margin-top: 1px; }
 .up { color: #059669; } .down { color: #dc2626; } .neutral { color: #334155; }
 
-/* Experiment rows */
-.exp-list { display: flex; flex-direction: column; gap: 12px; }
-.exp-row {
-    background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
-    padding: 18px 22px; display: flex; justify-content: space-between;
-    align-items: center; flex-wrap: wrap; gap: 14px;
-    transition: box-shadow 0.15s;
+/* Experiment cards */
+.exp-list { display: flex; flex-direction: column; gap: 14px; }
+.exp-card {
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+    overflow: hidden; transition: box-shadow 0.15s;
 }
-.exp-row:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
-.exp-left { min-width: 200px; }
-.exp-id { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; }
-.exp-name { font-size: 16px; font-weight: 700; color: #0f172a; margin-top: 1px; }
-.exp-meta { font-size: 12px; color: #94a3b8; margin-top: 3px; }
+.exp-card:hover { box-shadow: 0 2px 16px rgba(0,0,0,0.07); }
+
+/* Card header row */
+.exp-header {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    padding: 18px 22px 14px; border-bottom: 1px solid #f1f5f9;
+    flex-wrap: wrap; gap: 12px;
+}
+.exp-id-line { font-size: 11px; font-weight: 700; color: #64748b;
+               text-transform: uppercase; letter-spacing: 0.5px; }
+.exp-name { font-size: 17px; font-weight: 700; color: #0f172a; margin-top: 2px; }
+.exp-meta { font-size: 12px; color: #94a3b8; margin-top: 4px; }
 .ticker {
     background: #0f172a; color: #f8fafc; font-size: 10px; font-weight: 700;
     padding: 1px 6px; border-radius: 3px; letter-spacing: 0.5px;
 }
 .ticker.ibit { background: #d97706; }
-.exp-stats { display: flex; gap: 24px; flex-wrap: wrap; align-items: center; }
-.stat { text-align: center; min-width: 70px; }
-.stat-val { font-size: 18px; font-weight: 700; }
-.stat-label { font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.4px; }
+
+/* Live equity block (top-right of header) */
+.equity-block { text-align: right; }
+.equity-val { font-size: 28px; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; }
+.equity-label { font-size: 10px; font-weight: 700; text-transform: uppercase;
+                letter-spacing: 0.5px; color: #94a3b8; margin-bottom: 2px; }
+.equity-return { font-size: 13px; font-weight: 700; margin-top: 2px; }
+
+/* Stats row */
+.exp-stats-row {
+    display: flex; gap: 0; border-top: 1px solid #f1f5f9;
+}
+.stat-cell {
+    flex: 1; padding: 12px 16px; text-align: center;
+    border-right: 1px solid #f1f5f9;
+}
+.stat-cell:last-child { border-right: none; }
+.stat-val { font-size: 17px; font-weight: 700; }
+.stat-lbl { font-size: 10px; color: #94a3b8; text-transform: uppercase;
+            letter-spacing: 0.4px; margin-top: 1px; }
+
+/* Alpaca mini row */
+.alpaca-row {
+    display: flex; gap: 0; background: #f8fafc;
+    border-top: 1px solid #f1f5f9; padding: 10px 22px;
+    font-size: 12px; flex-wrap: wrap; gap: 20px;
+}
+.alp-item { display: flex; flex-direction: column; }
+.alp-lbl { font-size: 10px; color: #94a3b8; text-transform: uppercase;
+           letter-spacing: 0.4px; }
+.alp-val { font-weight: 700; margin-top: 1px; }
+
+/* Alpaca positions mini table */
+.positions-section { padding: 0 22px 14px; }
+.positions-title { font-size: 10px; font-weight: 700; text-transform: uppercase;
+                   letter-spacing: 0.5px; color: #94a3b8; margin: 10px 0 6px; }
+.pos-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.pos-table th { font-size: 10px; font-weight: 600; text-transform: uppercase;
+                letter-spacing: 0.4px; color: #94a3b8; text-align: left;
+                padding: 4px 8px; border-bottom: 1px solid #f1f5f9; }
+.pos-table td { padding: 5px 8px; border-bottom: 1px solid #f8fafc;
+                font-family: 'SF Mono', 'Fira Code', monospace; }
+.pos-table tr:last-child td { border-bottom: none; }
+.pos-sym { font-weight: 600; color: #334155; letter-spacing: 0.2px; }
+.pos-side-short { color: #dc2626; font-weight: 700; }
+.pos-side-long  { color: #059669; font-weight: 700; }
+
 .badge {
     display: inline-block; padding: 2px 8px; border-radius: 12px;
     font-size: 11px; font-weight: 700;
 }
-.badge-green { background: #dcfce7; color: #166534; }
+.badge-green  { background: #dcfce7; color: #166534; }
 .badge-yellow { background: #fef9c3; color: #854d0e; }
-.badge-red { background: #fee2e2; color: #991b1b; }
-.badge-gray { background: #f1f5f9; color: #64748b; }
+.badge-red    { background: #fee2e2; color: #991b1b; }
+.badge-gray   { background: #f1f5f9; color: #64748b; }
+
+.no-alpaca {
+    padding: 8px 22px 14px; font-size: 12px; color: #94a3b8; font-style: italic;
+}
 
 .footer {
     margin-top: 48px; padding-top: 14px; border-top: 1px solid #e2e8f0;
@@ -79,8 +137,10 @@ h1 { font-size: 24px; font-weight: 700; margin-bottom: 4px; }
 }
 @media (max-width: 640px) {
     .page { padding: 20px 14px 48px; }
-    .exp-row { flex-direction: column; align-items: flex-start; }
-    .exp-stats { width: 100%; justify-content: space-between; }
+    .exp-header { flex-direction: column; }
+    .equity-block { text-align: left; }
+    .exp-stats-row { flex-wrap: wrap; }
+    .stat-cell { min-width: 80px; }
 }
 """
 
@@ -102,6 +162,9 @@ def _fmt_pnl(v):
     s = "+" if v >= 0 else ""
     return f"{s}${abs(v):,.0f}"
 
+def _fmt_money(v):
+    return f"${v:,.0f}"
+
 def _pnl_cls(v):
     return "up" if v > 0 else ("down" if v < 0 else "neutral")
 
@@ -117,53 +180,190 @@ def _wr_badge(wr, count):
 def _ticker_cls(t):
     return "ibit" if t.upper() == "IBIT" else ""
 
+def _pct_return(equity):
+    """Return % vs STARTING_EQUITY."""
+    if equity is None:
+        return None
+    return (equity - STARTING_EQUITY) / STARTING_EQUITY * 100
+
+# ---------------------------------------------------------------------------
+
+def _render_exp_card(s: dict) -> str:
+    alp = s.get("alpaca") or {}
+    equity = alp.get("equity")
+    unrealized_pl = alp.get("unrealized_pl")
+    day_pl = alp.get("day_pl")
+    cash = alp.get("cash")
+    positions = alp.get("positions") or []
+    alp_error = alp.get("error")
+
+    tc = _ticker_cls(s["ticker"])
+
+    # Equity / return block
+    if equity is not None:
+        ret_pct = _pct_return(equity)
+        ret_cls = _pnl_cls(ret_pct)
+        equity_html = f"""
+  <div class="equity-block">
+    <div class="equity-label">Live Equity</div>
+    <div class="equity-val">{_fmt_money(equity)}</div>
+    <div class="equity-return {ret_cls}">{ret_pct:+.1f}% since inception</div>
+  </div>"""
+    else:
+        equity_html = '<div class="equity-block" style="color:#94a3b8;font-size:12px;">No Alpaca data</div>'
+
+    # Realized P&L
+    pnl_display = _fmt_pnl(s["total_pnl"]) if s["total_closed"] > 0 else "—"
+    pnl_c = _pnl_cls(s["total_pnl"]) if s["total_closed"] > 0 else "neutral"
+
+    # Stats row
+    stats_row = f"""
+<div class="exp-stats-row">
+  <div class="stat-cell">
+    <div class="stat-val {pnl_c}">{pnl_display}</div>
+    <div class="stat-lbl">Realized P&amp;L</div>
+  </div>
+  <div class="stat-cell">
+    <div class="stat-val {'up' if (unrealized_pl or 0) >= 0 else 'down'}">{_fmt_pnl(unrealized_pl) if unrealized_pl is not None else '—'}</div>
+    <div class="stat-lbl">Unrealized P&amp;L</div>
+  </div>
+  <div class="stat-cell">
+    <div class="stat-val {'up' if (day_pl or 0) >= 0 else 'down'}">{_fmt_pnl(day_pl) if day_pl is not None else '—'}</div>
+    <div class="stat-lbl">Day P&amp;L</div>
+  </div>
+  <div class="stat-cell">
+    <div class="stat-val neutral">{s['total_closed']}</div>
+    <div class="stat-lbl">Closed</div>
+  </div>
+  <div class="stat-cell">
+    <div class="stat-val neutral">{s['open_count']}</div>
+    <div class="stat-lbl">Open</div>
+  </div>
+  <div class="stat-cell">
+    <div>{_wr_badge(s['win_rate'], s['total_closed'])}</div>
+    <div class="stat-lbl">Win Rate</div>
+  </div>
+</div>"""
+
+    # Alpaca cash + positions
+    if equity is not None and not alp_error:
+        alpaca_detail = f"""
+<div class="alpaca-row">
+  <div class="alp-item">
+    <span class="alp-lbl">Cash</span>
+    <span class="alp-val neutral">{_fmt_money(cash) if cash is not None else '—'}</span>
+  </div>
+  <div class="alp-item">
+    <span class="alp-lbl">Alpaca Positions</span>
+    <span class="alp-val neutral">{len(positions)}</span>
+  </div>
+  <div class="alp-item">
+    <span class="alp-lbl">Account ID</span>
+    <span class="alp-val neutral" style="font-family:monospace;font-size:11px">{s.get('account_id','—')}</span>
+  </div>
+</div>"""
+        if positions:
+            rows = []
+            for p in positions:
+                side_cls = "pos-side-short" if p.get("side") == "short" else "pos-side-long"
+                side_label = "SHORT" if p.get("side") == "short" else "LONG"
+                unreal = p.get("unrealized_pl", 0)
+                unreal_pct = p.get("unrealized_plpc", 0)
+                rows.append(f"""<tr>
+  <td class="pos-sym">{p.get('symbol','')}</td>
+  <td class="{side_cls}">{side_label}</td>
+  <td style="text-align:right">{abs(p.get('qty',0)):.0f}</td>
+  <td style="text-align:right">${p.get('current_price',0):.2f}</td>
+  <td style="text-align:right">{_fmt_money(p.get('market_value',0))}</td>
+  <td style="text-align:right" class="{'up' if unreal >= 0 else 'down'}">{_fmt_pnl(unreal)} ({unreal_pct:+.1f}%)</td>
+</tr>""")
+            pos_section = f"""
+<div class="positions-section">
+  <div class="positions-title">Alpaca Option Legs ({len(positions)})</div>
+  <table class="pos-table">
+    <thead><tr>
+      <th>Symbol</th><th>Side</th><th>Qty</th>
+      <th style="text-align:right">Price</th>
+      <th style="text-align:right">Mkt Value</th>
+      <th style="text-align:right">Unreal P&amp;L</th>
+    </tr></thead>
+    <tbody>{"".join(rows)}</tbody>
+  </table>
+</div>"""
+        else:
+            pos_section = ""
+    else:
+        err_msg = alp_error or "No Alpaca credentials"
+        alpaca_detail = f'<div class="no-alpaca">{err_msg}</div>'
+        pos_section = ""
+
+    return f"""
+<div class="exp-card">
+  <div class="exp-header">
+    <div class="exp-left">
+      <div class="exp-id-line">{s['id']}</div>
+      <div class="exp-name">{s['name']}</div>
+      <div class="exp-meta">
+        <span class="ticker {tc}">{s['ticker']}</span>
+        &nbsp; by {s.get('creator','—')} &nbsp;&bull;&nbsp; live since {s.get('live_since','—')}
+      </div>
+    </div>
+    {equity_html}
+  </div>
+  {stats_row}
+  {alpaca_detail}
+  {pos_section}
+</div>"""
+
+
 # ---------------------------------------------------------------------------
 
 def render_dashboard(all_stats: list[dict]) -> str:
     now = datetime.now(timezone.utc)
     now_str = now.strftime("%Y-%m-%d %H:%M UTC")
 
-    total_pnl = sum(s["total_pnl"] for s in all_stats)
+    total_pnl    = sum(s["total_pnl"] for s in all_stats)
     total_closed = sum(s["total_closed"] for s in all_stats)
-    total_open = sum(s["open_count"] for s in all_stats)
-    total_wins = sum(s["wins"] for s in all_stats)
+    total_open   = sum(s["open_count"] for s in all_stats)
+    total_wins   = sum(s["wins"] for s in all_stats)
     wr = (total_wins / total_closed * 100) if total_closed else 0
 
-    # Build experiment rows
-    rows = []
-    for s in all_stats:
-        pnl_display = _fmt_pnl(s["total_pnl"]) if s["total_closed"] > 0 else "—"
-        pnl_c = _pnl_cls(s["total_pnl"]) if s["total_closed"] > 0 else "neutral"
-        tc = _ticker_cls(s["ticker"])
-        rows.append(f"""
-<div class="exp-row">
-  <div class="exp-left">
-    <div class="exp-id">{s['id']}</div>
-    <div class="exp-name">{s['name']}</div>
-    <div class="exp-meta">
-      <span class="ticker {tc}">{s['ticker']}</span>
-      &nbsp; by {s.get('creator','—')} &nbsp;&bull;&nbsp; since {s.get('live_since','—')}
-    </div>
-  </div>
-  <div class="exp-stats">
-    <div class="stat">
-      <div class="stat-val {pnl_c}">{pnl_display}</div>
-      <div class="stat-label">P&L</div>
-    </div>
-    <div class="stat">
-      <div class="stat-val neutral">{s['total_closed']}</div>
-      <div class="stat-label">Trades</div>
-    </div>
-    <div class="stat">
-      <div class="stat-val neutral">{s['open_count']}</div>
-      <div class="stat-label">Open</div>
-    </div>
-    <div class="stat">
-      <div>{_wr_badge(s['win_rate'], s['total_closed'])}</div>
-      <div class="stat-label">Win Rate</div>
-    </div>
-  </div>
-</div>""")
+    # Combined live equity from Alpaca
+    equities = [
+        s["alpaca"]["equity"]
+        for s in all_stats
+        if s.get("alpaca") and s["alpaca"].get("equity") is not None
+    ]
+    combined_equity = sum(equities) if equities else None
+    combined_unrealized = sum(
+        s["alpaca"].get("unrealized_pl") or 0
+        for s in all_stats
+        if s.get("alpaca") and s["alpaca"].get("equity") is not None
+    ) if equities else None
+    combined_return_pct = (
+        (combined_equity - STARTING_EQUITY * len(all_stats)) / (STARTING_EQUITY * len(all_stats)) * 100
+        if combined_equity is not None else None
+    )
+
+    # Summary cards
+    if combined_equity is not None:
+        equity_card = f"""
+    <div class="s-card highlight">
+      <div class="s-label">Combined Equity</div>
+      <div class="s-val">{_fmt_money(combined_equity)}</div>
+      <div class="s-sub">{combined_return_pct:+.1f}% across {len(all_stats)} accounts</div>
+    </div>"""
+        unrealized_card = f"""
+    <div class="s-card">
+      <div class="s-label">Unrealized P&L</div>
+      <div class="s-val {_pnl_cls(combined_unrealized)}">{_fmt_pnl(combined_unrealized)}</div>
+      <div class="s-sub">live open positions</div>
+    </div>"""
+    else:
+        equity_card = ""
+        unrealized_card = ""
+
+    exp_rows = "".join(_render_exp_card(s) for s in all_stats)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -179,14 +379,16 @@ def render_dashboard(all_stats: list[dict]) -> str:
   <div>Updated {now_str} &nbsp;&bull;&nbsp; Refresh in <span id="cd">300s</span></div>
 </div>
 <div class="page">
-  <h1>Paper Trading Dashboard</h1>
+  <h1>Attix Dashboard</h1>
   <p class="subtitle">Credit Spreads &bull; 8-week gate: Mar 16 → May 11, 2026</p>
 
   <div class="summary">
+    {equity_card}
+    {unrealized_card}
     <div class="s-card">
-      <div class="s-label">Combined P&L</div>
+      <div class="s-label">Realized P&L</div>
       <div class="s-val {_pnl_cls(total_pnl)}">{_fmt_pnl(total_pnl)}</div>
-      <div class="s-sub">{total_pnl/STARTING_EQUITY*100:+.1f}% of $100K</div>
+      <div class="s-sub">{total_pnl/STARTING_EQUITY*100:+.1f}% of $100K starting</div>
     </div>
     <div class="s-card">
       <div class="s-label">Trades</div>
@@ -196,20 +398,16 @@ def render_dashboard(all_stats: list[dict]) -> str:
     <div class="s-card">
       <div class="s-label">Win Rate</div>
       <div class="s-val {'up' if wr >= 70 else 'neutral'}">{wr:.0f}%</div>
-    </div>
-    <div class="s-card">
-      <div class="s-label">Open</div>
-      <div class="s-val neutral">{total_open}</div>
-      <div class="s-sub">{len(all_stats)} experiments</div>
+      <div class="s-sub">{total_open} open positions</div>
     </div>
   </div>
 
   <div class="exp-list">
-    {"".join(rows)}
+    {exp_rows}
   </div>
 
   <div class="footer">
-    <span>Attix Credit Spreads</span>
+    <span>Attix Credit Spreads &bull; {len(all_stats)} experiments</span>
     <span>{now_str}</span>
   </div>
 </div>

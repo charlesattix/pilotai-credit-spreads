@@ -36,17 +36,38 @@ def _project_root() -> Path:
 PROJECT_ROOT     = _project_root()
 REGISTRY_PATH    = PROJECT_ROOT / "experiments" / "registry.json"
 PUSHED_DATA_PATH = PROJECT_ROOT / "data" / "pushed_dashboard.json"
+EXPORT_DATA_PATH = PROJECT_ROOT / "data" / "dashboard_export.json"
 STARTING_EQUITY  = float(os.environ.get("STARTING_EQUITY", "100000"))
 
 
 def load_pushed_data() -> Optional[dict]:
-    """Load the most recent pushed data snapshot (from sync script)."""
-    if PUSHED_DATA_PATH.exists():
-        try:
-            with open(PUSHED_DATA_PATH) as f:
-                return json.load(f)
-        except Exception:
-            return None
+    """
+    Load the most recent pushed data snapshot.
+    Tries dashboard_export.json (schema 1.2+, has alpaca block) first,
+    then pushed_dashboard.json (written by /api/admin/push-data endpoint).
+    """
+    for path in (EXPORT_DATA_PATH, PUSHED_DATA_PATH):
+        if path.exists():
+            try:
+                with open(path) as f:
+                    return json.load(f)
+            except Exception:
+                continue
+    return None
+
+
+def get_alpaca_for_exp(exp_id: str, pushed: Optional[dict]) -> Optional[dict]:
+    """
+    Extract the alpaca block for a given experiment ID from a pushed export.
+    Returns None if not available or on error.
+    """
+    if not pushed or "experiments" not in pushed:
+        return None
+    for exp in pushed["experiments"]:
+        if exp.get("id") == exp_id:
+            alp = exp.get("alpaca")
+            if alp and alp.get("equity") is not None:
+                return alp
     return None
 
 BACKTEST_EXPECTATIONS: dict[str, dict] = {
@@ -290,8 +311,8 @@ def query_all_live(report_date: Optional[str] = None) -> List[dict]:
         for exp in get_live_experiments(registry)
     ]
     # If all experiments have no DB (Railway), try pushed data
+    pushed = load_pushed_data()
     if all(r.get("error") == "Database not found" for r in results) and results:
-        pushed = load_pushed_data()
         if pushed and "experiments" in pushed:
             # Flatten nested sync format to match query_experiment output
             flattened = []
@@ -320,9 +341,21 @@ def query_all_live(report_date: Optional[str] = None) -> List[dict]:
                     "recent_trades": exp.get("recent_trades", []),
                     "open_trades":  exp.get("open_positions", []),
                     "error":        exp.get("error"),
+                    "alpaca":       exp.get("alpaca"),
                 }
                 flattened.append(flat)
             return flattened
+
+    # We have local DBs — augment with alpaca data from pushed export if available
+    if pushed and "experiments" in pushed:
+        alp_by_id = {
+            exp.get("id"): exp.get("alpaca")
+            for exp in pushed["experiments"]
+        }
+        for r in results:
+            if r.get("alpaca") is None:
+                r["alpaca"] = alp_by_id.get(r["id"])
+
     return results
 
 
@@ -367,7 +400,7 @@ def get_positions(exp: dict) -> list[dict]:
 
 def summary_all() -> dict:
     """High-level summary for /api/v1/summary."""
-    # Check for pushed summary first
+    # Return the pushed summary directly if available (includes alpaca fields)
     pushed = load_pushed_data()
     if pushed and "summary" in pushed:
         return pushed["summary"]
