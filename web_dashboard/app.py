@@ -136,6 +136,17 @@ async def dashboard(request: Request):
     """Live paper trading dashboard — public, auto-refreshes every 5 minutes."""
     try:
         all_stats = _cached("dashboard_stats", 60.0, query_all_live)
+        # Debug: log alpaca presence for first experiment
+        if all_stats:
+            first = all_stats[0]
+            alp = first.get("alpaca")
+            logger.info(
+                "[dashboard] exp=%s keys=%s has_alpaca=%s alpaca_equity=%s",
+                first.get("id"),
+                sorted(first.keys()),
+                alp is not None,
+                alp.get("equity") if alp else None,
+            )
         html = render_dashboard(all_stats)
         return HTMLResponse(content=html, status_code=200)
     except Exception as e:
