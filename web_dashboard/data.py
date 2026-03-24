@@ -87,6 +87,8 @@ CLOSED_STATUSES = (
 # ---------------------------------------------------------------------------
 
 def load_registry() -> dict:
+    if not REGISTRY_PATH.exists():
+        return {"experiments": {}}
     with open(REGISTRY_PATH) as f:
         return json.load(f)
 
@@ -312,7 +314,7 @@ def query_all_live(report_date: Optional[str] = None) -> List[dict]:
     ]
     # If all experiments have no DB (Railway), try pushed data
     pushed = load_pushed_data()
-    if all(r.get("error") == "Database not found" for r in results) and results:
+    if not results or all(r.get("error") == "Database not found" for r in results):
         if pushed and "experiments" in pushed:
             # Flatten nested sync format to match query_experiment output
             flattened = []
