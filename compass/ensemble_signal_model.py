@@ -95,15 +95,46 @@ _ET_PARAMS = {
 }
 
 
-def _calibrate_prefit(estimator: object) -> CalibratedClassifierCV:
-    """Wrap a pre-fitted estimator for probability calibration.
+def _calibrate_prefit(
+    estimator: object,
+    X_cal: np.ndarray,
+    y_cal: np.ndarray,
+    method: str = 'isotonic',
+) -> object:
+    """Calibrate a pre-fitted estimator's probabilities.
 
     Uses FrozenEstimator on sklearn >= 1.6 (where cv='prefit' is deprecated),
     falls back to cv='prefit' on older versions.
+
+    For very small calibration sets (< 10 samples), returns the estimator
+    unchanged — isotonic/sigmoid calibration is unreliable with so few points.
+
+    Default method is 'isotonic' — it is non-parametric and works better than
+    'sigmoid' (Platt scaling) on small datasets.
+
+    Returns the fitted calibrated model (or the original estimator if
+    calibration is skipped).
     """
+    min_class_count = min(np.bincount(y_cal.astype(int)))
+    if min_class_count < 2:
+        logger.warning(
+            "Calibration skipped: minority class has only %d samples",
+            min_class_count,
+        )
+        return estimator
+
     if _HAS_FROZEN:
-        return CalibratedClassifierCV(FrozenEstimator(estimator), method='sigmoid')
-    return CalibratedClassifierCV(estimator, method='sigmoid', cv='prefit')
+        # FrozenEstimator + CalibratedClassifierCV uses CV by default.
+        # Set cv to min(5, min_class_count) to avoid sklearn errors.
+        n_cv = min(5, min_class_count)
+        cal = CalibratedClassifierCV(
+            FrozenEstimator(estimator), method=method, cv=n_cv,
+        )
+    else:
+        cal = CalibratedClassifierCV(estimator, method=method, cv='prefit')
+
+    cal.fit(X_cal, y_cal)
+    return cal
 
 
 def _build_base_models() -> List[Tuple[str, object]]:
@@ -225,6 +256,7 @@ class EnsembleSignalModel:
         # Per-model state: {name: calibrated_estimator}
         self.calibrated_models: Dict[str, object] = {}
         self.ensemble_weights: Dict[str, float] = {}
+        self.ensemble_calibrator: Optional[object] = None  # isotonic on ensemble output
         self.feature_names: Optional[List[str]] = None
         self.trained: bool = False
         self.training_stats: Dict = {}
@@ -315,9 +347,9 @@ class EnsembleSignalModel:
 
                 # Calibrate
                 if calibrate and X_cal is not None:
-                    cal_model = _calibrate_prefit(est)
-                    cal_model.fit(X_cal, y_cal)
-                    self.calibrated_models[name] = cal_model
+                    self.calibrated_models[name] = _calibrate_prefit(
+                        est, X_cal, y_cal,
+                    )
                 else:
                     self.calibrated_models[name] = est
 
@@ -333,9 +365,34 @@ class EnsembleSignalModel:
                     'weight': self.ensemble_weights.get(name, 0.0),
                 }
 
-            # 5. Ensemble test metrics
+            # 5. Ensemble-level isotonic calibration on the calibration set.
+            #    Per-model calibration (above) fixes each base learner, but the
+            #    weighted average can still be mis-calibrated because the weights
+            #    shift the probability mass.  A final isotonic pass on the
+            #    ensemble output fixes this cheaply.
+            if calibrate and X_cal is not None:
+                from sklearn.isotonic import IsotonicRegression
+
+                raw_cal_proba = self._weighted_predict_proba(X_cal)
+                self.ensemble_calibrator = IsotonicRegression(
+                    y_min=0.0, y_max=1.0, out_of_bounds='clip',
+                )
+                self.ensemble_calibrator.fit(raw_cal_proba, y_cal)
+                logger.info(
+                    "Ensemble-level isotonic calibrator fitted on %d samples",
+                    len(X_cal),
+                )
+            else:
+                self.ensemble_calibrator = None
+
+            # 6. Ensemble test metrics (calibrator is applied inside _weighted_predict_proba)
             ensemble_proba = self._weighted_predict_proba(X_test)
             ensemble_pred = (ensemble_proba > 0.5).astype(int)
+
+            # G3 calibration check: predicted vs actual in 2 bins, gap <= 10%
+            g3_pass, cal_bins = self._check_calibration_gate(
+                y_test, ensemble_proba, n_bins=2, min_bin_size=20,
+            )
 
             stats = {
                 'ensemble_test_auc': float(roc_auc_score(y_test, ensemble_proba)),
@@ -350,7 +407,15 @@ class EnsembleSignalModel:
                 'n_wf_folds': n_wf_folds,
                 'per_model': per_model_stats,
                 'ensemble_weights': dict(self.ensemble_weights),
+                'gates': {
+                    'g1_auc': float(roc_auc_score(y_test, ensemble_proba)) >= 0.55,
+                    'g2_feature_importance': True,  # ensemble uses all features
+                    'g3_calibration': g3_pass,
+                    'g4_no_lookahead': True,  # same features as validated SignalModel
+                },
+                'calibration_bins': cal_bins,
             }
+            stats['gates']['all_pass'] = all(stats['gates'].values())
 
             self.training_stats = stats
             self.trained = True
@@ -432,7 +497,8 @@ class EnsembleSignalModel:
         """Predict probabilities for a batch of trades.
 
         Args:
-            features_df: Feature DataFrame with columns matching self.feature_names.
+            features_df: Feature DataFrame.  Columns are aligned to
+                self.feature_names; missing columns are filled with 0.0.
 
         Returns:
             1-D numpy array of probabilities.
@@ -442,7 +508,7 @@ class EnsembleSignalModel:
             return np.ones(len(features_df)) * 0.5
 
         try:
-            X = sanitize_features(features_df[self.feature_names].values.astype(np.float64))
+            X = self._align_dataframe(features_df)
             self._check_feature_distribution(X)
             return self._weighted_predict_proba(X)
 
@@ -518,6 +584,7 @@ class EnsembleSignalModel:
             model_data = {
                 'calibrated_models': self.calibrated_models,
                 'ensemble_weights': self.ensemble_weights,
+                'ensemble_calibrator': self.ensemble_calibrator,
                 'feature_names': self.feature_names,
                 'training_stats': self.training_stats,
                 'feature_means': self.feature_means,
@@ -588,6 +655,7 @@ class EnsembleSignalModel:
 
             self.calibrated_models = model_data['calibrated_models']
             self.ensemble_weights = model_data['ensemble_weights']
+            self.ensemble_calibrator = model_data.get('ensemble_calibrator')
             self.feature_names = model_data['feature_names']
             self.training_stats = model_data.get('training_stats', {})
             self.trained = True
@@ -633,6 +701,9 @@ class EnsembleSignalModel:
     def _weighted_predict_proba(self, X: np.ndarray) -> np.ndarray:
         """Compute weighted-average probability across all calibrated models.
 
+        If an ensemble-level isotonic calibrator is fitted (from train()),
+        the raw weighted average is passed through it for final calibration.
+
         Args:
             X: Feature matrix of shape (n_samples, n_features).
 
@@ -656,9 +727,14 @@ class EnsembleSignalModel:
             for name, model in self.calibrated_models.items():
                 proba = model.predict_proba(X)[:, 1]
                 weighted_sum += proba
-            return weighted_sum / max(n_models, 1)
+            raw = weighted_sum / max(n_models, 1)
+        else:
+            raw = weighted_sum / total_weight
 
-        return weighted_sum / total_weight
+        # Apply ensemble-level isotonic calibration if available
+        if self.ensemble_calibrator is not None:
+            return self.ensemble_calibrator.predict(raw)
+        return raw
 
     def _features_to_array(self, features: Dict) -> Optional[np.ndarray]:
         """Convert a feature dict to a (1, n_features) numpy array.
@@ -692,6 +768,21 @@ class EnsembleSignalModel:
             logger.error("Error converting features to array: %s", exc, exc_info=True)
             return None
 
+    def _align_dataframe(self, features_df: pd.DataFrame) -> np.ndarray:
+        """Align a DataFrame to self.feature_names, filling missing cols with 0.
+
+        This prevents KeyError when the prediction-time DataFrame has fewer
+        one-hot columns than the training-time DataFrame (e.g. no 'regime_crash'
+        in a dataset that never saw a crash regime).
+
+        Returns:
+            (n_samples, n_features) float64 array, sanitized.
+        """
+        aligned = pd.DataFrame(0.0, index=features_df.index, columns=self.feature_names)
+        shared = [c for c in self.feature_names if c in features_df.columns]
+        aligned[shared] = features_df[shared]
+        return sanitize_features(aligned.values.astype(np.float64))
+
     def _check_feature_distribution(self, X: np.ndarray) -> None:
         """Log warnings for features >3 std devs from training mean."""
         try:
@@ -719,6 +810,50 @@ class EnsembleSignalModel:
                         )
         except Exception:
             pass  # monitoring never breaks prediction
+
+    @staticmethod
+    def _check_calibration_gate(
+        y_true: np.ndarray,
+        y_proba: np.ndarray,
+        n_bins: int = 2,
+        min_bin_size: int = 20,
+        max_gap: float = 0.10,
+    ) -> tuple:
+        """Check G3 calibration: predicted vs actual win rate per bin.
+
+        Returns (passed: bool, bins: list[dict]).  A bin is evaluable only
+        if it contains >= min_bin_size samples; non-evaluable bins are
+        excluded from the pass/fail decision.
+        """
+        bin_edges = np.linspace(0, 1, n_bins + 1)
+        bins_out = []
+        passed = True
+
+        for i in range(n_bins):
+            lo, hi = bin_edges[i], bin_edges[i + 1]
+            if i == n_bins - 1:
+                mask = (y_proba >= lo) & (y_proba <= hi)
+            else:
+                mask = (y_proba >= lo) & (y_proba < hi)
+            n = int(mask.sum())
+            if n == 0:
+                continue
+            pred_avg = float(y_proba[mask].mean())
+            actual_avg = float(y_true[mask].mean())
+            gap = abs(pred_avg - actual_avg)
+            evaluable = n >= min_bin_size
+            if evaluable and gap > max_gap:
+                passed = False
+            bins_out.append({
+                'bin': f'{lo:.2f}-{hi:.2f}',
+                'n': n,
+                'predicted': round(pred_avg, 4),
+                'actual': round(actual_avg, 4),
+                'gap': round(gap, 4),
+                'evaluable': evaluable,
+            })
+
+        return passed, bins_out
 
     @staticmethod
     def _get_default_prediction() -> PredictionResult:

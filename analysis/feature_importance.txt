@@ -1,0 +1,253 @@
+==============================================================================
+COMPASS Ensemble — Feature Importance Analysis
+==============================================================================
+Date:              2026-03-24 20:22 UTC
+Model:             ensemble_model_20260324.joblib
+Model trained:     2026-03-24T19:50:26.031334+00:00
+Training data:     training_data_combined.csv
+Test split:        20% (86 trades)
+Train split:       80% (342 trades)
+Perm. repeats:     10
+
+------------------------------------------------------------------------------
+MODEL BASELINE
+------------------------------------------------------------------------------
+Test AUC (this split):     0.8639
+Train AUC (model report):  0.8638888888888889
+Total features:            39
+Positive rate:             57.7%
+
+Ensemble weights:
+  extra_trees           weight=0.3383  train_AUC=0.8522222222222222
+  random_forest         weight=0.3434  train_AUC=0.8777777777777778
+  xgboost               weight=0.3183  train_AUC=0.8511111111111112
+
+------------------------------------------------------------------------------
+TOP 10 FEATURES (by permutation importance on AUC)
+------------------------------------------------------------------------------
+Rank  Feature                              Imp. Mean   Imp. Std
+───── ─────────────────────────────────── ────────── ──────────
+1     net_credit                              0.0317     0.0170
+2     strategy_type_CS                        0.0129     0.0204
+3     iv_rank                                 0.0094     0.0043
+4     dist_from_ma200_pct                     0.0069     0.0041
+5     spread_type_unknown                     0.0046     0.0168
+6     momentum_5d_pct                         0.0038     0.0051
+7     spread_type_bull_put                    0.0024     0.0152
+8     vix_percentile_50d                      0.0012     0.0027
+9     momentum_10d_pct                        0.0009     0.0022
+10    dist_from_ma80_pct                      0.0007     0.0007
+
+Interpretation:
+  • Features with importance > 0.01 are meaningfully contributing to predictions.
+  • Features with importance < 0.001 are noise — candidates for removal.
+
+------------------------------------------------------------------------------
+BOTTOM 10 FEATURES (lowest / negative importance)
+------------------------------------------------------------------------------
+Rank  Feature                              Imp. Mean   Imp. Std
+───── ─────────────────────────────────── ────────── ──────────
+30    dist_from_ma20_pct                     -0.0019     0.0013
+31    day_of_week                            -0.0027     0.0045
+32    otm_pct                                -0.0031     0.0069
+33    ma20_slope_ann_pct                     -0.0040     0.0033
+34    realized_vol_10d                       -0.0052     0.0017
+35    spy_price                              -0.0053     0.0029
+36    realized_vol_5d                        -0.0053     0.0073
+37    vix_percentile_20d                     -0.0054     0.0040
+38    dte_at_entry                           -0.0068     0.0086
+39    hold_days                              -0.0154     0.0076
+
+Interpretation:
+  • 22 feature(s) have NEGATIVE importance — they actively hurt the model.
+    Removing them would improve AUC. Candidates:
+      - regime_high_vol (importance=-0.0001)
+      - spread_type_bear_call (importance=-0.0001)
+      - vix (importance=-0.0002)
+      - regime_bull (importance=-0.0002)
+      - ma50_slope_ann_pct (importance=-0.0004)
+      - days_since_last_trade (importance=-0.0006)
+      - dist_from_ma50_pct (importance=-0.0011)
+      - strategy_type_SS (importance=-0.0012)
+      - rsi_14 (importance=-0.0013)
+      - max_loss_per_unit (importance=-0.0013)
+      - regime_bear (importance=-0.0013)
+      - realized_vol_20d (importance=-0.0015)
+      - dist_from_ma20_pct (importance=-0.0019)
+      - day_of_week (importance=-0.0027)
+      - otm_pct (importance=-0.0031)
+      - ma20_slope_ann_pct (importance=-0.0040)
+      - realized_vol_10d (importance=-0.0052)
+      - spy_price (importance=-0.0053)
+      - realized_vol_5d (importance=-0.0053)
+      - vix_percentile_20d (importance=-0.0054)
+      - dte_at_entry (importance=-0.0068)
+      - hold_days (importance=-0.0154)
+  • 15 feature(s) are near-zero (|imp| < 0.001) — noise, safe to remove.
+
+==============================================================================
+FEATURE GAP ANALYSIS: FeatureEngine features NOT in current training set
+==============================================================================
+
+── IV Surface / Volatility (7 features) ──
+
+  current_iv                      Current ATM implied volatility — direct measure of option richness
+  rv_iv_spread                    Realized vol minus implied vol — positive = vol premium sellers can harvest
+  realized_vol_60d                60-day realized vol — longer lookback captures regime shifts
+  put_call_skew_ratio             Put/call IV ratio — >1.15 signals fear skew, favors bull puts
+  put_skew_steepness              How steep the put skew is — higher = more tail risk priced in
+  vol_premium                     IV - RV in absolute terms — the core edge for premium sellers
+  vol_premium_pct                 Vol premium as percentage of RV — scale-invariant version
+
+── Event Risk (4 features) ──
+
+  days_to_earnings                Days until next earnings — trades near earnings have higher risk
+  days_to_fomc                    Days until next FOMC meeting — vol compression/expansion cycle
+  days_to_cpi                     Days until next CPI release — inflation surprises move markets
+  event_risk_score                Composite event risk (0-1) — aggregates earnings/FOMC/CPI proximity
+
+── Market Microstructure (7 features) ──
+
+  vix_level                       VIX level — already have 'vix' but this is the live-FeatureEngine version
+  vix_change_1d                   1-day VIX change (%) — sudden spikes signal regime shifts
+  vix_change_5d                   5-day VIX change (points) — trend in fear gauge
+  spy_return_5d                   SPY 5-day return (%) — short-term market momentum
+  spy_return_20d                  SPY 20-day return (%) — medium-term trend context
+  spy_realized_vol                SPY 20-day realized vol — market-wide volatility backdrop
+  put_call_ratio                  CBOE put/call ratio (currently placeholder=1.0 in FeatureEngine)
+
+── Seasonal / Calendar (3 features) ──
+
+  is_opex_week                    Options expiration week — elevated gamma, pin risk
+  is_monday                       Monday effect — historically higher volatility from weekend gap
+  is_month_end                    Month-end rebalancing — institutional flows cause anomalies
+
+── Technical / Momentum (15 features) ──
+
+  rsi_oversold                    Binary: RSI < 30 — oversold conditions favor bull puts
+  rsi_overbought                  Binary: RSI > 70 — overbought conditions favor bear calls
+  iv_rank_high                    Binary: IV rank > 70 — high-IV-rank regime flag
+  iv_rank_low                     Binary: IV rank < 30 — low-IV-rank regime flag
+  macd                            MACD line — trend-following signal (mixed value for premium selling)
+  macd_signal                     MACD signal line — crossover triggers
+  macd_histogram                  MACD histogram — momentum acceleration
+  bollinger_pct_b                 Bollinger %B — mean-reversion signal
+  atr_pct                         ATR as % of price — normalized volatility measure
+  volume_ratio                    Current volume / 20-day avg — unusual activity detection
+  return_5d                       5-day return % (FeatureEngine version)
+  return_10d                      10-day return %
+  return_20d                      20-day return %
+  risk_adjusted_momentum          20d return / ATR% — momentum per unit of risk
+  credit_to_width_ratio           Credit / spread width — direct risk/reward metric
+
+── Regime (FeatureEngine format) (7 features) ──
+
+  regime_id                       Numeric regime ID (FeatureEngine uses different encoding than training)
+  regime_confidence               Regime classifier confidence — low confidence = transition period
+  regime_duration_days            Days in current regime — fresh regimes are less reliable
+  regime_low_vol_trending         One-hot: low-vol trending regime
+  regime_high_vol_trending        One-hot: high-vol trending regime
+  regime_mean_reverting           One-hot: mean-reverting regime
+  regime_crisis                   One-hot: crisis regime
+
+── SMA Distance (FeatureEngine naming) (3 features) ──
+
+  dist_from_sma20_pct             Same concept as dist_from_ma20_pct with different naming
+  dist_from_sma50_pct             Same concept as dist_from_ma50_pct with different naming
+  dist_from_sma200_pct            Same concept as dist_from_ma200_pct with different naming
+
+==============================================================================
+RECOMMENDATIONS
+==============================================================================
+
+Priority 1 — Add to training data (HIGH expected value):
+  These features capture the core edge of credit spread selling
+  and are computable from data already available in the system.
+
+  1. credit_to_width_ratio    — Direct risk/reward of the trade structure.
+                                 Already in FeatureEngine, trivially computed
+                                 from net_credit and spread_width in training CSV.
+  2. vix_change_5d            — 5-day VIX momentum. Sudden vol spikes are the
+                                 #1 cause of credit spread losses. Available from
+                                 VIX history already loaded in collect_training_data.
+  3. rv_iv_spread             — Realized-vs-implied vol gap. Positive = vol premium
+                                 available to sell. Computable from realized_vol_20d
+                                 and iv_rank (proxy) already in training data.
+  4. event_risk_score         — Composite event proximity. Trades entered near
+                                 FOMC/CPI have different risk profiles. FOMC dates
+                                 are in shared/constants.py.
+  5. days_to_fomc             — Days until next FOMC meeting. Direct calendar
+                                 feature from FOMC_DATES constant.
+
+Priority 2 — Add to training data (MODERATE expected value):
+  These require additional data but have theoretical support.
+
+  6. is_opex_week             — OPEX week has elevated gamma risk and pin effects.
+                                 Binary feature, trivially computed from date.
+  7. regime_confidence        — Low-confidence regime classifications are unreliable.
+                                 Regime detector already computes this.
+  8. regime_duration_days     — Fresh regimes (<5 days) are less reliable than
+                                 established ones (>20 days).
+  9. bollinger_pct_b          — Mean-reversion signal. When %B is extreme (<0 or >1),
+                                 credit spreads on the reversal side outperform.
+
+Priority 3 — Consider removing (NEGATIVE or near-zero importance):
+
+  • vix_percentile_100d                  importance=0.0002
+  • spread_width                         importance=0.0001
+  • regime_crash                         importance=0.0000
+  • regime_low_vol                       importance=0.0000
+  • strategy_type_IC                     importance=0.0000
+
+Priority 4 — NOT recommended (duplicate or placeholder):
+
+  • put_call_ratio           — Hardcoded to 1.0 in FeatureEngine. Zero signal.
+  • dist_from_sma*_pct       — Already have dist_from_ma*_pct (different naming only).
+  • regime_id / regime_*     — Already one-hot encoded in training (regime_bull, etc.).
+  • macd / macd_*            — Trend-following signals; philosophically misaligned
+                                with premium-selling strategies.
+
+==============================================================================
+FULL FEATURE RANKING (all 39 features)
+==============================================================================
+Rank  Feature                              Imp. Mean   Imp. Std      Verdict
+───── ─────────────────────────────────── ────────── ────────── ────────────
+1     net_credit                              0.0317     0.0170       STRONG
+2     strategy_type_CS                        0.0129     0.0204       STRONG
+3     iv_rank                                 0.0094     0.0043       useful
+4     dist_from_ma200_pct                     0.0069     0.0041       useful
+5     spread_type_unknown                     0.0046     0.0168       useful
+6     momentum_5d_pct                         0.0038     0.0051       useful
+7     spread_type_bull_put                    0.0024     0.0152       useful
+8     vix_percentile_50d                      0.0012     0.0027       useful
+9     momentum_10d_pct                        0.0009     0.0022        noise
+10    dist_from_ma80_pct                      0.0007     0.0007        noise
+11    contracts                               0.0006     0.0114        noise
+12    realized_vol_atr20                      0.0006     0.0014        noise
+13    vix_percentile_100d                     0.0002     0.0021        noise
+14    spread_width                            0.0001     0.0118        noise
+15    regime_crash                            0.0000     0.0000        noise
+16    regime_low_vol                          0.0000     0.0000        noise
+17    strategy_type_IC                        0.0000     0.0000        noise
+18    regime_high_vol                        -0.0001     0.0003        noise
+19    spread_type_bear_call                  -0.0001     0.0003        noise
+20    vix                                    -0.0002     0.0017        noise
+21    regime_bull                            -0.0002     0.0006        noise
+22    ma50_slope_ann_pct                     -0.0004     0.0027        noise
+23    days_since_last_trade                  -0.0006     0.0010        noise
+24    dist_from_ma50_pct                     -0.0011     0.0015      HARMFUL
+25    strategy_type_SS                       -0.0012     0.0125      HARMFUL
+26    rsi_14                                 -0.0013     0.0025      HARMFUL
+27    max_loss_per_unit                      -0.0013     0.0084      HARMFUL
+28    regime_bear                            -0.0013     0.0025      HARMFUL
+29    realized_vol_20d                       -0.0015     0.0013      HARMFUL
+30    dist_from_ma20_pct                     -0.0019     0.0013      HARMFUL
+31    day_of_week                            -0.0027     0.0045      HARMFUL
+32    otm_pct                                -0.0031     0.0069      HARMFUL
+33    ma20_slope_ann_pct                     -0.0040     0.0033      HARMFUL
+34    realized_vol_10d                       -0.0052     0.0017      HARMFUL
+35    spy_price                              -0.0053     0.0029      HARMFUL
+36    realized_vol_5d                        -0.0053     0.0073      HARMFUL
+37    vix_percentile_20d                     -0.0054     0.0040      HARMFUL
+38    dte_at_entry                           -0.0068     0.0086      HARMFUL
+39    hold_days                              -0.0154     0.0076      HARMFUL

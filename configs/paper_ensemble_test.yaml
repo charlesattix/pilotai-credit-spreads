@@ -1,0 +1,210 @@
+# ============================================================================
+# paper_ensemble_test.yaml — Ensemble ML A/B Test Config
+# ============================================================================
+# Purpose: Paper-trade the EnsembleSignalModel (XGB+RF+ET) side-by-side with
+#          the champion config (EXP-400) to measure whether ML confidence
+#          gating improves signal quality.
+#
+# Base: configs/paper_champion.yaml (copied verbatim except for the
+#       ml_enhanced section, experiment_id, db_path, and log/alert paths).
+#       All strategy, risk, and regime settings are IDENTICAL so the only
+#       variable under test is the ensemble ML gate.
+#
+# Model: compass.ensemble_signal_model.EnsembleSignalModel
+#        Loaded from ml/models/ensemble_model_*.joblib (most recent).
+#        Falls back to unfiltered signals if model fails to load.
+#
+# Usage:
+#   python main.py scheduler --config configs/paper_ensemble_test.yaml \
+#                            --env-file .env.ensemble_test
+#
+# A/B comparison:
+#   Control  — EXP-400 (paper_champion.yaml, no ML gating)
+#   Variant  — EXP-702 (this config, ensemble V1 gating)
+#
+#   After 30+ trades, compare win rate, avg P&L per trade, Sharpe, and
+#   max drawdown across both experiments.
+#
+# Required env vars:
+#   ALPACA_API_KEY         — Alpaca paper trading API key (separate account)
+#   ALPACA_API_SECRET      — Alpaca paper trading API secret
+#   POLYGON_API_KEY        — Polygon.io API key (options chain data)
+#   TELEGRAM_BOT_TOKEN     — (optional) Telegram alert bot token
+#   TELEGRAM_CHAT_ID       — (optional) Telegram chat ID for alerts
+# ============================================================================
+
+# --- Paper trading safety flags ---
+paper_mode: true
+db_path: "data/exp702/pilotai_exp702.db"
+experiment_id: "EXP-702"
+
+# Tickers
+tickers:
+  - SPY
+
+# ============================================================================
+# Credit Spread Strategy (identical to paper_champion.yaml)
+# ============================================================================
+strategy:
+  # --- DTE ---
+  min_dte: 15
+  max_dte: 25
+  target_dte: 15
+
+  manage_dte: 0
+
+  # --- Direction: regime-adaptive ---
+  direction: both
+
+  # --- Strike selection ---
+  otm_pct: 0.02
+  use_delta_selection: false
+  target_delta: 0.12
+  min_delta: 0.08
+  max_delta: 0.18
+
+  # --- Spread construction ---
+  spread_width: 12
+  spread_width_high_iv: 12
+  spread_width_low_iv: 12
+
+  # --- IV filters ---
+  min_iv_rank: 0
+  min_iv_percentile: 0
+
+  # --- Iron Condor ---
+  iron_condor:
+    enabled: true
+    rsi_min: 35
+    rsi_max: 60
+    min_iv_rank: 45.0
+    target_dte: 30
+    min_dte: 20
+    otm_pct_put: 0.04
+    otm_pct_call: 0.03
+    spread_width: 12
+    min_combined_credit_pct: 0.25
+    profit_target_pct: 0.30
+    stop_loss_multiplier: 2.5
+    max_risk_pct: 3.5
+
+  # --- Technical filters ---
+  technical:
+    use_trend_filter: true
+    use_rsi_filter: false
+    use_support_resistance: false
+    fast_ma: 50
+    slow_ma: 80
+    rsi_period: 14
+    rsi_oversold: 30
+    rsi_overbought: 70
+
+  # --- Regime detection ---
+  regime_mode: combo
+  regime_config:
+    signals:
+      - price_vs_ma200
+      - rsi_momentum
+      - vix_structure
+    ma_slow_period: 80
+    ma200_neutral_band_pct: 0.5
+
+  # ==========================================================================
+  # ML Enhanced — ENSEMBLE MODE (the only section that differs from champion)
+  # ==========================================================================
+  ml_enhanced:
+    enabled: true
+    ensemble_mode: true             # Use EnsembleSignalModel (XGB+RF+ET)
+    model_dir: "ml/models"          # Loads most recent ensemble_model_*.joblib
+    confidence_threshold: 0.30      # Drop signals below this confidence
+    ml_sizing: false                # V1 binary gating (not V2 sizing)
+    use_feature_engine: false       # Minimal features from MarketSnapshot
+
+# ============================================================================
+# Risk Management (identical to paper_champion.yaml)
+# ============================================================================
+risk:
+  account_size: 100000
+
+  max_risk_per_trade: 8.5
+
+  sizing_mode: flat
+  compound: false
+
+  min_contracts: 1
+  max_contracts: 25
+
+  max_positions: 10
+  max_positions_per_ticker: 2
+
+  scan_days: [0, 1, 2, 3, 4]
+
+  profit_target: 55
+  stop_loss_multiplier: 1.25
+  stop_loss_pct_of_width: 90
+
+  momentum_filter_pct: 2.0
+
+  portfolio_risk:
+    max_portfolio_risk_pct: 40
+    max_single_ticker_pct: 40
+    max_same_expiration: 4
+
+  drawdown_cb_pct: 40
+  cooldown_bars: 3
+
+  enable_rolling: false
+  max_rolls_per_position: 0
+
+# ============================================================================
+# Alpaca Paper Trading
+# ============================================================================
+alpaca:
+  enabled: true
+  paper: true
+  base_url: "https://paper-api.alpaca.markets"
+  api_key: "${ALPACA_API_KEY}"
+  api_secret: "${ALPACA_API_SECRET}"
+
+# ============================================================================
+# Alerts (separate files from champion to avoid clobbering)
+# ============================================================================
+alerts:
+  output_json: true
+  output_text: true
+  output_csv: true
+  json_file: "alerts_exp702.json"
+  text_file: "alerts_exp702.txt"
+  csv_file: "alerts_exp702.csv"
+
+  telegram:
+    enabled: true
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
+
+# ============================================================================
+# Logging (separate log file)
+# ============================================================================
+logging:
+  level: "INFO"
+  file: "logs/paper_exp702_ensemble.log"
+  console: true
+
+# ============================================================================
+# Data
+# ============================================================================
+data:
+  provider: polygon
+  cache_dir: "data/options_cache"
+
+# ============================================================================
+# Backtester Reference
+# ============================================================================
+backtest:
+  starting_capital: 100000
+  commission_per_contract: 0.65
+  slippage: 0.05
+  exit_slippage: 0.10
+  score_threshold: 25
+  generate_reports: true
+  report_dir: "output/backtest_reports"
