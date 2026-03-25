@@ -1,0 +1,186 @@
+{
+  "timestamp": "2026-03-25T05:53:29.994696+00:00",
+  "n_cs_trades": 233,
+  "n_oos": 205,
+  "overall_r2": -0.1388,
+  "overall_mae": 0.1497,
+  "overall_corr": -0.2016,
+  "top_q": {
+    "mean": 0.069,
+    "wr": 0.8065,
+    "n": 62
+  },
+  "bot_q": {
+    "mean": 0.184,
+    "wr": 0.9054,
+    "n": 74
+  },
+  "quartile_spread_pp": -11.5,
+  "sizing_uniform_pct": 2175.85,
+  "sizing_ml_pct": 1946.75,
+  "sizing_improvement_pp": -229.1,
+  "folds": [
+    {
+      "train": [
+        2020
+      ],
+      "test": 2021,
+      "n_train": 28,
+      "n_test": 70,
+      "r2": -0.9289,
+      "mae": 0.19,
+      "corr": NaN,
+      "top_q_mean": 0.1805,
+      "bot_q_mean": 0.1805,
+      "spread": 0.0,
+      "top_q_wr": 0.9,
+      "bot_q_wr": 0.9,
+      "top_q_n": 70,
+      "bot_q_n": 70
+    },
+    {
+      "train": [
+        2020,
+        2021
+      ],
+      "test": 2022,
+      "n_train": 98,
+      "n_test": 20,
+      "r2": -0.1893,
+      "mae": 0.3067,
+      "corr": 0.0672,
+      "top_q_mean": 0.0092,
+      "bot_q_mean": -0.0399,
+      "spread": 0.0492,
+      "top_q_wr": 0.625,
+      "bot_q_wr": 0.5833,
+      "top_q_n": 8,
+      "bot_q_n": 12
+    },
+    {
+      "train": [
+        2020,
+        2021,
+        2022
+      ],
+      "test": 2023,
+      "n_train": 118,
+      "n_test": 38,
+      "r2": 0.0545,
+      "mae": 0.0768,
+      "corr": 0.5584,
+      "top_q_mean": 0.0927,
+      "bot_q_mean": 0.063,
+      "spread": 0.0298,
+      "top_q_wr": 0.8947,
+      "bot_q_wr": 0.8788,
+      "top_q_n": 38,
+      "bot_q_n": 33
+    },
+    {
+      "train": [
+        2020,
+        2021,
+        2022,
+        2023
+      ],
+      "test": 2024,
+      "n_train": 156,
+      "n_test": 39,
+      "r2": -0.0498,
+      "mae": 0.0907,
+      "corr": 0.0586,
+      "top_q_mean": 0.0608,
+      "bot_q_mean": 0.0585,
+      "spread": 0.0023,
+      "top_q_wr": 0.8158,
+      "bot_q_wr": 0.8158,
+      "top_q_n": 38,
+      "bot_q_n": 38
+    },
+    {
+      "train": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ],
+      "test": 2025,
+      "n_train": 195,
+      "n_test": 38,
+      "r2": -0.0043,
+      "mae": 0.1261,
+      "corr": 0.0562,
+      "top_q_mean": 0.0957,
+      "bot_q_mean": 0.0697,
+      "spread": 0.026,
+      "top_q_wr": 0.8788,
+      "bot_q_wr": 0.8529,
+      "top_q_n": 33,
+      "bot_q_n": 34
+    }
+  ],
+  "top_features": [
+    {
+      "name": "max_loss_per_unit",
+      "imp": 0.2998
+    },
+    {
+      "name": "net_credit",
+      "imp": 0.2432
+    },
+    {
+      "name": "hold_days",
+      "imp": 0.229
+    },
+    {
+      "name": "ma50_slope_ann_pct",
+      "imp": 0.2281
+    },
+    {
+      "name": "spy_price",
+      "imp": 0.0
+    },
+    {
+      "name": "realized_vol_5d",
+      "imp": 0.0
+    },
+    {
+      "name": "realized_vol_atr20",
+      "imp": 0.0
+    },
+    {
+      "name": "ma20_slope_ann_pct",
+      "imp": 0.0
+    },
+    {
+      "name": "dist_from_ma200_pct",
+      "imp": 0.0
+    },
+    {
+      "name": "dist_from_ma80_pct",
+      "imp": 0.0
+    },
+    {
+      "name": "dist_from_ma50_pct",
+      "imp": 0.0
+    },
+    {
+      "name": "dist_from_ma20_pct",
+      "imp": 0.0
+    },
+    {
+      "name": "iv_rank",
+      "imp": 0.0
+    },
+    {
+      "name": "realized_vol_20d",
+      "imp": 0.0
+    },
+    {
+      "name": "vix_percentile_100d",
+      "imp": 0.0
+    }
+  ]
+}
