@@ -139,7 +139,28 @@ class CreditSpreadStrategy(BaseStrategy):
                 if sig:
                     signals.append(sig)
 
+        # Low-credit + high-VIX-percentile entry filter.
+        # Trades with net_credit < min_credit_filter AND VIX percentile >= vix_pctile_gate
+        # have a disproportionate loss rate.  Skip them.
+        min_credit = self._p("min_credit_filter", 0.0)
+        vix_pctile_gate = self._p("vix_pctile_gate", 100)
+        if min_credit > 0 and vix_pctile_gate < 100:
+            vix_pctile = self._compute_vix_percentile(market_data, window=50)
+            if vix_pctile is not None and vix_pctile >= vix_pctile_gate:
+                signals = [s for s in signals if s.net_credit >= min_credit]
+
         return signals
+
+    @staticmethod
+    def _compute_vix_percentile(market_data: MarketSnapshot, window: int = 50) -> float | None:
+        """Compute current VIX percentile rank over trailing window days."""
+        if market_data.vix_history is None or len(market_data.vix_history) < 10:
+            return None
+        hist = market_data.vix_history.tail(window)
+        current = market_data.vix
+        if current is None or len(hist) == 0:
+            return None
+        return float((hist < current).sum() / len(hist) * 100)
 
     def _build_spread(
         self, ticker: str, price: float, iv: float,
@@ -236,6 +257,14 @@ class CreditSpreadStrategy(BaseStrategy):
         if position.legs and market_data.date >= position.legs[0].expiration:
             return PositionAction.CLOSE_EXPIRY
 
+        # Time-based exit: close trades held longer than max_hold_days.
+        # Trades alive >15 days are 47% losers vs 13% for shorter holds.
+        max_hold = self._p("max_hold_days", 0)
+        if max_hold > 0 and position.entry_date:
+            held = (market_data.date - position.entry_date).days
+            if held >= max_hold:
+                return PositionAction.CLOSE_TIME
+
         # DTE management
         manage_dte = self._p("manage_dte", 0)
         if manage_dte > 0 and position.legs:
@@ -314,4 +343,11 @@ class CreditSpreadStrategy(BaseStrategy):
             ParamDef("momentum_filter_pct", "float", 5.0, low=2.0, high=10.0, step=1.0),
             ParamDef("scan_weekday", "choice", "monday", choices=["monday", "any", "mon_wed_fri"]),
             ParamDef("max_risk_pct", "float", 0.02, low=0.005, high=0.05, step=0.005),
+            # Enhanced filters (from CS loser profiling analysis)
+            ParamDef("max_hold_days", "int", 0, low=0, high=30, step=1,
+                     description="Close trades held longer than this (0=disabled). Trades >15 days are 47% losers."),
+            ParamDef("min_credit_filter", "float", 0.0, low=0.0, high=3.0, step=0.1,
+                     description="Minimum net credit to accept (0=disabled). Combined with vix_pctile_gate."),
+            ParamDef("vix_pctile_gate", "int", 100, low=0, high=100, step=5,
+                     description="Skip low-credit trades when VIX 50d percentile >= this (100=disabled)."),
         ]
