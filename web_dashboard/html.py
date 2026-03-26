@@ -228,6 +228,71 @@ _EXP_DESCRIPTIONS: dict[str, str] = {
 
 # ---------------------------------------------------------------------------
 
+def _render_equity_chart(history: list[dict]) -> str:
+    """Render an inline SVG sparkline equity chart from alpaca_equity_history."""
+    if len(history) < 2:
+        return ""
+
+    w, h = 560, 120
+    pad_l, pad_r, pad_t, pad_b = 50, 10, 8, 20
+    cw = w - pad_l - pad_r
+    ch = h - pad_t - pad_b
+
+    equities = [d["equity"] for d in history]
+    min_eq = min(equities) * 0.999
+    max_eq = max(equities) * 1.001
+    rng = max_eq - min_eq or 1
+
+    overall = equities[-1] - STARTING_EQUITY
+    color = "#22c55e" if overall >= 0 else "#ef4444"
+    fill_color = "rgba(34,197,94,0.08)" if overall >= 0 else "rgba(239,68,68,0.08)"
+
+    points = []
+    for i, d in enumerate(history):
+        x = pad_l + (i / (len(history) - 1)) * cw
+        y = pad_t + ch - ((d["equity"] - min_eq) / rng) * ch
+        points.append((x, y, d["date"], d["equity"]))
+
+    line = " ".join(f"{'M' if i == 0 else 'L'}{x:.1f},{y:.1f}" for i, (x, y, _, _) in enumerate(points))
+    area = line + f" L{points[-1][0]:.1f},{pad_t + ch} L{points[0][0]:.1f},{pad_t + ch} Z"
+
+    # Y-axis: 3 ticks
+    y_ticks = ""
+    for v in [min_eq, (min_eq + max_eq) / 2, max_eq]:
+        yp = pad_t + ch - ((v - min_eq) / rng) * ch
+        label = f"${v / 1000:.1f}k"
+        y_ticks += f'<line x1="{pad_l}" y1="{yp:.1f}" x2="{w - pad_r}" y2="{yp:.1f}" stroke="#e2e8f0" stroke-width="0.5"/>'
+        y_ticks += f'<text x="{pad_l - 5}" y="{yp + 3:.1f}" text-anchor="end" fill="#94a3b8" font-size="9" font-family="system-ui">{label}</text>'
+
+    # Starting equity reference
+    start_y = pad_t + ch - ((STARTING_EQUITY - min_eq) / rng) * ch
+    ref_line = ""
+    if min_eq <= STARTING_EQUITY <= max_eq:
+        ref_line = f'<line x1="{pad_l}" y1="{start_y:.1f}" x2="{w - pad_r}" y2="{start_y:.1f}" stroke="#cbd5e1" stroke-width="0.8" stroke-dasharray="4,3"/>'
+
+    # X-axis: ~5 date labels
+    step = max(1, len(history) // 5)
+    x_labels = ""
+    for i, (x, _, dt, _) in enumerate(points):
+        if i % step == 0 or i == len(points) - 1:
+            x_labels += f'<text x="{x:.1f}" y="{h - 3}" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="system-ui">{dt[5:]}</text>'
+
+    # Last point dot
+    lx, ly = points[-1][0], points[-1][1]
+
+    return f"""
+<div style="margin:8px 0 4px;overflow:hidden">
+  <svg viewBox="0 0 {w} {h}" style="width:100%;height:{h}px">
+    {y_ticks}
+    {ref_line}
+    <path d="{area}" fill="{fill_color}"/>
+    <path d="{line}" fill="none" stroke="{color}" stroke-width="2" stroke-linejoin="round"/>
+    <circle cx="{lx:.1f}" cy="{ly:.1f}" r="3" fill="{color}"/>
+    {x_labels}
+  </svg>
+</div>"""
+
+
 def _render_exp_card(s: dict) -> str:
     alp = s.get("alpaca") or {}
     equity = alp.get("equity")
@@ -359,6 +424,9 @@ def _render_exp_card(s: dict) -> str:
         edesc = _EXP_DESCRIPTIONS.get(s['id'], '')
     desc_html = f'<div class="exp-desc">{edesc}</div>' if edesc else ''
 
+    # Equity sparkline chart
+    chart_html = _render_equity_chart(s.get("alpaca_equity_history") or [])
+
     return f"""
 <div class="exp-card">
   <div class="exp-header">
@@ -373,6 +441,7 @@ def _render_exp_card(s: dict) -> str:
     </div>
     {equity_html}
   </div>
+  {chart_html}
   {stats_row}
   {alpaca_detail}
   {pos_section}
