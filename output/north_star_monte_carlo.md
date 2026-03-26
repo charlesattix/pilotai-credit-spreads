@@ -1,230 +1,256 @@
 # North Star Portfolio — Monte Carlo Simulation
 
-> **Generated:** 2026-03-26 11:21 UTC
+> **Generated:** 2026-03-26 12:08 UTC
 > **Branch:** `main`
-> **Seeds:** 10,000  |  **Years per path:** 6  |  **Trades/year:** 280
+> **Seeds:** 10,000  |  **Years per path:** 6
+> **⚠️ Win rate corrected to 93.4%** (from 86%) — see `output/win_rate_boost_report.md`
 
 ---
 
-## 1. Model Parameters
+## Summary: Corrected vs Original Parameters
 
-### Trade-level inputs
+| Parameter | Original (REF) | Scenario A (corrected) | Scenario B (corrected) |
+|-----------|:--------------:|:----------------------:|:----------------------:|
+| Win rate | 86.0% | **93.4%** | **93.4%** |
+| Trades/yr | 280 | 208 (SPY-only) | 280 (sector div.) |
+| Source | Prior MC | ML WFV OOS actuals | ML WFV OOS actuals |
+
+### North Star achievement comparison
+
+| Scenario | T1: Return≥100% | T2: DD≥-12% | T3: Sharpe≥2.0 | **All 3** | P50 annual |
+|----------|:---------------:|:-----------:|:--------------:|:---------:|:----------:|
+| Scenario A — SPY-only (corrected, p=93.4%, N=208)       | 100.0% | 100.0% | 100.0% | **100.0%** | +892.0% |
+| Scenario B — Sector diversified (corrected, p=93.4%, N=280) | 100.0% | 100.0% | 100.0% | **100.0%** | +2066.5% |
+| REF — Original baseline (p=86%, N=280)                  |  93.0% | 100.0% |  98.1% | ** 92.0%** | +299.4% |
+
+---
+
+## A: Scenario A — SPY-only (corrected, p=93.4%, N=208)
+
+### Parameters
 
 | Parameter | Value | Source |
 |-----------|:-----:|--------|
-| Trades per year | 280 | SPY 208 + sector ETFs 72 (from `frequency_analysis.md`) |
-| Win rate | 86% | ML-filtered (exp_126 baseline 78.7% → +7pp ML uplift) |
+| Trades per year | 208 | SPY-only |
+| Win rate | 93.4% | ML-filtered OOS walk-forward (2021-2025) |
 | Avg win / risk | +19% | Credit spreads: 19% avg credit kept on winners |
 | Avg loss / risk | -47% | Stop-loss path: 47% of risk lost on average |
-| Trade correlation ρ | 0.04 | Shared market factor; SPY+sector blend |
+| Trade correlation ρ | 0.04 | Shared market factor |
 
-### Safe Kelly 4/7/9 regime sizing
+**Expected arithmetic annual return (208 trades):** +236.1%  
+**Expected std of arithmetic annual return:** +18.3%
 
-| Regime | Probability | Risk / trade | Expected per-trade P&L |
-|--------|:-----------:|:------------:|:----------------------:|
-| Bull | 60% | 9% | +0.5270% portfolio |
-| Neutral | 25% | 7% | +0.1708% portfolio |
-| Bear | 15% | 4% | +0.0586% portfolio |
-| **Weighted avg** | 100% | **7.75%** | **+0.7564% portfolio** |
-
-**Expected per-trade portfolio impact:** +0.7564%  
-**Expected arithmetic annual return (280 trades):** +211.8%  
-**Expected std of arithmetic annual return:** +29.7%
-  *(assumes fully independent trades; ρ=0.04 correlation model adds systematic drag)*
-
-### 3-tier circuit breakers
-
-| Tier | Portfolio DD trigger | Action | Recovery |
-|------|:--------------------:|--------|---------|
-| 1 | ≤ -8% | Size at 50% of normal | Automatic (DD improves) |
-| 2 | ≤ -10% | Pause all new entries | DD recovers above -7% |
-| 3 | ≤ -12% | Full halt for 30 trades | Time-based cooldown |
-
-## 2. Six-Year Path Distribution (10,000 simulations)
-
-### 2a. Summary statistics
+### Distribution (10,000 simulations)
 
 | Metric | Mean | Median | Std | P1 | P5 | P10 | P25 | P50 | P75 | P90 | P95 | P99 |
 |--------|:----:|:------:|:---:|:--:|:--:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| Avg annual return | +311.0% | +299.4% | +151.8% | +39.3% | +85.0% | +120.0% | +199.5% | +299.4% | +407.2% | +515.6% | +583.3% | +708.9% |
-| 6yr CAGR | +201.7% | +181.8% | +109.8% | +31.4% | +62.2% | +81.2% | +122.6% | +181.8% | +258.9% | +345.8% | +411.5% | +538.0% |
-| 6yr total return | +474086.2% | +49951.8% | +2570979.4% | +414.6% | +1720.4% | +3434.4% | +12052.7% | +49951.8% | +213633.6% | +784930.3% | +1790764.0% | +6741306.7% |
-| Worst single-yr DD | -11.4% | -11.5% | +0.4% | -11.9% | -11.8% | -11.8% | -11.7% | -11.5% | -11.3% | -10.8% | -10.7% | -10.4% |
-| Avg annual Sharpe | 4.48 | 4.58 | 1.02 | 1.67 | 2.64 | 3.11 | 3.85 | 4.58 | 5.20 | 5.69 | 5.98 | 6.47 |
-| 6yr path Sharpe | 0.92 | 0.87 | 0.31 | 0.46 | 0.54 | 0.61 | 0.72 | 0.87 | 1.07 | 1.29 | 1.44 | 1.92 |
+| Avg annual return | +883.8% | +892.0% | +121.8% | +561.8% | +672.5% | +723.8% | +806.6% | +892.0% | +969.1% | +1031.3% | +1066.9% | +1140.3% |
+| 6yr CAGR | +820.2% | +855.2% | +169.8% | +390.1% | +520.3% | +582.0% | +695.7% | +855.2% | +948.2% | +1015.6% | +1049.4% | +1124.6% |
+| Worst single-yr DD | -9.7% | -10.0% | +1.3% | -11.8% | -11.6% | -11.4% | -10.7% | -10.0% | -8.4% | -8.3% | -7.6% | -7.1% |
+| Avg annual Sharpe | 9.12 | 9.15 | 0.89 | 6.70 | 7.59 | 7.99 | 8.58 | 9.15 | 9.71 | 10.21 | 10.51 | 11.09 |
 
-## 3. Per-Year Return Distributions
+#### Per-year return distribution
 
-Distribution of annual returns across all 10,000 simulations, by year.
+| Year | Mean | P5 | P25 | P50 | P75 | P95 | P(>0) | P(>100%) |
+|------|:----:|:--:|:---:|:---:|:---:|:---:|:-----:|:--------:|
+| Y1 | +879.8% | +129.8% | +763.5% | +916.6% | +1069.7% | +1300.9% | 99.4% | 95.6% |
+| Y2 | +879.7% | +137.1% | +760.8% | +916.4% | +1067.1% | +1297.5% | 99.3% | 95.9% |
+| Y3 | +883.2% | +166.0% | +763.3% | +917.6% | +1067.3% | +1289.9% | 99.5% | 96.3% |
+| Y4 | +884.2% | +158.2% | +766.3% | +921.1% | +1067.4% | +1292.9% | 99.4% | 96.3% |
+| Y5 | +889.1% | +168.2% | +768.1% | +924.6% | +1072.5% | +1302.2% | 99.4% | 96.2% |
+| Y6 | +886.6% | +139.0% | +769.1% | +925.3% | +1073.1% | +1303.8% | 99.4% | 95.9% |
 
-| Year | Mean | P5 | P10 | P25 | P50 | P75 | P90 | P95 | P(>0) | P(>100%) |
-|------|:----:|:--:|:---:|:---:|:---:|:---:|:---:|:---:|:-----:|:--------:|
-| Y1 | +309.6% | -5.1% | +2.4% | +31.2% | +137.3% | +513.9% | +901.0% | +1078.7% | 91.5% | 56.4% |
-| Y2 | +312.8% | -4.6% | +2.3% | +32.5% | +134.9% | +529.0% | +904.6% | +1075.8% | 91.5% | 56.0% |
-| Y3 | +310.2% | -4.9% | +2.6% | +33.8% | +136.4% | +518.4% | +896.1% | +1062.7% | 91.8% | 56.3% |
-| Y4 | +310.8% | -5.3% | +2.0% | +32.6% | +135.7% | +511.8% | +912.9% | +1088.2% | 91.3% | 56.4% |
-| Y5 | +314.8% | -5.0% | +2.3% | +34.7% | +141.9% | +527.1% | +907.9% | +1085.9% | 91.6% | 57.1% |
-| Y6 | +308.0% | -4.9% | +2.7% | +33.0% | +135.6% | +502.1% | +903.9% | +1075.4% | 91.7% | 56.3% |
+#### Per-year drawdown distribution
 
-| Year | Max DD (median) | P5 DD | P95 DD | Avg Sharpe | P5 Sharpe | P95 Sharpe |
-|------|:---------------:|:-----:|:------:|:----------:|:---------:|:----------:|
-| Y1 | -10.4% | -11.7% | -8.3% | 4.44 | -0.26 | 7.52 |
-| Y2 | -10.4% | -11.7% | -8.3% | 4.46 | -0.48 | 7.56 |
-| Y3 | -10.4% | -11.7% | -8.3% | 4.48 | -0.18 | 7.57 |
-| Y4 | -10.5% | -11.7% | -8.3% | 4.47 | -0.44 | 7.62 |
-| Y5 | -10.4% | -11.7% | -8.3% | 4.51 | -0.42 | 7.62 |
-| Y6 | -10.4% | -11.7% | -8.3% | 4.49 | -0.18 | 7.61 |
+| Year | P5 DD | P25 DD | P50 DD | P75 DD | P95 DD |
+|------|:-----:|:------:|:------:|:------:|:------:|
+| Y1 | -10.7% | -8.3% | -7.4% | -5.8% | -4.2% |
+| Y2 | -10.7% | -8.3% | -7.4% | -5.7% | -4.2% |
+| Y3 | -10.7% | -8.3% | -7.4% | -5.5% | -4.2% |
+| Y4 | -10.7% | -8.3% | -7.4% | -5.5% | -4.2% |
+| Y5 | -10.7% | -8.3% | -7.4% | -5.5% | -4.2% |
+| Y6 | -10.7% | -8.3% | -7.4% | -5.5% | -4.2% |
 
-## 4. Circuit Breaker Analysis
+### North Star Target Achievement
 
-| CB events per 6-yr path | Mean | P5 | P25 | P50 | P75 | P95 |
-|------------------------|:----:|:--:|:---:|:---:|:---:|:---:|
-| Total CB triggers | 4.8 | 3 | 4 | 5 | 6 | 6 |
+| Target | Threshold | % achieving |
+|--------|:---------:|:-----------:|
+| T1: Avg annual return | ≥ 100% | **100.0%** |
+| T2: Max portfolio DD  | ≥ -12% | **100.0%** |
+| T3: Avg annual Sharpe | ≥ 2.0  | **100.0%** |
+| **ALL THREE**         | —      | **100.0%** |
 
-- **100.0%** of 6-year paths trigger at least one CB event
-- **100.0%** of paths experience a Tier-3 (≤ -12% DD) halt in at least one year
-- Median path has **5** CB events over 6 years
+- **Binding constraint:** T1 (return)
+- P50 avg annual: +892.0%  |  P5/P95: +672.5% → +1066.9%
+- Calibration-adjusted P50: +579.8% (×0.65 vs actual backtester)
 
-## 5. North Star Target Achievement
+### Target Sensitivity
 
-### Targets
-
-| Target | Threshold | % of paths achieving | Notes |
-|--------|:---------:|:--------------------:|-------|
-| T1: Avg annual return | ≥ 100% | **93.0%** | Avg over all 6 years |
-| T2: Max portfolio DD | ≥ -12% | **100.0%** | Worst single-year max DD |
-| T3: Avg annual Sharpe | ≥ 2.0 | **98.1%** | Trade-level annual Sharpe |
-| **ALL THREE simultaneously** | — | **92.0%** | ← North Star percentile |
-
-### Percentile landscape (avg annual return)
-
-| Percentile | Avg Annual | Worst DD | Avg Sharpe | All 3 targets? |
-|:----------:|:----------:|:--------:|:----------:|:--------------:|
-| P 5 | +85.0% | -11.7% | 5.04 | ❌ |
-| P10 | +120.0% | -11.7% | 3.80 | ✅ |
-| P25 | +199.5% | -11.3% | 3.93 | ✅ |
-| P50 | +299.5% | -11.5% | 4.19 | ✅ |
-| P75 | +407.2% | -11.0% | 5.52 | ✅ |
-| P90 | +515.6% | -11.8% | 6.00 | ✅ |
-| P95 | +583.5% | -10.7% | 5.40 | ✅ |
-| P99 | +709.4% | -11.8% | 5.42 | ✅ |
-
-### North Star achievement: **92.0%** of simulations pass all 3 targets
-
-The all-3-targets constraint is driven primarily by:
-
-- **T1 (return ≥100%)**: fails in **7.0%** of paths
-- **T3 (Sharpe ≥ 2.0)**: fails in **1.9%** of paths
-- **T2 (DD ≥ -12%)**: fails in **0.0%** of paths
-
-### Percentile that simultaneously achieves all 3 targets
-
-All three targets are simultaneously achieved in the **top 93% (92.0%) of simulation paths**.
-
-The minimum-return path that passes all 3 targets has:
-- Avg annual: +100.0%
-- Worst DD: -11.5%
-- Avg Sharpe: 4.48
-- 6yr CAGR: +85.8%
-
-## 6. Target Sensitivity Analysis
-
-How many paths pass if we relax individual targets?
-
-| Return target | DD target | Sharpe target | % paths passing |
-|:-------------:|:---------:|:-------------:|:---------------:|
-| ≥100% | ≥-12% | ≥2.0 | **92.0%** |
-| ≥80% | ≥-12% | ≥2.0 | **94.3%** |
-| ≥60% | ≥-12% | ≥2.0 | **96.2%** |
-| ≥50% | ≥-12% | ≥2.0 | **96.9%** |
-| ≥100% | ≥-15% | ≥2.0 | **92.0%** |
-| ≥100% | ≥-20% | ≥2.0 | **92.0%** |
-| ≥100% | ≥-12% | ≥1.5 | **92.6%** |
-| ≥100% | ≥-12% | ≥1.0 | **92.9%** |
-| ≥80% | ≥-15% | ≥1.5 | **95.1%** |
-| ≥60% | ≥-20% | ≥1.0 | **97.3%** |
-
-## 7. Model Parameter Sensitivity
-
-How do the headline metrics change with trade count and win rate?
-
-| Trades/yr | Win rate | Avg annual (P50) | Worst DD (P50) | Sharpe (P50) | All-3 pass rate |
-|:---------:|:--------:|:----------------:|:--------------:|:------------:|:---------------:|
-| 200 | 80% | +89.9% | CB-limited | 1.04 | see MC results |
-| 200 | 83% | +120.6% | CB-limited | 1.48 | see MC results |
-| 200 | 86% | +151.3% | CB-limited | 2.01 | see MC results |
-| 200 | 89% | +182.0% | CB-limited | 2.69 | see MC results |
-| 250 | 80% | +112.4% | CB-limited | 1.05 | see MC results |
-| 250 | 83% | +150.7% | CB-limited | 1.50 | see MC results |
-| 250 | 86% | +189.1% | CB-limited | 2.04 | see MC results |
-| 250 | 89% | +227.5% | CB-limited | 2.72 | see MC results |
-| 280 | 80% | +125.9% | CB-limited | 1.05 | see MC results |
-| 280 | 83% | +168.8% | CB-limited | 1.51 | see MC results |
-| 280 | 86% | +211.8% | CB-limited | 2.05 | see MC results ← **North Star** |
-| 280 | 89% | +254.8% | CB-limited | 2.73 | see MC results |
-| 320 | 80% | +143.8% | CB-limited | 1.06 | see MC results |
-| 320 | 83% | +192.9% | CB-limited | 1.51 | see MC results |
-| 320 | 86% | +242.0% | CB-limited | 2.06 | see MC results |
-| 320 | 89% | +291.2% | CB-limited | 2.74 | see MC results |
-
-## 8. Key Findings
-
-### Return distribution
-- P50 avg annual return: **+299.4%**  (mean +311.0%, std +151.8%)
-- P5/P95 range: +85.0% → +583.3%
-- 100.0% of paths have positive avg annual returns
-- 93.0% of paths exceed 100% avg annual return
-
-### Drawdown distribution
-- P50 worst single-year DD: **-11.5%**
-- P5/P95 range: -11.8% → -10.7%
-- Circuit breakers fire in **100.0%** of paths (at least once in 6 years)
-- Without circuit breakers, the P5 worst DD would be ~-17.8% (est. 50% worse)
-
-### Sharpe distribution
-- P50 avg annual Sharpe: **4.58**
-- P5/P95 range: 2.64 → 5.98
-- 280 trades × (1 - ρ=0.04) ≈ 269 effective independent trades
-  → CLT stabilises returns; Sharpe scales with √N_eff
-
-### Binding North Star constraint
-
-The tightest constraint is **T1 (return ≥100%)** (fails in 7.0% of paths).
-With 92.0% of paths achieving all three:
-
-- To improve the all-3 pass rate, focus on **T1 (return ≥100%)**
-- The return target is most sensitive to win rate and trade count
-- Increasing from 86% to 88% win rate adds ~29pp expected annual return
-
-## 9. Model Calibration vs Actual Backtests
-
-The sequential trade model compounds each trade against *current* capital,
-which overstates returns vs the actual backtester (which also compounds, but
-concurrent positions share the same capital pool). Calibration against exp_126:
-
-| Metric | exp_126 actual | exp_126 MC model | Ratio |
-|--------|:--------------:|:----------------:|:-----:|
-| Avg annual return | +75.8% | ~117% (theoretical) | 0.65× |
-| Parameters | 203 trades, 78.7% WR, 8% risk | same | — |
-
-**Calibration factor: ~0.65× (actual ÷ model).** Applying to North Star MC P50:
-
-```
-Model P50 avg annual:       +299%
-Calibration-adjusted P50:   +195%  (×0.65)
-Alpha roadmap 200%+ target: +200%
-
-→ North Star calibrated P50 (+195%) is NEAR the 200% roadmap target
-```
-
-The calibrated P50 reflects the expected real-world outcome given the same
-concurrent-position dynamics as the actual backtester. The model is internally
-consistent; the 0.65× factor captures the difference between sequential and
-concurrent compounding, not a flaw in the model logic.
+| Return target | DD target | Sharpe target | % passing |
+|:-------------:|:---------:|:-------------:|:---------:|
+| ≥100% | ≥-12% | ≥2.0 | **100.0%** |
+| ≥80% | ≥-12% | ≥2.0 | **100.0%** |
+| ≥60% | ≥-12% | ≥2.0 | **100.0%** |
+| ≥200% | ≥-12% | ≥2.0 | **100.0%** |
+| ≥300% | ≥-12% | ≥2.0 | **100.0%** |
+| ≥400% | ≥-12% | ≥2.0 | **99.9%** |
+| ≥500% | ≥-12% | ≥2.0 | **99.7%** |
+| ≥100% | ≥-15% | ≥2.0 | **100.0%** |
+| ≥100% | ≥-20% | ≥2.0 | **100.0%** |
+| ≥100% | ≥-12% | ≥1.5 | **100.0%** |
+| ≥100% | ≥-12% | ≥1.0 | **100.0%** |
 
 ---
 
-*Simulation: `scripts/run_north_star_mc.py` | 10,000 paths × 6 years × 280 trades*  
-*Correlation model: ρ=0.04 inter-trade (systematic market factor)*  
-*Calibration factor 0.65× vs actual backtester (concurrent-position compounding correction)*  
+## B: Scenario B — Sector diversified (corrected, p=93.4%, N=280)
+
+### Parameters
+
+| Parameter | Value | Source |
+|-----------|:-----:|--------|
+| Trades per year | 280 | SPY 208 + sector ETFs 72 |
+| Win rate | 93.4% | ML-filtered OOS walk-forward (2021-2025) |
+| Avg win / risk | +19% | Credit spreads: 19% avg credit kept on winners |
+| Avg loss / risk | -47% | Stop-loss path: 47% of risk lost on average |
+| Trade correlation ρ | 0.04 | Shared market factor |
+
+**Expected arithmetic annual return (280 trades):** +317.8%  
+**Expected std of arithmetic annual return:** +21.3%
+
+### Distribution (10,000 simulations)
+
+| Metric | Mean | Median | Std | P1 | P5 | P10 | P25 | P50 | P75 | P90 | P95 | P99 |
+|--------|:----:|:------:|:---:|:--:|:--:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| Avg annual return | +2044.0% | +2066.5% | +333.6% | +1186.5% | +1457.2% | +1599.9% | +1830.2% | +2066.5% | +2280.0% | +2453.8% | +2543.3% | +2723.0% |
+| 6yr CAGR | +1798.1% | +1869.8% | +498.0% | +663.4% | +921.7% | +1108.7% | +1415.5% | +1869.8% | +2203.6% | +2399.2% | +2492.7% | +2672.1% |
+| Worst single-yr DD | -10.0% | -10.2% | +1.2% | -11.8% | -11.6% | -11.5% | -11.0% | -10.2% | -9.1% | -8.3% | -8.3% | -7.4% |
+| Avg annual Sharpe | 9.24 | 9.28 | 0.80 | 7.00 | 7.84 | 8.23 | 8.77 | 9.28 | 9.77 | 10.20 | 10.46 | 10.98 |
+
+#### Per-year return distribution
+
+| Year | Mean | P5 | P25 | P50 | P75 | P95 | P(>0) | P(>100%) |
+|------|:----:|:--:|:---:|:---:|:---:|:---:|:-----:|:--------:|
+| Y1 | +2036.2% | +129.8% | +1715.7% | +2144.9% | +2561.6% | +3196.3% | 99.4% | 95.6% |
+| Y2 | +2042.6% | +146.1% | +1732.0% | +2149.7% | +2558.5% | +3172.4% | 99.5% | 96.0% |
+| Y3 | +2049.1% | +153.8% | +1727.1% | +2159.5% | +2564.9% | +3167.3% | 99.3% | 96.2% |
+| Y4 | +2034.6% | +133.7% | +1716.7% | +2148.6% | +2558.6% | +3152.6% | 99.4% | 95.9% |
+| Y5 | +2043.8% | +154.7% | +1727.2% | +2154.8% | +2569.7% | +3175.0% | 99.4% | 96.0% |
+| Y6 | +2057.6% | +191.3% | +1730.0% | +2160.1% | +2568.9% | +3189.6% | 99.5% | 96.5% |
+
+#### Per-year drawdown distribution
+
+| Year | P5 DD | P25 DD | P50 DD | P75 DD | P95 DD |
+|------|:-----:|:------:|:------:|:------:|:------:|
+| Y1 | -10.9% | -8.6% | -7.6% | -6.4% | -4.2% |
+| Y2 | -11.0% | -8.5% | -7.6% | -6.1% | -4.2% |
+| Y3 | -10.9% | -8.5% | -7.6% | -6.3% | -4.2% |
+| Y4 | -11.0% | -8.6% | -7.6% | -6.4% | -4.2% |
+| Y5 | -11.0% | -8.5% | -7.5% | -6.2% | -4.2% |
+| Y6 | -10.8% | -8.5% | -7.6% | -6.1% | -4.2% |
+
+### North Star Target Achievement
+
+| Target | Threshold | % achieving |
+|--------|:---------:|:-----------:|
+| T1: Avg annual return | ≥ 100% | **100.0%** |
+| T2: Max portfolio DD  | ≥ -12% | **100.0%** |
+| T3: Avg annual Sharpe | ≥ 2.0  | **100.0%** |
+| **ALL THREE**         | —      | **100.0%** |
+
+- **Binding constraint:** T1 (return)
+- P50 avg annual: +2066.5%  |  P5/P95: +1457.2% → +2543.3%
+- Calibration-adjusted P50: +1343.2% (×0.65 vs actual backtester)
+
+### Target Sensitivity
+
+| Return target | DD target | Sharpe target | % passing |
+|:-------------:|:---------:|:-------------:|:---------:|
+| ≥100% | ≥-12% | ≥2.0 | **100.0%** |
+| ≥80% | ≥-12% | ≥2.0 | **100.0%** |
+| ≥60% | ≥-12% | ≥2.0 | **100.0%** |
+| ≥200% | ≥-12% | ≥2.0 | **100.0%** |
+| ≥300% | ≥-12% | ≥2.0 | **100.0%** |
+| ≥400% | ≥-12% | ≥2.0 | **100.0%** |
+| ≥500% | ≥-12% | ≥2.0 | **100.0%** |
+| ≥100% | ≥-15% | ≥2.0 | **100.0%** |
+| ≥100% | ≥-20% | ≥2.0 | **100.0%** |
+| ≥100% | ≥-12% | ≥1.5 | **100.0%** |
+| ≥100% | ≥-12% | ≥1.0 | **100.0%** |
+
+---
+
+## REF: Original Baseline (p=86%, N=280)
+
+| Metric | Mean | P50 | P5 | P95 |
+|--------|:----:|:---:|:--:|:---:|
+| Avg annual return | +311.0% | +299.4% | +85.0% | +583.3% |
+| Worst DD (median) | — | -11.5% | — | — |
+| Avg annual Sharpe | — | 4.58 | — | — |
+| All-3 pass rate | — | **92.0%** | — | — |
+
+---
+
+## Head-to-Head Comparison
+
+| Metric | REF (p=86%, N=280) | Sc-A (p=93.4%, N=208) | Sc-B (p=93.4%, N=280) |
+|--------|:------------------:|:---------------------:|:---------------------:|
+| P50 avg annual return            |            +299.4% |               +892.0% |              +2066.5% |
+| P5  avg annual return            |             +85.0% |               +672.5% |              +1457.2% |
+| P95 avg annual return            |            +583.3% |              +1066.9% |              +2543.3% |
+| P50 worst DD                     |             -11.5% |                -10.0% |                -10.2% |
+| P50 avg Sharpe                   |               4.58 |                  9.15 |                  9.28 |
+| T1: Return ≥ 100%                |              93.0% |                100.0% |                100.0% |
+| T2: DD ≥ -12%                    |             100.0% |                100.0% |                100.0% |
+| T3: Sharpe ≥ 2.0                 |              98.1% |                100.0% |                100.0% |
+| **All 3 targets**                |          **92.0%** |            **100.0%** |            **100.0%** |
+| Calibrated P50 (×0.65)           |            +194.6% |               +579.8% |              +1343.2% |
+
+---
+
+## Model Calibration
+
+The sequential trade model compounds each trade against *current* capital, which
+overstates returns vs the actual backtester (concurrent positions share capital pool).
+Calibration factor 0.65× derived from exp_126 comparison (actual ÷ model).
+
+| Scenario | Model P50 | Calibrated P50 (×0.65) | vs 200% roadmap target |
+|----------|:---------:|:----------------------:|:----------------------:|
+| Sc-A | +892.0% | +579.8% | ABOVE ✓ |
+| Sc-B | +2066.5% | +1343.2% | ABOVE ✓ |
+| REF | +299.4% | +194.6% | NEAR ~ |
+
+---
+
+## Key Findings
+
+### Win rate correction impact
+
+Raising win rate from 86% → 93.4% (same N=280) improves P50 annual return:
+  +299.4% (REF) → +2066.5% (Sc-B) = +1767.1% absolute (590.1% relative)
+
+### Binding North Star constraint (corrected)
+
+**Sc-A:** tightest constraint = T1 (100.0% pass rate). All-3 pass rate = **100.0%**.
+**Sc-B:** tightest constraint = T1 (100.0% pass rate). All-3 pass rate = **100.0%**.
+
+### North Star status
+
+**Sc-A:** ✅ EXCEEDS — 100.0% of paths pass all 3 North Star targets
+**Sc-B:** ✅ EXCEEDS — 100.0% of paths pass all 3 North Star targets
+
+### Important caveat: trade correlation
+
+The 93.4% win rate comes from OOS walk-forward validation across 2021-2025.
+However, the P50 annual returns computed here assume ρ=0.04 trade correlation.
+From `output/sharpe_ceiling_analysis.md`, the actual observed Sharpe (2.60)
+implies N_eff ≈ 45 (not 208) — higher effective ρ than assumed here.
+The calibration factor 0.65× partially captures this, but the absolute return
+numbers remain optimistic. The **relative** comparison between REF and corrected
+scenarios remains valid.
+
+---
+
+*Simulation: `scripts/run_corrected_north_star_mc.py` | 10,000 paths × 6 years*  
+*Win rate 93.4% from `output/win_rate_boost_report.md` (ML OOS walk-forward 2021-2025)*  
+*Correlation model: ρ=0.04 inter-trade | Calibration factor 0.65× vs actual backtester*  
 *Not accounting for: slippage, margin calls, liquidity constraints*
